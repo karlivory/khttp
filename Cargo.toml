@@ -1,0 +1,12 @@
+[package]
+name = "khttp"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "khttp"
+path = "src/lib.rs"
+
+[[bin]]
+name = "khttp"
+path = "cli/main.rs"
