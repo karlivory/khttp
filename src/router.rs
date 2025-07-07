@@ -18,15 +18,11 @@ pub trait AppRouter {
 // below is just a layman's little router implementation ;^)
 
 pub struct DefaultRouter {
-    routes: HashMap<HttpMethod, Vec<Arc<AppRoute>>>,
+    routes: HashMap<HttpMethod, HashMap<String, Arc<Box<RouteFn>>>>,
     fallback_handler: Arc<Box<RouteFn>>,
     http_parsing_error_response: HttpResponse,
 }
 
-pub struct AppRoute {
-    path: String, // TODO: this will be a Vec<RouteSegment> or something like that
-    handler: Box<RouteFn>,
-}
 pub type RouteFn = dyn Fn(HttpRequest) -> HttpResponse + Send + Sync + 'static;
 
 impl DefaultRouter {
@@ -35,29 +31,19 @@ impl DefaultRouter {
         F: Fn(HttpRequest) -> HttpResponse + Send + Sync + 'static,
     {
         if !self.routes.contains_key(&method) {
-            self.routes.insert(method.clone(), Vec::new());
+            self.routes.insert(method.clone(), HashMap::new());
         }
         self.routes
             .get_mut(&method)
             .unwrap()
-            .push(Arc::new(AppRoute {
-                path: path.to_string(),
-                handler: Box::new(route_fn),
-            }));
+            .insert(path.to_string(), Arc::new(Box::new(route_fn)));
     }
 
-    pub fn unmap_route(&mut self, method: HttpMethod, path: &str) -> Option<Arc<AppRoute>> {
+    pub fn unmap_route(&mut self, method: HttpMethod, path: &str) -> Option<Arc<Box<RouteFn>>> {
         if !self.routes.contains_key(&method) {
             return None;
         }
-
-        // TODO: is there a more idiomatic way of doing this?
-        for (i, route) in self.routes.get(&method).unwrap().iter().enumerate() {
-            if route.path == path {
-                return Some(self.routes.get_mut(&method).unwrap().remove(i));
-            }
-        }
-        None
+        self.routes.get_mut(&method).unwrap().remove(path)
     }
 
     pub fn map_fallback_handler<F>(&mut self, route_fn: F)
@@ -81,11 +67,7 @@ impl AppRouter for DefaultRouter {
         let routes = self.routes.get(&request.method);
 
         let handler = match routes {
-            Some(r) => r
-                .iter()
-                .find(|r| r.path == request.uri)
-                .map(|x| &x.handler)
-                .unwrap_or(&self.fallback_handler),
+            Some(r) => r.get(&request.uri).unwrap_or(&self.fallback_handler),
             None => &self.fallback_handler,
         };
         let mut response = (handler)(request);
