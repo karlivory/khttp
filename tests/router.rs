@@ -8,8 +8,8 @@
 mod tests {
     use khttp::{
         common::{HttpHeaders, HttpMethod, HttpRequest, HttpResponse, HttpStatus},
-        router::DefaultRouter,
-        server::App,
+        router::{DefaultRouter, RouteFn},
+        server::{App, HttpServer},
     };
 
     fn request(uri: &str) -> HttpRequest {
@@ -29,20 +29,23 @@ mod tests {
         }
     }
 
+    fn get_app() -> HttpServer<DefaultRouter<Box<RouteFn>>> {
+        App::with_default_router(8080, 5)
+    }
+
     struct Route {
         route: &'static str,
         must_match: Vec<&'static str>,
     }
 
     fn run_route_test(routes: Vec<Route>) {
-        let mut app = App::<DefaultRouter>::new(8080, 1);
+        let mut app = get_app();
 
         for (i, route) in routes.iter().enumerate() {
             let response_str = format!("route {}", i);
-            app.router
-                .map_route(HttpMethod::Get, route.route, move |_| {
-                    response(&response_str)
-                });
+            app.map_route(HttpMethod::Get, route.route, move |_| {
+                response(&response_str)
+            });
         }
 
         for (i, route) in routes.iter().enumerate() {
@@ -58,8 +61,7 @@ mod tests {
             }
         }
 
-        app.router
-            .map_route(HttpMethod::Get, "/hello", |_| response(""));
+        app.map_route(HttpMethod::Get, "/hello", |_| response(""));
     }
 
     #[test]
@@ -95,15 +97,14 @@ mod tests {
 
     #[test]
     fn test_unmapping() {
-        let mut app = App::<DefaultRouter>::new(8080, 1);
+        let mut app = get_app();
 
-        app.router
-            .map_route(HttpMethod::Get, "/hello", |_| response(""));
+        app.map_route(HttpMethod::Get, "/hello", |_| response(""));
 
         let response = app.handle(request("/hello"));
         assert_eq!(200, response.status.code);
 
-        app.router.unmap_route(HttpMethod::Get, "/hello");
+        app.unmap_route(HttpMethod::Get, "/hello");
 
         let response = app.handle(request("/hello"));
         assert_eq!(404, response.status.code);

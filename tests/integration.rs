@@ -5,8 +5,8 @@ mod tests {
     use khttp::{
         client::Client,
         common::{HttpHeaders, HttpMethod, HttpRequest, HttpResponse},
-        router::DefaultRouter,
-        server::App,
+        router::{AppRouter, DefaultRouter, RouteFn},
+        server::HttpServer,
     };
     use std::{thread, time::Duration};
 
@@ -21,9 +21,10 @@ mod tests {
     fn simple_multi_test() {
         // start server
         let h = thread::spawn(|| {
-            let mut app = App::<DefaultRouter>::new(8080, 3);
-            app.router
-                .map_route(HttpMethod::Post, "/to-upper", route_fn_to_upper);
+            let mut app = HttpServer::<DefaultRouter<Box<RouteFn>>>::new(8080, 3);
+            app.map_route(HttpMethod::Post, "/to-upper", move |r| {
+                HttpResponse::ok(HttpHeaders::new(), r.body.map(|x| x.to_ascii_uppercase()))
+            });
             app.serve_n(3);
         });
         // wait for server to be active

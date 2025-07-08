@@ -46,7 +46,7 @@ impl Default for HttpResponse {
 #[derive(Debug, Clone, PartialEq)]
 pub struct HttpStatus {
     pub code: u16,
-    pub reason: String, // TODO: is this the correct term for this?
+    pub reason: String,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]

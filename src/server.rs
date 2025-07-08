@@ -1,30 +1,65 @@
 // src/server.rs
-use crate::common::{HttpRequest, HttpResponse};
+use crate::common::{HttpHeaders, HttpMethod, HttpRequest, HttpResponse, HttpStatus};
 use crate::http_parser::HttpParser;
 use crate::http_printer::HttpPrinter;
-use crate::router::AppRouter;
+use crate::router::{AppRouter, DefaultRouter, RouteFn};
 use crate::threadpool::ThreadPool;
 use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::sync::Arc;
 
-pub struct App<R>
+pub struct App {}
+
+impl App {
+    pub fn with_default_router(
+        port: u16,
+        thread_count: usize,
+    ) -> HttpServer<DefaultRouter<Box<RouteFn>>> {
+        HttpServer {
+            port,
+            thread_count,
+            router: DefaultRouter::<Box<RouteFn>>::new(),
+        }
+    }
+}
+
+pub struct HttpServer<R>
 where
-    R: AppRouter,
+    R: AppRouter<Route = Box<RouteFn>>,
 {
     port: u16,
     thread_count: usize,
-    pub router: R,
+    router: R,
 }
 
-impl<R> App<R>
+impl<R> HttpServer<R>
 where
-    R: AppRouter + Send + 'static,
+    R: AppRouter<Route = Box<RouteFn>> + Send + 'static,
 {
-    pub fn new(port: u16, thread_count: usize) -> App<R> {
-        App {
+    pub fn new(port: u16, thread_count: usize) -> HttpServer<R> {
+        HttpServer {
             port,
             thread_count,
             router: R::new(),
         }
+    }
+
+    pub fn new_with_router(port: u16, thread_count: usize, router: R) -> HttpServer<R> {
+        HttpServer {
+            port,
+            thread_count,
+            router,
+        }
+    }
+
+    pub fn map_route<F>(&mut self, method: HttpMethod, path: &str, route_fn: F)
+    where
+        F: Fn(HttpRequest) -> HttpResponse + Send + Sync + 'static,
+    {
+        self.router.add_route(&method, path, Box::new(route_fn))
+    }
+
+    pub fn unmap_route(&mut self, method: HttpMethod, path: &str) -> Option<Arc<R::Route>> {
+        self.router.remove_route(&method, path)
     }
 
     pub fn serve_n(&self, n: u64) {
@@ -40,7 +75,7 @@ where
         for stream in listener.incoming() {
             let stream = stream.unwrap();
             let router = self.router.clone(); // TODO: this seems inefficient...
-            pool.execute(move || handle_request(stream, router));
+            pool.execute(move || handle_request(stream, &router));
 
             i += 1;
             if i == n {
@@ -57,27 +92,60 @@ where
         for stream in listener.incoming() {
             let stream = stream.unwrap();
             let router = self.router.clone(); // TODO: this seems inefficient...
-            pool.execute(move || handle_request(stream, router));
+            pool.execute(move || handle_request(stream, &router));
         }
     }
 
     pub fn handle(&self, request: HttpRequest) -> HttpResponse {
-        self.router.handle(request)
+        handle_request_foo(request, &self.router)
     }
 }
 
-fn handle_request<R>(stream: TcpStream, router: R)
+fn handle_request_foo<R>(request: HttpRequest, router: &R) -> HttpResponse
 where
-    R: AppRouter,
+    R: AppRouter<Route = Box<RouteFn>>,
+{
+    let route = router.match_route(&request.method, &request.uri);
+
+    let mut response = match route {
+        Some(route) => (route)(request),
+        None => default_404_handler(request),
+    };
+
+    if let Some(ref body) = response.body {
+        response.headers.set_content_length(body.len());
+    }
+    response
+}
+
+fn handle_request<R>(stream: TcpStream, router: &R)
+where
+    R: AppRouter<Route = Box<RouteFn>>,
 {
     let response = match HttpParser::new(&stream).parse_request() {
-        Ok(request) => &router.handle(request),
-        Err(_) => router.get_http_parsing_error_response(),
+        Ok(request) => handle_request_foo(request, router),
+        Err(_) => default_http_parsing_error_response(),
     };
-    let write_result = HttpPrinter::new(stream).write_response(response);
+    let write_result = HttpPrinter::new(stream).write_response(&response);
     if write_result.is_err() {
         // just log the error
         println!("ERROR: failed to write response");
         dbg!(response);
+    }
+}
+
+fn default_404_handler(_request: HttpRequest) -> HttpResponse {
+    HttpResponse {
+        status: HttpStatus::of(404),
+        headers: HttpHeaders::new(),
+        body: None,
+    }
+}
+
+fn default_http_parsing_error_response() -> HttpResponse {
+    HttpResponse {
+        body: None,
+        headers: Default::default(),
+        status: HttpStatus::of(500),
     }
 }
