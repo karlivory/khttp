@@ -86,7 +86,7 @@ impl<T> AppRouter for DefaultRouter<T> {
 
     fn match_route(&self, method: &HttpMethod, uri: &str) -> Option<&Arc<Self::Route>> {
         let uri_parts = split_uri_into_parts(uri);
-        let routes = self.routes.get(method).unwrap();
+        let routes = self.routes.get(method)?;
 
         let mut matched_routes: Vec<(&Vec<RouteSegment>, &Arc<Self::Route>)> = Vec::new();
         for (path, route) in routes.iter() {

@@ -75,7 +75,7 @@ where
         for stream in listener.incoming() {
             let stream = stream.unwrap();
             let router = self.router.clone(); // TODO: this seems inefficient...
-            pool.execute(move || handle_request(stream, &router));
+            pool.execute(move || handle_request_from_stream(stream, &router));
 
             i += 1;
             if i == n {
@@ -92,16 +92,16 @@ where
         for stream in listener.incoming() {
             let stream = stream.unwrap();
             let router = self.router.clone(); // TODO: this seems inefficient...
-            pool.execute(move || handle_request(stream, &router));
+            pool.execute(move || handle_request_from_stream(stream, &router));
         }
     }
 
     pub fn handle(&self, request: HttpRequest) -> HttpResponse {
-        handle_request_foo(request, &self.router)
+        handle_request(request, &self.router)
     }
 }
 
-fn handle_request_foo<R>(request: HttpRequest, router: &R) -> HttpResponse
+fn handle_request<R>(request: HttpRequest, router: &R) -> HttpResponse
 where
     R: AppRouter<Route = Box<RouteFn>>,
 {
@@ -118,12 +118,12 @@ where
     response
 }
 
-fn handle_request<R>(stream: TcpStream, router: &R)
+fn handle_request_from_stream<R>(stream: TcpStream, router: &R)
 where
     R: AppRouter<Route = Box<RouteFn>>,
 {
     let response = match HttpParser::new(&stream).parse_request() {
-        Ok(request) => handle_request_foo(request, router),
+        Ok(request) => handle_request(request, router),
         Err(_) => default_http_parsing_error_response(),
     };
     let write_result = HttpPrinter::new(stream).write_response(&response);
