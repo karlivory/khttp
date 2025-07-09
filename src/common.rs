@@ -18,6 +18,22 @@ pub enum HttpMethod {
     Custom(String),
 }
 
+impl From<&str> for HttpMethod {
+    fn from(value: &str) -> Self {
+        match value.to_uppercase().as_str() {
+            "POST" => HttpMethod::Post,
+            "GET" => HttpMethod::Get,
+            "PUT" => HttpMethod::Put,
+            "HEAD" => HttpMethod::Head,
+            "PATCH" => HttpMethod::Patch,
+            "DELETE" => HttpMethod::Delete,
+            "OPTIONS" => HttpMethod::Options,
+            "TRACE" => HttpMethod::Trace,
+            x => HttpMethod::Custom(x.to_string()),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct HttpRequest {
     pub body: Option<Vec<u8>>,

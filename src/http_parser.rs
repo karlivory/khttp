@@ -85,12 +85,8 @@ where
             return Err(HttpRequestParsingError::MalformedStatusLine);
         }
 
-        let method = try_parse_http_method(parts[0]);
-        if method.is_none() {
-            return Err(HttpRequestParsingError::UnknownHttpRequestMethod);
-        }
         Ok(HttpRequestStatusLine {
-            method: method.unwrap(),
+            method: parts[0].into(),
             uri: parts[1].to_string(),
         })
     }
@@ -180,14 +176,6 @@ pub enum HttpRequestParsingError {
     MalformedHeader,
     UnknownHttpRequestMethod,
     UnexpectedEOF,
-}
-
-fn try_parse_http_method(s: &str) -> Option<HttpMethod> {
-    Some(match s.to_uppercase().as_str() {
-        "POST" => HttpMethod::Post,
-        "GET" => HttpMethod::Get,
-        _ => return None,
-    })
 }
 
 fn parse_header_line(line: String) -> Result<(String, String), HttpRequestParsingError> {
