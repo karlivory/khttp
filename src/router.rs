@@ -160,8 +160,7 @@ fn get_route_with_precedence<'a, T>(matched_routes: Vec<(&'a Vec<RouteSegment>, 
 fn split_uri_into_parts(uri: &str) -> Vec<&str> {
     let mut uri = uri;
     if uri.contains("?") {
-        // can this be simplified??
-        uri = uri.split("?").take(1).collect::<Vec<&str>>()[0];
+        uri = uri.split("?").next().unwrap();
     }
     uri.split("/").filter(|x| !x.is_empty()).collect()
 }
