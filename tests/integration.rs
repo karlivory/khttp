@@ -5,17 +5,10 @@ mod tests {
     use khttp::{
         client::Client,
         common::{HttpHeaders, HttpMethod, HttpRequest, HttpResponse},
-        router::{AppRouter, DefaultRouter, RouteFn},
+        router::{DefaultRouter, RouteFn},
         server::HttpServer,
     };
     use std::{thread, time::Duration};
-
-    fn route_fn_to_upper(request: HttpRequest) -> HttpResponse {
-        HttpResponse::ok(
-            HttpHeaders::new(),
-            request.body.map(|b| b.to_ascii_uppercase()),
-        )
-    }
 
     #[test]
     fn simple_multi_test() {
