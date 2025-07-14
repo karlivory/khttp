@@ -2,15 +2,14 @@
 //
 // responsibility: parsing HttpResponse or HttpRequest from T: std::io::Read
 
+// TODO: I'm not entirely sure that a single \r (no \n) is handled correctly in headers
+// gotta add more edge-case tests
+
 use crate::common::{HttpHeaders, HttpMethod, HttpRequest, HttpResponse, HttpStatus};
 use std::io::{BufReader, Bytes, Read};
-use std::iter::Peekable;
 
-pub struct HttpParser<T>
-where
-    T: std::io::Read,
-{
-    reader: Peekable<Bytes<BufReader<T>>>,
+pub struct HttpParser<R: Read> {
+    reader: BufReader<R>,
 }
 
 pub struct HttpRequestStatusLine {
@@ -18,19 +17,19 @@ pub struct HttpRequestStatusLine {
     pub uri: String,
 }
 
-impl<T> HttpParser<T>
-where
-    T: std::io::Read,
-{
-    pub fn new(stream: T) -> Self {
+impl<R: Read> HttpParser<R> {
+    pub fn new(stream: R) -> Self {
         Self {
-            reader: BufReader::new(stream).bytes().peekable(),
+            reader: BufReader::new(stream),
         }
     }
 
     pub fn parse_response(&mut self) -> Result<HttpResponse, HttpRequestParsingError> {
-        let status = self.parse_response_status_line()?;
-        let headers = self.parse_headers()?;
+        let mut peekable = self.reader.by_ref().bytes();
+        let byte_iter = peekable.by_ref();
+
+        let status = parse_response_status_line(byte_iter)?;
+        let headers = parse_headers(byte_iter)?;
 
         let mut body = None;
         if let Some(content_len) = headers.get_content_length() {
@@ -44,8 +43,11 @@ where
     }
 
     pub fn parse_request(&mut self) -> Result<HttpRequest, HttpRequestParsingError> {
-        let status_line = self.parse_request_status_line()?;
-        let headers = self.parse_headers()?;
+        let mut peekable = self.reader.by_ref().bytes();
+        let byte_iter = peekable.by_ref();
+
+        let status_line = parse_request_status_line(byte_iter)?;
+        let headers = parse_headers(byte_iter)?;
 
         let mut body = None;
         if let Some(content_len) = headers.get_content_length() {
@@ -59,101 +61,9 @@ where
         })
     }
 
-    fn parse_request_status_line(
-        &mut self,
-    ) -> Result<HttpRequestStatusLine, HttpRequestParsingError> {
-        let byte_iter = self.reader.by_ref();
-
-        let mut status_line: Vec<u8> = Vec::new();
-        loop {
-            let byte = byte_iter.next();
-            if byte.is_none() {
-                break;
-            }
-            let byte = byte.unwrap().unwrap();
-
-            if byte == b'\r' && byte_iter.peek().unwrap().as_ref().unwrap() == &b'\n' {
-                byte_iter.next();
-                break;
-            }
-            status_line.push(byte);
-        }
-        let status_line = String::from_utf8_lossy(&status_line).to_string();
-
-        let parts = status_line.split_whitespace().collect::<Vec<_>>();
-        if parts.len() < 2 {
-            return Err(HttpRequestParsingError::MalformedStatusLine);
-        }
-
-        Ok(HttpRequestStatusLine {
-            method: parts[0].into(),
-            uri: parts[1].to_string(),
-        })
-    }
-
-    fn parse_response_status_line(&mut self) -> Result<HttpStatus, HttpRequestParsingError> {
-        let byte_iter = self.reader.by_ref();
-
-        let mut status_line: Vec<u8> = Vec::new();
-        loop {
-            let byte = byte_iter.next();
-            if byte.is_none() {
-                break;
-            }
-            let byte = byte.unwrap().unwrap();
-
-            if byte == b'\r' && byte_iter.peek().unwrap().as_ref().unwrap() == &b'\n' {
-                byte_iter.next();
-                break;
-            }
-            status_line.push(byte);
-        }
-        let status_line = String::from_utf8_lossy(&status_line).to_string();
-
-        let parts = status_line.splitn(3, " ").collect::<Vec<_>>();
-        if parts.len() < 3 {
-            return Err(HttpRequestParsingError::MalformedStatusLine);
-        }
-
-        let code = parts[1]
-            .parse::<u16>()
-            .map_err(|_| HttpRequestParsingError::MalformedStatusLine)?;
-        let reason = parts[2].to_string();
-
-        Ok(HttpStatus::new(code, reason))
-    }
-
-    fn parse_headers(&mut self) -> Result<HttpHeaders, HttpRequestParsingError> {
-        let byte_iter = self.reader.by_ref();
-        let mut headers = HttpHeaders::new();
-        let mut header: Vec<u8> = Vec::new();
-        loop {
-            let byte = byte_iter.next();
-            if byte.is_none() {
-                break;
-            }
-            let byte = byte.unwrap().unwrap();
-
-            if byte == b'\r' && byte_iter.peek().unwrap().as_ref().unwrap() == &b'\n' {
-                byte_iter.next();
-                if header.is_empty() {
-                    break;
-                }
-                let header_line = String::from_utf8_lossy(&header).to_string().to_lowercase();
-                header = Vec::new();
-
-                let (header, value) = parse_header_line(header_line)?;
-                headers.add_header(&header, &value);
-                continue;
-            }
-            header.push(byte);
-        }
-
-        Ok(headers)
-    }
-
     fn get_body_bytes(&mut self, content_len: usize) -> Result<Vec<u8>, HttpRequestParsingError> {
-        let byte_iter = self.reader.by_ref();
+        let mut peekable = self.reader.by_ref().bytes();
+        let byte_iter = peekable.by_ref();
         let mut body_bytes = Vec::with_capacity(content_len);
         if content_len > 0 {
             println!("reading body len {}", content_len);
@@ -168,6 +78,118 @@ where
         }
         Ok(body_bytes)
     }
+}
+
+fn parse_response_status_line<R: Read>(
+    byte_iter: &mut Bytes<&mut BufReader<R>>,
+) -> Result<HttpStatus, HttpRequestParsingError> {
+    let mut status_line: Vec<u8> = Vec::new();
+
+    loop {
+        let byte = byte_iter.next();
+        if byte.is_none() {
+            break;
+        }
+        let byte = byte.unwrap().unwrap();
+
+        if byte == b'\r' {
+            let next_byte = byte_iter.next().unwrap().unwrap();
+            if next_byte == b'\n' {
+                break;
+            } else {
+                status_line.push(byte);
+                status_line.push(next_byte);
+                continue;
+            }
+        }
+        status_line.push(byte);
+    }
+    let status_line = String::from_utf8_lossy(&status_line).to_string();
+
+    let parts = status_line.splitn(3, " ").collect::<Vec<_>>();
+    if parts.len() < 3 {
+        return Err(HttpRequestParsingError::MalformedStatusLine);
+    }
+
+    let code = parts[1]
+        .parse::<u16>()
+        .map_err(|_| HttpRequestParsingError::MalformedStatusLine)?;
+    let reason = parts[2].to_string();
+
+    Ok(HttpStatus::new(code, reason))
+}
+
+fn parse_request_status_line<R: Read>(
+    byte_iter: &mut Bytes<&mut BufReader<R>>,
+) -> Result<HttpRequestStatusLine, HttpRequestParsingError> {
+    let mut status_line: Vec<u8> = Vec::new();
+
+    loop {
+        let byte = byte_iter.next();
+        if byte.is_none() {
+            break;
+        }
+        let byte = byte.unwrap().unwrap();
+
+        if byte == b'\r' {
+            let next_byte = byte_iter.next().unwrap().unwrap();
+            if next_byte == b'\n' {
+                break;
+            } else {
+                status_line.push(byte);
+                status_line.push(next_byte);
+                continue;
+            }
+        }
+        status_line.push(byte);
+    }
+    let status_line = String::from_utf8_lossy(&status_line).to_string();
+
+    let parts = status_line.split_whitespace().collect::<Vec<_>>();
+    if parts.len() < 2 {
+        return Err(HttpRequestParsingError::MalformedStatusLine);
+    }
+
+    Ok(HttpRequestStatusLine {
+        method: parts[0].into(),
+        uri: parts[1].to_string(),
+    })
+}
+
+fn parse_headers<R: Read>(
+    byte_iter: &mut Bytes<&mut BufReader<R>>,
+) -> Result<HttpHeaders, HttpRequestParsingError> {
+    let mut headers = HttpHeaders::new();
+
+    let mut header: Vec<u8> = Vec::new();
+    loop {
+        let byte = byte_iter.next();
+        if byte.is_none() {
+            break;
+        }
+        let byte = byte.unwrap().unwrap();
+
+        if byte == b'\r' {
+            let next_byte = byte_iter.next().unwrap().unwrap();
+            if next_byte != b'\n' {
+                header.push(byte);
+                header.push(next_byte);
+                continue;
+            }
+            if header.is_empty() {
+                break;
+            }
+            let header_line = String::from_utf8_lossy(&header).to_string().to_lowercase();
+            header = Vec::new();
+
+            let (header, value) = parse_header_line(header_line)?;
+            headers.add_header(&header, &value);
+            continue;
+        }
+        header.push(byte);
+    }
+
+    Ok(headers)
 }
 
 #[derive(Debug, PartialEq)]

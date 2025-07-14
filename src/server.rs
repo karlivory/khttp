@@ -2,7 +2,7 @@
 use crate::common::{HttpHeaders, HttpMethod, HttpRequest, HttpResponse, HttpStatus};
 use crate::http_parser::HttpParser;
 use crate::http_printer::HttpPrinter;
-use crate::router::{AppRouter, DefaultRouter, RouteFn};
+use crate::router::{AppRouter, DefaultRouter};
 use crate::threadpool::ThreadPool;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
@@ -21,6 +21,8 @@ impl App {
         }
     }
 }
+
+pub type RouteFn = dyn Fn(HttpRequest) -> HttpResponse + Send + Sync + 'static;
 
 pub struct HttpServer<R>
 where
@@ -122,7 +124,8 @@ fn handle_request_from_stream<R>(stream: TcpStream, router: &R)
 where
     R: AppRouter<Route = Box<RouteFn>>,
 {
-    let response = match HttpParser::new(&stream).parse_request() {
+    let request = HttpParser::new(&stream).parse_request();
+    let response = match request {
         Ok(request) => handle_request(request, router),
         Err(_) => default_http_parsing_error_response(),
     };

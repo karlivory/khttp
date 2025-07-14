@@ -6,9 +6,7 @@
 
 use std::{collections::HashMap, hash::Hash, sync::Arc};
 
-use crate::common::{HttpMethod, HttpRequest, HttpResponse};
-
-pub type RouteFn = dyn Fn(HttpRequest) -> HttpResponse + Send + Sync + 'static;
+use crate::common::HttpMethod;
 
 pub trait AppRouter {
     type Route;

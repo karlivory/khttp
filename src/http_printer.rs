@@ -8,18 +8,12 @@ use crate::common::{HttpHeaders, HttpRequest, HttpResponse};
 
 static CARRIAGE_BREAK: &[u8] = "\r\n".as_bytes();
 
-pub struct HttpPrinter<T>
-where
-    T: std::io::Write,
-{
-    writer: BufWriter<T>,
+pub struct HttpPrinter<W: Write> {
+    writer: BufWriter<W>,
 }
 
-impl<T> HttpPrinter<T>
-where
-    T: std::io::Write,
-{
-    pub fn new(stream: T) -> Self {
+impl<W: Write> HttpPrinter<W> {
+    pub fn new(stream: W) -> Self {
         Self {
             writer: BufWriter::new(stream),
         }

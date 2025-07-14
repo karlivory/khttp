@@ -108,15 +108,17 @@ impl HttpHeaders {
         self.headers.remove(name)
     }
 
-    /// headers
+    pub const CONTENT_LENGTH: &str = "content-length";
+    pub const CONTENT_TYPE: &str = "content-type";
+
     pub fn get_content_length(&self) -> Option<usize> {
-        let value = self.headers.get("content-length")?;
+        let value = self.headers.get(Self::CONTENT_LENGTH)?;
         let content_len = value.parse::<usize>();
         content_len.ok()
     }
     pub fn set_content_length(&mut self, len: usize) {
         self.headers
-            .insert("content-length".into(), len.to_string());
+            .insert(Self::CONTENT_LENGTH.into(), len.to_string());
     }
 }
 

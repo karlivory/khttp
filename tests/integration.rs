@@ -4,9 +4,9 @@
 mod tests {
     use khttp::{
         client::Client,
-        common::{HttpHeaders, HttpMethod, HttpRequest, HttpResponse},
-        router::{DefaultRouter, RouteFn},
-        server::HttpServer,
+        common::{HttpHeaders, HttpMethod, HttpResponse},
+        router::DefaultRouter,
+        server::{HttpServer, RouteFn},
     };
     use std::{thread, time::Duration};
 
