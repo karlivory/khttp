@@ -80,7 +80,32 @@ impl<R: Read> HttpParser<R> {
     }
 }
 
-fn parse_response_status_line<R: Read>(
+pub struct HttpRequestParts<R: Read> {
+    pub headers: HttpHeaders,
+    pub method: HttpMethod,
+    pub uri: String,
+    pub reader: BufReader<R>,
+}
+
+pub fn parse_request_parts<R: Read>(
+    reader: R,
+) -> Result<HttpRequestParts<R>, HttpRequestParsingError> {
+    let mut reader = BufReader::new(reader);
+    let mut peekable = reader.by_ref().bytes();
+    let byte_iter = peekable.by_ref();
+
+    let status_line = parse_request_status_line(byte_iter)?;
+    let headers = parse_headers(byte_iter)?;
+
+    Ok(HttpRequestParts {
+        method: status_line.method,
+        uri: status_line.uri,
+        headers,
+        reader,
+    })
+}
+
+pub fn parse_response_status_line<R: Read>(
     byte_iter: &mut Bytes<&mut BufReader<R>>,
 ) -> Result<HttpStatus, HttpRequestParsingError> {
     let mut status_line: Vec<u8> = Vec::new();
@@ -119,7 +144,7 @@ fn parse_response_status_line<R: Read>(
     Ok(HttpStatus::new(code, reason))
 }
 
-fn parse_request_status_line<R: Read>(
+pub fn parse_request_status_line<R: Read>(
     byte_iter: &mut Bytes<&mut BufReader<R>>,
 ) -> Result<HttpRequestStatusLine, HttpRequestParsingError> {
     let mut status_line: Vec<u8> = Vec::new();
@@ -156,7 +181,7 @@ fn parse_request_status_line<R: Read>(
     })
 }
 
-fn parse_headers<R: Read>(
+pub fn parse_headers<R: Read>(
     byte_iter: &mut Bytes<&mut BufReader<R>>,
 ) -> Result<HttpHeaders, HttpRequestParsingError> {
     let mut headers = HttpHeaders::new();

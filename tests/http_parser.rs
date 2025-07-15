@@ -102,35 +102,37 @@ mod tests {
 
     #[test]
     fn test_responses() {
-        for test in get_response_tests().iter() {
-            let bytes = test.str.as_bytes();
-            let response = HttpParser::new(bytes).parse_response();
-            assert_eq!(response, test.expected);
-
-            // let's re-print using HttpPrinter and parse it again
-            if let Ok(ref response) = response {
-                let mut buf = Vec::new();
-                HttpPrinter::new(&mut buf).write_response(response).unwrap();
-                let new_response = HttpParser::new(buf.as_slice()).parse_response();
-                assert_eq!(new_response, test.expected);
-            }
-        }
+        todo!();
+        // for test in get_response_tests().iter() {
+        //     let bytes = test.str.as_bytes();
+        //     let response = HttpParser::new(bytes).parse_response();
+        //     assert_eq!(response, test.expected);
+        //
+        //     // let's re-print using HttpPrinter and parse it again
+        //     if let Ok(ref response) = response {
+        //         let mut buf = Vec::new();
+        //         HttpPrinter::new(&mut buf).write_response(response).unwrap();
+        //         let new_response = HttpParser::new(buf.as_slice()).parse_response();
+        //         assert_eq!(new_response, test.expected);
+        //     }
+        // }
     }
 
     #[test]
     fn test_requests() {
-        for test in get_request_tests().iter() {
-            let bytes = test.str.as_bytes();
-            let request = HttpParser::new(bytes).parse_request();
-            assert_eq!(request, test.expected);
-
-            // let's re-print using HttpPrinter and parse it again
-            if let Ok(ref request) = request {
-                let mut buf = Vec::new();
-                HttpPrinter::new(&mut buf).write_request(request).unwrap();
-                let new_request = HttpParser::new(buf.as_slice()).parse_request();
-                assert_eq!(new_request, test.expected);
-            }
-        }
+        todo!();
+        // for test in get_request_tests().iter() {
+        //     let bytes = test.str.as_bytes();
+        //     let request = HttpParser::new(bytes).parse_request();
+        //     assert_eq!(request, test.expected);
+        //
+        //     // let's re-print using HttpPrinter and parse it again
+        //     if let Ok(ref request) = request {
+        //         let mut buf = Vec::new();
+        //         HttpPrinter::new(&mut buf).write_request(request).unwrap();
+        //         let new_request = HttpParser::new(buf.as_slice()).parse_request();
+        //         assert_eq!(new_request, test.expected);
+        //     }
+        // }
     }
 }

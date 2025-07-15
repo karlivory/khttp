@@ -2,9 +2,9 @@
 //
 // responsibility: writing HttpResponse or HttpRequest to T: std::io::Write
 
-use std::io::{self, BufWriter, Write};
+use std::io::{self, BufWriter, Read, Write, copy};
 
-use crate::common::{HttpHeaders, HttpRequest, HttpResponse};
+use crate::common::{HttpHeaders, HttpRequest, HttpResponse, HttpStatus};
 
 static CARRIAGE_BREAK: &[u8] = "\r\n".as_bytes();
 
@@ -38,6 +38,35 @@ impl<W: Write> HttpPrinter<W> {
         if let Some(body) = &response.body {
             self.writer.write_all(body)?;
         }
+        Ok(())
+    }
+
+    pub fn write_response2(
+        &mut self,
+        status: &HttpStatus,
+        headers: &HttpHeaders,
+        mut body: impl Read,
+    ) -> io::Result<()> {
+        // status line
+        write!(
+            &mut self.writer,
+            "{} {} {}",
+            crate::common::HTTP_VERSION,
+            status.code,
+            status.reason
+        )?;
+        self.writer.write_all(CARRIAGE_BREAK)?;
+
+        // headers
+        self.write_headers(headers)?;
+        self.writer.write_all(CARRIAGE_BREAK)?;
+
+        copy(&mut body, &mut self.writer).expect("todo");
+
+        // body
+        // if let Some(body) = &response.body {
+        //     self.writer.write_all(body)?;
+        // }
         Ok(())
     }
 

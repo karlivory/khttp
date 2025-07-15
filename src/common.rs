@@ -1,7 +1,8 @@
 // src/common.rs
 use std::collections::HashMap;
-use std::fmt;
 use std::fmt::Display;
+use std::fmt::{self, Write};
+use std::io::{BufReader, Read};
 
 pub static HTTP_VERSION: &str = "HTTP/1.1";
 
@@ -34,7 +35,6 @@ impl From<&str> for HttpMethod {
     }
 }
 
-#[derive(Debug, PartialEq)]
 pub struct HttpRequest {
     pub body: Option<Vec<u8>>,
     pub headers: HttpHeaders,

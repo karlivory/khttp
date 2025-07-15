@@ -4,19 +4,31 @@
 mod tests {
     use khttp::{
         client::Client,
-        common::{HttpHeaders, HttpMethod, HttpResponse},
+        common::{HttpHeaders, HttpMethod, HttpStatus},
         router::DefaultRouter,
         server::{HttpServer, RouteFn},
     };
-    use std::{thread, time::Duration};
+    use std::{
+        io::{Cursor, Read},
+        thread,
+        time::Duration,
+    };
 
     #[test]
     fn simple_multi_test() {
         // start server
         let h = thread::spawn(|| {
             let mut app = HttpServer::<DefaultRouter<Box<RouteFn>>>::new(8080, 3);
-            app.map_route(HttpMethod::Post, "/to-upper", move |r| {
-                HttpResponse::ok(HttpHeaders::new(), r.body.map(|x| x.to_ascii_uppercase()))
+            app.map_route(HttpMethod::Post, "/to-upper", move |mut ctx| {
+                let mut buf = String::new();
+                ctx.get_body_reader().read_to_string(&mut buf).unwrap();
+                let mut headers = HttpHeaders::new();
+                headers.set_content_length(buf.len());
+                ctx.send(
+                    &HttpStatus::of(200),
+                    &headers,
+                    Cursor::new(buf.to_uppercase()),
+                );
             });
             app.serve_n(2);
         });
