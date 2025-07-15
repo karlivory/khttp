@@ -1,8 +1,7 @@
 // src/common.rs
 use std::collections::HashMap;
 use std::fmt::Display;
-use std::fmt::{self, Write};
-use std::io::{BufReader, Read};
+use std::fmt::{self};
 
 pub static HTTP_VERSION: &str = "HTTP/1.1";
 

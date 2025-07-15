@@ -18,18 +18,29 @@ fn main() {
     run_echo_server();
 }
 
+struct Upper<R: Read> {
+    inner: R,
+}
+
+impl<R: Read> Read for Upper<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        for byte in &mut buf[..n] {
+            *byte = byte.to_ascii_uppercase();
+        }
+        Ok(n)
+    }
+}
+
 fn run_echo_server() {
     let mut app = App::with_default_router(8080, 5);
-    // let foo = move |request: HttpRequest| HttpResponse::ok(HttpHeaders::new(), request.body);
-    // app.map_route(HttpMethod::Post, "/", foo);
-    app.map_route(HttpMethod::Post, "/foo", |mut ctx| {
-        let mut buf = String::new();
-        ctx.get_body_reader().read_to_string(&mut buf).unwrap();
-
+    app.map_route(HttpMethod::Post, "/foo", |mut ctx, res| {
         let mut headers = HttpHeaders::new();
-        headers.set_content_length(buf.len());
-
-        ctx.send(&HttpStatus::of(200), &headers, Cursor::new(buf));
+        headers.set_content_length(ctx.headers.get_content_length().unwrap_or(0));
+        let body = Upper {
+            inner: ctx.get_body_reader(),
+        };
+        res.ok(&headers, body);
     });
     app.serve_n(1);
 }

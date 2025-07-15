@@ -24,7 +24,7 @@ impl App {
     }
 }
 
-pub type RouteFn = dyn Fn(HttpRequestContext) + Send + Sync + 'static;
+pub type RouteFn = dyn Fn(HttpRequestContext, Response) + Send + Sync + 'static;
 
 pub struct HttpServer<R>
 where
@@ -57,7 +57,7 @@ where
 
     pub fn map_route<F>(&mut self, method: HttpMethod, path: &str, route_fn: F)
     where
-        F: Fn(HttpRequestContext) + Send + Sync + 'static,
+        F: Fn(HttpRequestContext, Response) + Send + Sync + 'static,
     {
         self.router.add_route(&method, path, Box::new(route_fn))
     }
@@ -100,8 +100,25 @@ where
         }
     }
 
-    pub fn handle(&self, request: HttpRequestContext) {
-        handle_request(request, &self.router)
+    // pub fn handle(&self, request: HttpRequestContext) {
+    //     handle_request(request, &self.router)
+    // }
+}
+
+pub struct Response {
+    stream: TcpStream,
+}
+
+impl Response {
+    pub fn ok(&self, headers: &HttpHeaders, body: impl Read) {
+        HttpPrinter::new(&self.stream)
+            .write_response2(&HttpStatus::of(200), headers, body)
+            .expect("TODO: handle error");
+    }
+    pub fn send(&self, status: &HttpStatus, headers: &HttpHeaders, body: impl Read) {
+        HttpPrinter::new(&self.stream)
+            .write_response2(status, headers, body)
+            .expect("TODO: handle error");
     }
 }
 
@@ -110,7 +127,6 @@ pub struct HttpRequestContext {
     pub method: HttpMethod,
     pub uri: String,
     body: HttpBodyReader,
-    stream: TcpStream,
 }
 
 impl Read for HttpBodyReader {
@@ -136,7 +152,6 @@ pub struct HttpBodyReader {
 }
 
 impl HttpBodyReader {
-    /// get underlying reader
     pub fn set_remaining_bytes(&mut self, value: u64) {
         self.remaining = value;
     }
@@ -146,10 +161,6 @@ impl HttpBodyReader {
 }
 
 impl HttpRequestContext {
-    pub fn get_body_mut(&mut self) -> &mut HttpBodyReader {
-        &mut self.body
-    }
-
     pub fn get_body_reader(&mut self) -> &mut HttpBodyReader {
         &mut self.body
     }
@@ -165,47 +176,17 @@ impl HttpRequestContext {
         self.body.read_to_string(&mut buf).unwrap();
         buf
     }
-
-    pub fn echo(&mut self, status: &HttpStatus, headers: HttpHeaders) {
-        // let reader = BufReader::new(&mut self.body);
-        let content_len = self.headers.get_content_length().unwrap();
-        HttpPrinter::new(&self.stream)
-            .write_response2(status, &headers, (&mut self.body).take(content_len as u64))
-            .expect("TODO: handle error");
-    }
-    pub fn send(&self, status: &HttpStatus, headers: &HttpHeaders, body: impl Read) {
-        HttpPrinter::new(&self.stream)
-            .write_response2(status, headers, body)
-            .expect("TODO: handle error");
-        // if write_result.is_err() {
-        //     // just log the error
-        //     println!("ERROR: failed to write response");
-        //     dbg!(response);
-        // }
-    }
 }
 
-fn handle_request<R>(ctx: HttpRequestContext, router: &R)
+fn handle_request<R>(ctx: HttpRequestContext, response: Response, router: &R)
 where
     R: AppRouter<Route = Box<RouteFn>>,
 {
     let route = router.match_route(&ctx.method, &ctx.uri);
-
-    if let Some(route) = route {
-        (route)(ctx);
-    } else {
-        default_404_handler(ctx);
+    match route {
+        Some(route) => (route)(ctx, response),
+        None => default_404_handler(ctx, response),
     }
-
-    // let mut response = match route {
-    //     Some(route) => (route)(ctx),
-    //     None => unimplemented!(),
-    // };
-
-    // if let Some(ref body) = response.body {
-    //     response.headers.set_content_length(body.len());
-    // }
-    // response
 }
 
 fn handle_request_from_stream<R>(stream: TcpStream, router: &R)
@@ -220,25 +201,23 @@ where
     let parts = parts.unwrap();
 
     let content_len = parts.headers.get_content_length().unwrap_or(0);
-    let body = HttpBodyReader {
-        reader: parts.reader,
-        remaining: content_len as u64,
-    };
-
     let ctx = HttpRequestContext {
         method: parts.method,
         headers: parts.headers,
         uri: parts.uri,
-        body,
-        stream,
+        body: HttpBodyReader {
+            reader: parts.reader,
+            remaining: content_len as u64,
+        },
     };
-    handle_request(ctx, router);
+    let response = Response { stream };
+    handle_request(ctx, response, router);
 }
 
-fn default_404_handler(ctx: HttpRequestContext) {
-    ctx.send(&HttpStatus::of(404), &HttpHeaders::new(), &[][..]);
+fn default_404_handler(_ctx: HttpRequestContext, response: Response) {
+    response.send(&HttpStatus::of(404), &HttpHeaders::new(), &[][..]);
 }
 
-fn default_http_parsing_error_handler(ctx: HttpRequestContext) {
-    ctx.send(&HttpStatus::of(500), &HttpHeaders::new(), &[][..]);
+fn default_http_parsing_error_handler(_ctx: HttpRequestContext, response: Response) {
+    response.send(&HttpStatus::of(500), &HttpHeaders::new(), &[][..]);
 }

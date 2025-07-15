@@ -19,16 +19,13 @@ mod tests {
         // start server
         let h = thread::spawn(|| {
             let mut app = HttpServer::<DefaultRouter<Box<RouteFn>>>::new(8080, 3);
-            app.map_route(HttpMethod::Post, "/to-upper", move |mut ctx| {
-                let mut buf = String::new();
-                ctx.get_body_reader().read_to_string(&mut buf).unwrap();
+            app.map_route(HttpMethod::Post, "/to-upper", move |mut ctx, res| {
                 let mut headers = HttpHeaders::new();
-                headers.set_content_length(buf.len());
-                ctx.send(
-                    &HttpStatus::of(200),
-                    &headers,
-                    Cursor::new(buf.to_uppercase()),
-                );
+                headers.set_content_length(ctx.headers.get_content_length().unwrap());
+
+                let b = ctx.read_body_to_string().to_ascii_uppercase();
+
+                res.send(&HttpStatus::of(200), &headers, Cursor::new(b));
             });
             app.serve_n(2);
         });

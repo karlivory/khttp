@@ -61,12 +61,9 @@ impl<W: Write> HttpPrinter<W> {
         self.write_headers(headers)?;
         self.writer.write_all(CARRIAGE_BREAK)?;
 
+        // body
         copy(&mut body, &mut self.writer).expect("todo");
 
-        // body
-        // if let Some(body) = &response.body {
-        //     self.writer.write_all(body)?;
-        // }
         Ok(())
     }
 
