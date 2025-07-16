@@ -1,8 +1,8 @@
 // src/client.rs
-use crate::common::{HttpHeaders, HttpMethod, HttpRequest, HttpResponse};
-use crate::http_parser::HttpParser;
+use crate::common::{HttpBodyReader, HttpHeaders, HttpMethod, HttpRequest, HttpStatus};
+use crate::http_parser::{HttpParsingError, HttpResponseParser};
 use crate::http_printer::HttpPrinter;
-use std::io::{self};
+use std::io::{self, Read};
 use std::net::TcpStream;
 
 pub struct Client {
@@ -78,11 +78,38 @@ struct ClientRequestTcpStream {
     stream: TcpStream,
 }
 
+// #[derive(Debug, Clone, PartialEq)]
+pub struct HttpResponse {
+    pub headers: HttpHeaders,
+    pub status: HttpStatus,
+    body: HttpBodyReader,
+}
+
+impl HttpResponse {
+    pub fn get_body_reader(&mut self) -> &mut HttpBodyReader {
+        &mut self.body
+    }
+
+    pub fn read_body(&mut self) -> Vec<u8> {
+        let mut buf = Vec::new();
+        self.body.read_to_end(&mut buf).unwrap();
+        buf
+    }
+
+    pub fn read_body_to_string(&mut self) -> String {
+        let mut buf = String::new();
+        self.body.read_to_string(&mut buf).unwrap();
+        buf
+    }
+}
+
+impl HttpResponse {}
+
 impl ClientRequestTcpStream {
     fn new(host: &str) -> Result<Self, HttpClientError> {
         let stream = TcpStream::connect(host);
         match stream {
-            Ok(s) => Ok(ClientRequestTcpStream { stream: s }),
+            Ok(stream) => Ok(ClientRequestTcpStream { stream }),
             Err(e) => Err(HttpClientError::ConnectionFailure(e)),
         }
     }
@@ -94,10 +121,24 @@ impl ClientRequestTcpStream {
         Ok(())
     }
 
-    fn read(&mut self) -> Result<HttpResponse, HttpClientError> {
-        HttpParser::new(&self.stream)
-            .parse_response()
-            .map_err(|_| HttpClientError::ParsingFailure)
+    fn read(self) -> Result<HttpResponse, HttpClientError> {
+        let parts = HttpResponseParser::new(self.stream).parse()?;
+        let content_len = parts.headers.get_content_length().unwrap_or(0);
+        let response = HttpResponse {
+            headers: parts.headers,
+            status: parts.status,
+            body: HttpBodyReader {
+                reader: parts.reader,
+                remaining: content_len as u64,
+            },
+        };
+        Ok(response)
+    }
+}
+
+impl From<HttpParsingError> for HttpClientError {
+    fn from(_: HttpParsingError) -> Self {
+        HttpClientError::ParsingFailure
     }
 }
 

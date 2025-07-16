@@ -8,11 +8,7 @@ mod tests {
         router::DefaultRouter,
         server::{HttpServer, RouteFn},
     };
-    use std::{
-        io::{Cursor, Read},
-        thread,
-        time::Duration,
-    };
+    use std::{io::Cursor, thread, time::Duration};
 
     #[test]
     fn simple_multi_test() {
@@ -36,15 +32,14 @@ mod tests {
         let client = Client::new("localhost:8080");
 
         // test 1 : echo
-        let response = client
+        let mut response = client
             .post(
                 "/to-upper".to_string(),
                 HttpHeaders::new(),
                 Some("test123".bytes().collect::<Vec<u8>>()),
             )
             .unwrap();
-        let binding = response.body.unwrap();
-        let response_body_str = String::from_utf8_lossy(binding.as_slice());
+        let response_body_str = response.read_body_to_string();
         assert_eq!(response_body_str, "TEST123");
 
         // test 2 : check for 404

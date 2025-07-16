@@ -2,8 +2,7 @@
 mod tests {
     use khttp::{
         common::{HttpHeaders, HttpMethod, HttpRequest, HttpResponse, HttpStatus},
-        http_parser::{HttpParser, HttpRequestParsingError},
-        http_printer::HttpPrinter,
+        http_parser::{HttpRequestParser, HttpRequestParsingError},
     };
     use std::collections::HashMap;
 

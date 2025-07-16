@@ -4,7 +4,7 @@
 
 use std::io::{self, BufWriter, Read, Write, copy};
 
-use crate::common::{HttpHeaders, HttpRequest, HttpResponse, HttpStatus};
+use crate::common::{HttpHeaders, HttpRequest, HttpStatus};
 
 static CARRIAGE_BREAK: &[u8] = "\r\n".as_bytes();
 
@@ -19,29 +19,7 @@ impl<W: Write> HttpPrinter<W> {
         }
     }
 
-    pub fn write_response(&mut self, response: &HttpResponse) -> io::Result<()> {
-        // status line
-        write!(
-            &mut self.writer,
-            "{} {} {}",
-            crate::common::HTTP_VERSION,
-            response.status.code,
-            response.status.reason
-        )?;
-        self.writer.write_all(CARRIAGE_BREAK)?;
-
-        // headers
-        self.write_headers(&response.headers)?;
-        self.writer.write_all(CARRIAGE_BREAK)?;
-
-        // body
-        if let Some(body) = &response.body {
-            self.writer.write_all(body)?;
-        }
-        Ok(())
-    }
-
-    pub fn write_response2(
+    pub fn write_response(
         &mut self,
         status: &HttpStatus,
         headers: &HttpHeaders,

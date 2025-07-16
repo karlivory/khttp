@@ -1,7 +1,10 @@
+use std::cmp;
 // src/common.rs
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::fmt::{self};
+use std::io::{BufReader, Read};
+use std::net::TcpStream;
 
 pub static HTTP_VERSION: &str = "HTTP/1.1";
 
@@ -41,22 +44,22 @@ pub struct HttpRequest {
     pub uri: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct HttpResponse {
-    pub body: Option<Vec<u8>>,
-    pub headers: HttpHeaders,
-    pub status: HttpStatus,
-}
+// #[derive(Debug, Clone, PartialEq)]
+// pub struct HttpResponse {
+//     pub body: Option<Vec<u8>>,
+//     pub headers: HttpHeaders,
+//     pub status: HttpStatus,
+// }
 
-impl Default for HttpResponse {
-    fn default() -> Self {
-        Self {
-            body: Default::default(),
-            headers: Default::default(),
-            status: HttpStatus::of(200),
-        }
-    }
-}
+// impl Default for HttpResponse {
+//     fn default() -> Self {
+//         Self {
+//             body: Default::default(),
+//             headers: Default::default(),
+//             status: HttpStatus::of(200),
+//         }
+//     }
+// }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct HttpStatus {
@@ -121,13 +124,34 @@ impl HttpHeaders {
     }
 }
 
-impl HttpResponse {
-    pub fn ok(headers: HttpHeaders, body: Option<Vec<u8>>) -> HttpResponse {
-        HttpResponse {
-            headers,
-            status: HttpStatus::of(200),
-            body,
+impl Read for HttpBodyReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.remaining == 0 {
+            return Ok(0);
         }
+
+        let max = cmp::min(buf.len() as u64, self.remaining) as usize;
+        let n = self.reader.read(&mut buf[..max])?;
+        assert!(
+            n as u64 <= self.remaining,
+            "number of read bytes exceeds limit"
+        );
+        self.remaining -= n as u64;
+        Ok(n)
+    }
+}
+
+pub struct HttpBodyReader {
+    pub reader: BufReader<TcpStream>,
+    pub remaining: u64,
+}
+
+impl HttpBodyReader {
+    pub fn set_remaining_bytes(&mut self, value: u64) {
+        self.remaining = value;
+    }
+    pub fn get_reader(&mut self) -> &mut BufReader<TcpStream> {
+        &mut self.reader
     }
 }
 

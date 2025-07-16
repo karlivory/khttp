@@ -1,11 +1,10 @@
 // src/server.rs
-use crate::common::{HttpHeaders, HttpMethod, HttpStatus};
-use crate::http_parser::parse_request_parts;
+use crate::common::{HttpBodyReader, HttpHeaders, HttpMethod, HttpStatus};
+use crate::http_parser::HttpRequestParser;
 use crate::http_printer::HttpPrinter;
 use crate::router::{AppRouter, DefaultRouter};
 use crate::threadpool::ThreadPool;
-use std::cmp;
-use std::io::{BufReader, Read};
+use std::io::Read;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 
@@ -24,7 +23,7 @@ impl App {
     }
 }
 
-pub type RouteFn = dyn Fn(HttpRequestContext, Response) + Send + Sync + 'static;
+pub type RouteFn = dyn Fn(HttpRequestContext, ResponseHandle) + Send + Sync + 'static;
 
 pub struct HttpServer<R>
 where
@@ -57,7 +56,7 @@ where
 
     pub fn map_route<F>(&mut self, method: HttpMethod, path: &str, route_fn: F)
     where
-        F: Fn(HttpRequestContext, Response) + Send + Sync + 'static,
+        F: Fn(HttpRequestContext, ResponseHandle) + Send + Sync + 'static,
     {
         self.router.add_route(&method, path, Box::new(route_fn))
     }
@@ -99,25 +98,21 @@ where
             pool.execute(move || handle_request_from_stream(stream, &router));
         }
     }
-
-    // pub fn handle(&self, request: HttpRequestContext) {
-    //     handle_request(request, &self.router)
-    // }
 }
 
-pub struct Response {
+pub struct ResponseHandle {
     stream: TcpStream,
 }
 
-impl Response {
+impl ResponseHandle {
     pub fn ok(&self, headers: &HttpHeaders, body: impl Read) {
         HttpPrinter::new(&self.stream)
-            .write_response2(&HttpStatus::of(200), headers, body)
+            .write_response(&HttpStatus::of(200), headers, body)
             .expect("TODO: handle error");
     }
     pub fn send(&self, status: &HttpStatus, headers: &HttpHeaders, body: impl Read) {
         HttpPrinter::new(&self.stream)
-            .write_response2(status, headers, body)
+            .write_response(status, headers, body)
             .expect("TODO: handle error");
     }
 }
@@ -127,37 +122,6 @@ pub struct HttpRequestContext {
     pub method: HttpMethod,
     pub uri: String,
     body: HttpBodyReader,
-}
-
-impl Read for HttpBodyReader {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        if self.remaining == 0 {
-            return Ok(0);
-        }
-
-        let max = cmp::min(buf.len() as u64, self.remaining) as usize;
-        let n = self.reader.read(&mut buf[..max])?;
-        assert!(
-            n as u64 <= self.remaining,
-            "number of read bytes exceeds limit"
-        );
-        self.remaining -= n as u64;
-        Ok(n)
-    }
-}
-
-pub struct HttpBodyReader {
-    pub reader: BufReader<TcpStream>,
-    pub remaining: u64,
-}
-
-impl HttpBodyReader {
-    pub fn set_remaining_bytes(&mut self, value: u64) {
-        self.remaining = value;
-    }
-    pub fn get_reader(&mut self) -> &mut BufReader<TcpStream> {
-        &mut self.reader
-    }
 }
 
 impl HttpRequestContext {
@@ -178,7 +142,7 @@ impl HttpRequestContext {
     }
 }
 
-fn handle_request<R>(ctx: HttpRequestContext, response: Response, router: &R)
+fn handle_request<R>(ctx: HttpRequestContext, response: ResponseHandle, router: &R)
 where
     R: AppRouter<Route = Box<RouteFn>>,
 {
@@ -193,7 +157,7 @@ fn handle_request_from_stream<R>(stream: TcpStream, router: &R)
 where
     R: AppRouter<Route = Box<RouteFn>>,
 {
-    let parts = parse_request_parts(stream.try_clone().unwrap());
+    let parts = HttpRequestParser::new(stream.try_clone().unwrap()).parse();
 
     if parts.is_err() {
         panic!("TODO: handle failed parsing");
@@ -210,14 +174,14 @@ where
             remaining: content_len as u64,
         },
     };
-    let response = Response { stream };
+    let response = ResponseHandle { stream };
     handle_request(ctx, response, router);
 }
 
-fn default_404_handler(_ctx: HttpRequestContext, response: Response) {
+fn default_404_handler(_ctx: HttpRequestContext, response: ResponseHandle) {
     response.send(&HttpStatus::of(404), &HttpHeaders::new(), &[][..]);
 }
 
-fn default_http_parsing_error_handler(_ctx: HttpRequestContext, response: Response) {
+fn default_http_parsing_error_handler(_ctx: HttpRequestContext, response: ResponseHandle) {
     response.send(&HttpStatus::of(500), &HttpHeaders::new(), &[][..]);
 }
