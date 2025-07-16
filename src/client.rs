@@ -82,11 +82,11 @@ struct ClientRequestTcpStream {
 pub struct HttpResponse {
     pub headers: HttpHeaders,
     pub status: HttpStatus,
-    body: HttpBodyReader,
+    body: HttpBodyReader<TcpStream>,
 }
 
 impl HttpResponse {
-    pub fn get_body_reader(&mut self) -> &mut HttpBodyReader {
+    pub fn get_body_reader(&mut self) -> &mut HttpBodyReader<TcpStream> {
         &mut self.body
     }
 

@@ -48,6 +48,7 @@ pub struct HttpResponseParser<R: Read> {
     reader: BufReader<R>,
 }
 
+#[derive(Debug)]
 pub struct HttpResponseParts<R: Read> {
     pub headers: HttpHeaders,
     pub status: HttpStatus,

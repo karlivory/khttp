@@ -121,11 +121,11 @@ pub struct HttpRequestContext {
     pub headers: HttpHeaders,
     pub method: HttpMethod,
     pub uri: String,
-    body: HttpBodyReader,
+    body: HttpBodyReader<TcpStream>,
 }
 
 impl HttpRequestContext {
-    pub fn get_body_reader(&mut self) -> &mut HttpBodyReader {
+    pub fn get_body_reader(&mut self) -> &mut HttpBodyReader<TcpStream> {
         &mut self.body
     }
 

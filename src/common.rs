@@ -1,10 +1,9 @@
-use std::cmp;
 // src/common.rs
+use std::cmp;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::fmt::{self};
 use std::io::{BufReader, Read};
-use std::net::TcpStream;
 
 pub static HTTP_VERSION: &str = "HTTP/1.1";
 
@@ -38,10 +37,10 @@ impl From<&str> for HttpMethod {
 }
 
 pub struct HttpRequest {
-    pub body: Option<Vec<u8>>,
-    pub headers: HttpHeaders,
     pub method: HttpMethod,
     pub uri: String,
+    pub headers: HttpHeaders,
+    pub body: Option<Vec<u8>>,
 }
 
 // #[derive(Debug, Clone, PartialEq)]
@@ -124,7 +123,7 @@ impl HttpHeaders {
     }
 }
 
-impl Read for HttpBodyReader {
+impl<R: Read> Read for HttpBodyReader<R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         if self.remaining == 0 {
             return Ok(0);
@@ -141,16 +140,16 @@ impl Read for HttpBodyReader {
     }
 }
 
-pub struct HttpBodyReader {
-    pub reader: BufReader<TcpStream>,
+pub struct HttpBodyReader<R: Read> {
+    pub reader: BufReader<R>,
     pub remaining: u64,
 }
 
-impl HttpBodyReader {
+impl<R: Read> HttpBodyReader<R> {
     pub fn set_remaining_bytes(&mut self, value: u64) {
         self.remaining = value;
     }
-    pub fn get_reader(&mut self) -> &mut BufReader<TcpStream> {
+    pub fn get_reader(&mut self) -> &mut BufReader<R> {
         &mut self.reader
     }
 }
