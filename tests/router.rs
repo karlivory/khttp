@@ -162,19 +162,22 @@ mod tests {
         run_route_test(r);
     }
 
-    // TODO
-    // #[test]
-    // fn test_unmapping() {
-    //     let mut app = get_app();
-    //
-    //     app.map_route(HttpMethod::Get, "/hello", |_| response(""));
-    //
-    //     let response = app.handle(request("/hello"));
-    //     assert_eq!(200, response.status.code);
-    //
-    //     app.unmap_route(HttpMethod::Get, "/hello");
-    //
-    //     let response = app.handle(request("/hello"));
-    //     assert_eq!(404, response.status.code);
-    // }
+    #[test]
+    fn test_unmapping() {
+        let mut router = get_router();
+
+        let route = Route {
+            route: "/test",
+            must_match: vec![],
+        };
+
+        assert!(router.match_route(&HttpMethod::Get, "/hello").is_none());
+
+        router.add_route(&HttpMethod::Get, "/hello", (10, route.clone()));
+        assert!(router.match_route(&HttpMethod::Get, "/hello").is_some());
+
+        let removed_route = router.remove_route(&HttpMethod::Get, "/hello");
+        assert_eq!(*removed_route.unwrap(), (10, route));
+        assert!(router.match_route(&HttpMethod::Get, "/hello").is_none());
+    }
 }
