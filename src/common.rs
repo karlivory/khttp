@@ -36,30 +36,6 @@ impl From<&str> for HttpMethod {
     }
 }
 
-pub struct HttpRequest {
-    pub method: HttpMethod,
-    pub uri: String,
-    pub headers: HttpHeaders,
-    pub body: Option<Vec<u8>>,
-}
-
-// #[derive(Debug, Clone, PartialEq)]
-// pub struct HttpResponse {
-//     pub body: Option<Vec<u8>>,
-//     pub headers: HttpHeaders,
-//     pub status: HttpStatus,
-// }
-
-// impl Default for HttpResponse {
-//     fn default() -> Self {
-//         Self {
-//             body: Default::default(),
-//             headers: Default::default(),
-//             status: HttpStatus::of(200),
-//         }
-//     }
-// }
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct HttpStatus {
     pub code: u16,
@@ -86,6 +62,16 @@ impl From<HashMap<String, String>> for HttpHeaders {
         let mut headers = HttpHeaders::new();
         for (key, val) in value {
             headers.add_header(&key, &val);
+        }
+        headers
+    }
+}
+
+impl From<Vec<(&str, &str)>> for HttpHeaders {
+    fn from(value: Vec<(&str, &str)>) -> Self {
+        let mut headers = HttpHeaders::new();
+        for (key, val) in value {
+            headers.add_header(key, val);
         }
         headers
     }

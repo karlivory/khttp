@@ -1,8 +1,11 @@
 #[cfg(test)]
 mod tests {
     use khttp::{
-        common::{HttpHeaders, HttpMethod, HttpRequest, HttpStatus},
-        http_parser::{HttpParsingError, HttpRequestParser, HttpResponseParser, HttpResponseParts},
+        common::{HttpHeaders, HttpMethod, HttpStatus},
+        http_parser::{
+            HttpParsingError, HttpRequestParser, HttpRequestParts, HttpResponseParser,
+            HttpResponseParts,
+        },
         http_printer::HttpPrinter,
     };
     use std::{
@@ -17,7 +20,7 @@ mod tests {
 
     struct HttpParserRequestTest {
         str: &'static str,
-        expected: Result<HttpRequest, HttpParsingError>,
+        expected: Result<HttpRequestParts<MockReader>, HttpParsingError>,
     }
 
     #[derive(Debug, PartialEq)]
@@ -55,15 +58,15 @@ mod tests {
             // test1
             HttpParserRequestTest {
                 str: "GET /hello HTTP/1.1\r\nheader1: foo\r\nheader2: bar\r\ncontent-length: 3\r\n\r\nabc",
-                expected: Ok(HttpRequest {
-                    body: Some("abc".as_bytes().to_vec()),
+                expected: Ok(HttpRequestParts {
+                    method: HttpMethod::Get,
+                    uri: "/hello".to_string(),
                     headers: HttpHeaders::from(HashMap::from([
                         ("header1", "foo"),
                         ("header2", "bar"),
                         ("content-length", "3"),
                     ])),
-                    method: HttpMethod::Get,
-                    uri: "/hello".to_string(),
+                    reader: get_reader("abc"),
                 }),
             },
             // test2
@@ -128,6 +131,38 @@ mod tests {
         ]
     }
 
+    fn assert_eq_request(
+        req1: &mut Result<HttpRequestParts<MockReader>, HttpParsingError>,
+        req2: &mut Result<HttpRequestParts<MockReader>, HttpParsingError>,
+    ) -> (String, String) {
+        match (req1, req2) {
+            (Ok(req1), Ok(req2)) => assert_eq_request_parts(req1, req2),
+            (Err(e1), Err(e2)) => {
+                assert_eq!(e1, e2);
+                ("".to_string(), "".to_string())
+            }
+            (Ok(_), Err(_)) => panic!("req1 != req2"),
+            (Err(_), Ok(_)) => todo!(),
+        }
+    }
+
+    fn assert_eq_request_parts(
+        req1: &mut HttpRequestParts<MockReader>,
+        req2: &mut HttpRequestParts<MockReader>,
+    ) -> (String, String) {
+        assert_eq!(req1.method, req2.method);
+        assert_eq!(req1.uri, req2.uri);
+        assert_eq!(req1.headers, req2.headers);
+
+        let mut body1_buf = String::new();
+        let mut body2_buf = String::new();
+        _ = req1.reader.read_to_string(&mut body1_buf);
+        _ = req2.reader.read_to_string(&mut body2_buf);
+        assert_eq!(body1_buf, body2_buf);
+
+        (body1_buf, body2_buf)
+    }
+
     fn assert_eq_response(
         res1: &mut Result<HttpResponseParts<MockReader>, HttpParsingError>,
         res2: &mut Result<HttpResponseParts<MockReader>, HttpParsingError>,
@@ -180,7 +215,7 @@ mod tests {
                 res.reader = get_reader(&body1);
 
                 let stream = MockReader {
-                    body: String::from_utf8_lossy(&buf).into_owned(),
+                    body: String::from_utf8_lossy(&buf).to_string(),
                     read: false,
                 };
                 let mut new_response = HttpResponseParser::new(stream).parse();
@@ -191,19 +226,32 @@ mod tests {
 
     #[test]
     fn test_requests() {
-        // TODO
-        // for test in get_request_tests().iter() {
-        //     let bytes = test.str.as_bytes();
-        //     let request = HttpParser::new(bytes).parse_request();
-        //     assert_eq!(request, test.expected);
-        //
-        //     // let's re-print using HttpPrinter and parse it again
-        //     if let Ok(ref request) = request {
-        //         let mut buf = Vec::new();
-        //         HttpPrinter::new(&mut buf).write_request(request).unwrap();
-        //         let new_request = HttpParser::new(buf.as_slice()).parse_request();
-        //         assert_eq!(new_request, test.expected);
-        //     }
-        // }
+        for mut test in get_request_tests().into_iter() {
+            let stream = MockReader {
+                body: test.str.to_string(),
+                read: false,
+            };
+
+            let mut request = HttpRequestParser::new(stream).parse();
+            let (body1, _) = assert_eq_request(&mut request, &mut test.expected);
+
+            // let's re-print using HttpPrinter and parse it again
+            if let Ok(ref mut req) = request {
+                let mut buf = Vec::new();
+                HttpPrinter::new(&mut buf)
+                    .write_request(&req.method, &req.uri, &req.headers, get_reader(&body1))
+                    .unwrap();
+
+                req.reader = get_reader(&body1);
+
+                let stream = MockReader {
+                    body: String::from_utf8_lossy(&buf).to_string(),
+                    read: false,
+                };
+
+                let mut new_request = HttpRequestParser::new(stream).parse();
+                assert_eq_request(&mut new_request, &mut request);
+            }
+        }
     }
 }

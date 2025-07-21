@@ -4,7 +4,7 @@
 
 use std::io::{self, BufWriter, Read, Write, copy};
 
-use crate::common::{HttpHeaders, HttpRequest, HttpStatus};
+use crate::common::{HttpHeaders, HttpMethod, HttpStatus};
 
 static CARRIAGE_BREAK: &[u8] = "\r\n".as_bytes();
 
@@ -45,25 +45,30 @@ impl<W: Write> HttpPrinter<W> {
         Ok(())
     }
 
-    pub fn write_request(&mut self, request: &HttpRequest) -> io::Result<()> {
+    pub fn write_request(
+        &mut self,
+        method: &HttpMethod,
+        uri: &str,
+        headers: &HttpHeaders,
+        mut body: impl Read,
+    ) -> io::Result<()> {
         // status line
         write!(
             &mut self.writer,
             "{} {} {}",
-            request.method,
-            request.uri,
+            method,
+            uri,
             crate::common::HTTP_VERSION
         )?;
         self.writer.write_all(CARRIAGE_BREAK)?;
 
         // headers
-        self.write_headers(&request.headers)?;
+        self.write_headers(headers)?;
         self.writer.write_all(CARRIAGE_BREAK)?;
 
         // body
-        if let Some(body) = &request.body {
-            self.writer.write_all(body)?;
-        }
+        copy(&mut body, &mut self.writer).expect("todo");
+
         Ok(())
     }
 

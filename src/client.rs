@@ -1,64 +1,44 @@
 // src/client.rs
-use crate::common::{HttpBodyReader, HttpHeaders, HttpMethod, HttpRequest, HttpStatus};
+use crate::common::{HttpBodyReader, HttpHeaders, HttpMethod, HttpStatus};
 use crate::http_parser::{HttpParsingError, HttpResponseParser};
 use crate::http_printer::HttpPrinter;
-use std::io::{self, Read};
+use std::io::{self, Cursor, Read};
 use std::net::TcpStream;
 
 pub struct Client {
     address: String,
-    headers: HttpHeaders,
 }
 
 impl Client {
     pub fn new(address: &str) -> Client {
         Self {
             address: address.to_string(),
-            headers: HttpHeaders::new(),
         }
     }
-    pub fn get(&self, uri: String, headers: HttpHeaders) -> Result<HttpResponse, HttpClientError> {
-        let request = HttpRequest {
-            method: HttpMethod::Get,
-            uri,
-            body: None,
-            headers: self.populate_base_headers(headers),
-        };
-        self.exchange(request)
-    }
-
-    pub fn get_headers(&mut self) -> &HttpHeaders {
-        &self.headers
-    }
-
-    pub fn get_headers_mut(&mut self) -> &mut HttpHeaders {
-        &mut self.headers
+    pub fn get(&self, uri: &str, headers: &HttpHeaders) -> Result<HttpResponse, HttpClientError> {
+        self.exchange(&HttpMethod::Get, uri, headers, Cursor::new(""))
     }
 
     pub fn post(
         &self,
-        uri: String,
-        headers: HttpHeaders,
-        body: Option<Vec<u8>>,
+        uri: &str,
+        headers: &HttpHeaders,
+        body: impl Read,
     ) -> Result<HttpResponse, HttpClientError> {
-        let request = HttpRequest {
-            method: HttpMethod::Post,
-            uri,
-            body,
-            headers: self.populate_base_headers(headers),
-        };
-        self.exchange(request)
+        self.exchange(&HttpMethod::Post, uri, headers, body)
     }
 
-    pub fn exchange(&self, mut request: HttpRequest) -> Result<HttpResponse, HttpClientError> {
+    pub fn exchange(
+        &self,
+        method: &HttpMethod,
+        uri: &str,
+        headers: &HttpHeaders,
+        body: impl Read,
+    ) -> Result<HttpResponse, HttpClientError> {
         // establish connection
         let mut stream = ClientRequestTcpStream::new(&self.address)?;
 
-        // request middleware
-        if let Some(ref body) = request.body {
-            request.headers.set_content_length(body.len());
-        }
-        stream.write(&request)?;
+        stream.write(method, uri, headers, body)?;
 
         // read response
         let response = stream.read()?;
@@ -66,12 +46,12 @@ impl Client {
         Ok(response)
     }
 
-    fn populate_base_headers(&self, mut headers: HttpHeaders) -> HttpHeaders {
-        headers.add_header("host", &self.address);
-        headers.add_header("connection", "close");
-        headers.add_header("user-agent", "khttp/0.1");
-        headers
-    }
+    // fn populate_base_headers(&self, mut headers: HttpHeaders) -> HttpHeaders {
+    //     headers.add_header("host", &self.address);
+    //     headers.add_header("connection", "close");
+    //     headers.add_header("user-agent", "khttp/0.1");
+    //     headers
+    // }
 }
 
 struct ClientRequestTcpStream {
@@ -103,8 +83,6 @@ impl HttpResponse {
     }
 }
 
-impl HttpResponse {}
-
 impl ClientRequestTcpStream {
     fn new(host: &str) -> Result<Self, HttpClientError> {
         let stream = TcpStream::connect(host);
@@ -114,9 +92,15 @@ impl ClientRequestTcpStream {
         }
     }
 
-    fn write(&mut self, request: &HttpRequest) -> Result<(), HttpClientError> {
+    fn write(
+        &mut self,
+        method: &HttpMethod,
+        uri: &str,
+        headers: &HttpHeaders,
+        body: impl Read,
+    ) -> Result<(), HttpClientError> {
         HttpPrinter::new(&self.stream)
-            .write_request(request)
+            .write_request(method, uri, headers, body)
             .map_err(HttpClientError::WriteFailure)?;
         Ok(())
     }

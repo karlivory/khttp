@@ -34,17 +34,16 @@ mod tests {
         // test 1 : echo
         let mut response = client
             .post(
-                "/to-upper".to_string(),
-                HttpHeaders::new(),
-                Some("test123".bytes().collect::<Vec<u8>>()),
+                "/to-upper",
+                &HttpHeaders::from(vec![(HttpHeaders::CONTENT_LENGTH, "7")]),
+                Cursor::new("test123"),
             )
             .unwrap();
-        let response_body_str = response.read_body_to_string();
-        assert_eq!(response_body_str, "TEST123");
+        assert_eq!(response.read_body_to_string(), "TEST123");
 
         // test 2 : check for 404
         let response = client
-            .post("/not-routed".to_string(), HttpHeaders::new(), None)
+            .post("/not-routed", &HttpHeaders::new(), Cursor::new(""))
             .unwrap();
         assert_eq!(response.status.code, 404);
 
