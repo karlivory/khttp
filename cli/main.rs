@@ -15,7 +15,7 @@ fn main() {
 }
 
 fn run_echo_server() {
-    let mut app = App::with_default_router(8080, 5);
+    let mut app = App::new(8080, 5);
     app.map_route(HttpMethod::Post, "/foo", |mut ctx, res| {
         let mut headers = HttpHeaders::new();
         if let Some(len) = ctx.headers.get_content_length() {

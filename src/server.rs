@@ -11,10 +11,8 @@ use std::sync::Arc;
 pub struct App {}
 
 impl App {
-    pub fn with_default_router(
-        port: u16,
-        thread_count: usize,
-    ) -> HttpServer<DefaultRouter<Box<RouteFn>>> {
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new(port: u16, thread_count: usize) -> HttpServer<DefaultRouter<Box<RouteFn>>> {
         HttpServer {
             port,
             thread_count,
@@ -38,22 +36,6 @@ impl<R> HttpServer<R>
 where
     R: AppRouter<Route = Box<RouteFn>> + Send + 'static,
 {
-    pub fn new(port: u16, thread_count: usize) -> HttpServer<R> {
-        HttpServer {
-            port,
-            thread_count,
-            router: R::new(),
-        }
-    }
-
-    pub fn new_with_router(port: u16, thread_count: usize, router: R) -> HttpServer<R> {
-        HttpServer {
-            port,
-            thread_count,
-            router,
-        }
-    }
-
     pub fn map_route<F>(&mut self, method: HttpMethod, path: &str, route_fn: F)
     where
         F: Fn(HttpRequestContext, ResponseHandle) + Send + Sync + 'static,
@@ -160,7 +142,9 @@ where
     let parts = HttpRequestParser::new(stream.try_clone().unwrap()).parse();
 
     if parts.is_err() {
-        panic!("TODO: handle failed parsing");
+        let response = ResponseHandle { stream };
+        response.send(&HttpStatus::of(500), &HttpHeaders::new(), &[][..]);
+        return;
     }
     let parts = parts.unwrap();
 
@@ -180,8 +164,4 @@ where
 
 fn default_404_handler(_ctx: HttpRequestContext, response: ResponseHandle) {
     response.send(&HttpStatus::of(404), &HttpHeaders::new(), &[][..]);
-}
-
-fn default_http_parsing_error_handler(_ctx: HttpRequestContext, response: ResponseHandle) {
-    response.send(&HttpStatus::of(500), &HttpHeaders::new(), &[][..]);
 }

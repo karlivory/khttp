@@ -5,8 +5,7 @@ mod tests {
     use khttp::{
         client::Client,
         common::{HttpHeaders, HttpMethod, HttpStatus},
-        router::DefaultRouter,
-        server::{HttpServer, RouteFn},
+        server::App,
     };
     use std::{io::Cursor, thread, time::Duration};
 
@@ -14,7 +13,7 @@ mod tests {
     fn simple_multi_test() {
         // start server
         let h = thread::spawn(|| {
-            let mut app = HttpServer::<DefaultRouter<Box<RouteFn>>>::new(8080, 3);
+            let mut app = App::new(8080, 3);
             app.map_route(HttpMethod::Post, "/to-upper", move |mut ctx, res| {
                 let mut headers = HttpHeaders::new();
                 headers.set_content_length(ctx.headers.get_content_length().unwrap());
