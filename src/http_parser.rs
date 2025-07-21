@@ -201,7 +201,6 @@ pub enum HttpParsingError {
     MalformedStatusLine,
     MalformedHeader,
     UnknownHttpRequestMethod,
-    UnexpectedEOF,
     IOError,
 }
 
