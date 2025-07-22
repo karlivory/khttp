@@ -1,30 +1,31 @@
 // cli/main.rs
 
-use std::env;
 use std::io::Cursor;
+use std::time::Duration;
+use std::{env, thread};
 
-use args_parser::{ArgsParser, ClientOp, ClientOpArg, MainOp};
+use args_parser::{ArgsParser, ClientOp, ClientOpArg, MainOp, ServerOpArg};
 use khttp::client::Client;
 use khttp::common::{HttpHeaders, HttpMethod};
-use khttp::server::App;
+use khttp::router::DefaultRouter;
+use khttp::server::{App, HttpServer, RouteFn};
 
 pub mod args_parser;
 
 fn main() {
-    let arg_vec: Vec<String> = env::args().collect();
-    dbg!(arg_vec);
     let args = ArgsParser::parse(env::args());
-    if args.is_err() {
-        print_help();
-    } else {
-        dbg!(&args);
-        handle_op(args.unwrap());
+    match args {
+        Err(_) => print_help(),
+        Ok(op) => handle_op(op),
     }
 }
 
 fn handle_op(op: MainOp) {
     match op {
-        MainOp::Server(op) => todo!(),
+        MainOp::Server(op) => match op {
+            args_parser::ServerOp::Echo(args) => run_echo_server(args),
+            args_parser::ServerOp::Sleep(args) => run_sleep_server(args),
+        },
         MainOp::Client(op) => handle_client_op(op),
     }
 }
@@ -62,11 +63,35 @@ fn print_help() {
     println!("example: khttp get foo");
 }
 
-fn run_echo_server() {
-    let mut app = App::new(8080, 5);
-    app.map_route(HttpMethod::Post, "/echo", |mut ctx, res| {
-        let body = ctx.read_body().to_ascii_uppercase();
-        res.ok(&ctx.headers, body.as_slice());
+fn get_app(args: Vec<ServerOpArg>) -> HttpServer<DefaultRouter<Box<RouteFn>>> {
+    let mut address = "127.0.0.1".to_string();
+    let mut port = 8080;
+    let mut thread_count = 10;
+    let mut _verbose = false;
+    for opt_arg in args {
+        match opt_arg {
+            ServerOpArg::Port(p) => port = p,
+            ServerOpArg::BindAddress(a) => address = a.clone(),
+            ServerOpArg::ThreadCount(x) => thread_count = x,
+            ServerOpArg::Verbose => _verbose = true,
+        };
+    }
+    App::new(address.as_str(), port, thread_count)
+}
+
+fn run_echo_server(args: Vec<ServerOpArg>) {
+    let mut app = get_app(args);
+    app.map_route(HttpMethod::Post, "/**", |mut ctx, res| {
+        res.ok(&ctx.headers.clone(), ctx.get_body_reader());
+    });
+    app.serve();
+}
+
+fn run_sleep_server(args: Vec<ServerOpArg>) {
+    let mut app = get_app(args);
+    app.map_route(HttpMethod::Get, "/sleep", |ctx, res| {
+        thread::sleep(Duration::from_secs(3));
+        res.ok(&ctx.headers, &[][..]);
     });
     app.serve();
 }

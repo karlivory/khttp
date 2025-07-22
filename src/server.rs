@@ -5,15 +5,20 @@ use crate::http_printer::HttpPrinter;
 use crate::router::{AppRouter, DefaultRouter};
 use crate::threadpool::ThreadPool;
 use std::io::Read;
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 
 pub struct App {}
 
 impl App {
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(port: u16, thread_count: usize) -> HttpServer<DefaultRouter<Box<RouteFn>>> {
+    pub fn new(
+        bind_address: &str,
+        port: u16,
+        thread_count: usize,
+    ) -> HttpServer<DefaultRouter<Box<RouteFn>>> {
         HttpServer {
+            bind_address: bind_address.to_string(),
             port,
             thread_count,
             router: DefaultRouter::<Box<RouteFn>>::new(),
@@ -27,6 +32,7 @@ pub struct HttpServer<R>
 where
     R: AppRouter<Route = Box<RouteFn>>,
 {
+    bind_address: String,
     port: u16,
     thread_count: usize,
     router: R,
@@ -48,13 +54,12 @@ where
     }
 
     pub fn serve_n(&self, n: u64) {
-        let listen_addr = SocketAddr::from(([127, 0, 0, 1], self.port));
-        let listener = TcpListener::bind(listen_addr).unwrap();
-        let pool = ThreadPool::new(self.thread_count);
-
         if n == 0 {
             return;
         }
+
+        let listener = TcpListener::bind((self.bind_address.as_str(), self.port)).unwrap();
+        let pool = ThreadPool::new(self.thread_count);
 
         let mut i = 0;
         for stream in listener.incoming() {
@@ -70,8 +75,7 @@ where
     }
 
     pub fn serve(&self) {
-        let listen_addr = SocketAddr::from(([127, 0, 0, 1], self.port));
-        let listener = TcpListener::bind(listen_addr).unwrap();
+        let listener = TcpListener::bind((self.bind_address.as_str(), self.port)).unwrap();
         let pool = ThreadPool::new(self.thread_count);
 
         for stream in listener.incoming() {
