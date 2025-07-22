@@ -96,10 +96,19 @@ impl ResponseHandle {
             .write_response(&HttpStatus::of(200), headers, body)
             .expect("TODO: handle error");
     }
+
     pub fn send(&self, status: &HttpStatus, headers: &HttpHeaders, body: impl Read) {
         HttpPrinter::new(&self.stream)
             .write_response(status, headers, body)
             .expect("TODO: handle error");
+    }
+
+    pub fn get_tcp_stream(&self) -> &TcpStream {
+        &self.stream
+    }
+
+    pub fn get_tcp_stream_mut(&mut self) -> &mut TcpStream {
+        &mut self.stream
     }
 }
 
