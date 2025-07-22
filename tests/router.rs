@@ -112,6 +112,10 @@ mod tests {
                 route: "/route2",
                 must_match: vec!["/route2?foo=bar&fizz=buzz"],
             },
+            Route {
+                route: "/**",
+                must_match: vec!["/", "/route3", "/fallback/for/any/other/route"],
+            },
         ];
         run_route_test(r);
     }

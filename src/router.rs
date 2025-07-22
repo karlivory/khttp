@@ -4,7 +4,7 @@
 //  * parsing/storing a collection of Routes with their methods + patterns
 //  * provide fn match_route(...) to match method+uri to corresponding Route
 
-use std::{collections::HashMap, hash::Hash, sync::Arc};
+use std::{cmp::max, collections::HashMap, hash::Hash, sync::Arc};
 
 use crate::common::HttpMethod;
 
@@ -86,7 +86,9 @@ impl<T> AppRouter for DefaultRouter<T> {
         let uri_parts = split_uri_into_parts(uri);
         let routes = self.routes.get(method)?;
 
-        let mut matched_routes: Vec<(&Vec<RouteSegment>, &Arc<Self::Route>)> = Vec::new();
+        let mut matched_routes: Vec<(u16, &Vec<RouteSegment>, &Arc<Self::Route>)> = Vec::new();
+        let mut max_lml = 0; // max longest matching literal
+        let mut lml = 0; // longest matching literal
         for (path, route) in routes.iter() {
             let mut matching = true;
             let n = usize::max(uri_parts.len(), path.len());
@@ -110,6 +112,7 @@ impl<T> AppRouter for DefaultRouter<T> {
 
                 if let Some(RouteSegment::Literal(x)) = segment_part {
                     if x.as_str() == *uri_part.unwrap() {
+                        lml = (i + 1) as u16;
                         continue;
                     }
                 }
@@ -118,13 +121,18 @@ impl<T> AppRouter for DefaultRouter<T> {
                 break;
             }
             if matching {
-                matched_routes.push((path, route));
+                max_lml = max(max_lml, lml);
+                matched_routes.push((lml, path, route));
             }
+            lml = 0;
         }
+
+        // only keep the paths which have the longest matching literal
+        matched_routes.retain(|(i, _, _)| *i == max_lml);
 
         match matched_routes.len() {
             0 => None,
-            1 => Some(matched_routes[0].1),
+            1 => Some(matched_routes[0].2),
             _ => Some(get_route_with_precedence(matched_routes)),
         }
     }
@@ -136,18 +144,20 @@ impl<T> AppRouter for DefaultRouter<T> {
 //  * /route/**  (double-wildcard)
 //
 // then precedence goes in the order literal > wildcard > double-wildcard
-fn get_route_with_precedence<'a, T>(matched_routes: Vec<(&'a Vec<RouteSegment>, &'a T)>) -> &'a T {
-    for (path, route) in matched_routes.iter() {
+fn get_route_with_precedence<'a, T>(
+    matched_routes: Vec<(u16, &'a Vec<RouteSegment>, &'a T)>,
+) -> &'a T {
+    for (_, path, route) in matched_routes.iter() {
         if let Some(RouteSegment::Literal(_)) = path.last() {
             return route;
         }
     }
-    for (path, route) in matched_routes.iter() {
+    for (_, path, route) in matched_routes.iter() {
         if let Some(RouteSegment::Wildcard) = path.last() {
             return route;
         }
     }
-    for (path, route) in matched_routes.iter() {
+    for (_, path, route) in matched_routes.iter() {
         if let Some(RouteSegment::DoubleWildcard) = path.last() {
             return route;
         }
