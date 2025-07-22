@@ -1,11 +1,11 @@
 // src/server.rs
 use crate::common::{HttpBodyReader, HttpHeaders, HttpMethod, HttpStatus};
-use crate::http_parser::HttpRequestParser;
+use crate::http_parser::{HttpParsingError, HttpRequestParser};
 use crate::http_printer::HttpPrinter;
 use crate::router::{AppRouter, DefaultRouter};
 use crate::threadpool::ThreadPool;
 use std::io::Read;
-use std::net::{TcpListener, TcpStream};
+use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::Arc;
 
 pub struct App {}
@@ -17,6 +17,7 @@ impl App {
     pub fn new(bind_address: &str, port: u16) -> HttpServer<DefaultRouter<Box<RouteFn>>> {
         HttpServer {
             bind_address: bind_address.to_string(),
+            tcp_nodelay: false,
             port,
             thread_count: DEFAULT_THREAD_COUNT,
             router: DefaultRouter::<Box<RouteFn>>::new(),
@@ -24,13 +25,14 @@ impl App {
     }
 }
 
-pub type RouteFn = dyn Fn(HttpRequestContext, ResponseHandle) + Send + Sync + 'static;
+pub type RouteFn = dyn Fn(HttpRequestContext, &mut ResponseHandle) + Send + Sync + 'static;
 
 pub struct HttpServer<R>
 where
     R: AppRouter<Route = Box<RouteFn>>,
 {
     bind_address: String,
+    tcp_nodelay: bool,
     port: u16,
     thread_count: usize,
     router: R,
@@ -42,13 +44,17 @@ where
 {
     pub fn map_route<F>(&mut self, method: HttpMethod, path: &str, route_fn: F)
     where
-        F: Fn(HttpRequestContext, ResponseHandle) + Send + Sync + 'static,
+        F: Fn(HttpRequestContext, &mut ResponseHandle) + Send + Sync + 'static,
     {
         self.router.add_route(&method, path, Box::new(route_fn))
     }
 
     pub fn set_thread_count(&mut self, thread_count: usize) {
         self.thread_count = thread_count;
+    }
+
+    pub fn set_tcp_nodelay(&mut self, tcp_nodelay: bool) {
+        self.tcp_nodelay = tcp_nodelay;
     }
 
     pub fn unmap_route(&mut self, method: HttpMethod, path: &str) -> Option<Arc<R::Route>> {
@@ -66,6 +72,9 @@ where
         let mut i = 0;
         for stream in listener.incoming() {
             let stream = stream.unwrap();
+            if self.tcp_nodelay {
+                stream.set_nodelay(true).unwrap();
+            }
             let router = self.router.clone(); // TODO: this seems inefficient...
             pool.execute(move || handle_request_from_stream(stream, &router));
 
@@ -82,36 +91,68 @@ where
 
         for stream in listener.incoming() {
             let stream = stream.unwrap();
-            let router = self.router.clone(); // TODO: this seems inefficient...
+            if self.tcp_nodelay {
+                stream.set_nodelay(true).unwrap();
+            }
+            let router = self.router.clone();
             pool.execute(move || handle_request_from_stream(stream, &router));
         }
     }
 }
 
-pub struct ResponseHandle {
-    stream: TcpStream,
+pub struct ResponseHandle<'a> {
+    stream: &'a mut TcpStream,
 }
 
-impl ResponseHandle {
-    pub fn ok(&self, headers: &HttpHeaders, body: impl Read) {
-        HttpPrinter::new(&self.stream)
-            .write_response(&HttpStatus::of(200), headers, body)
-            .expect("TODO: handle error");
+impl ResponseHandle<'_> {
+    pub fn ok(&mut self, headers: HttpHeaders, body: impl Read) {
+        self.send(&HttpStatus::of(200), headers, body);
     }
 
-    pub fn send(&self, status: &HttpStatus, headers: &HttpHeaders, body: impl Read) {
-        HttpPrinter::new(&self.stream)
-            .write_response(status, headers, body)
-            .expect("TODO: handle error");
-    }
+    pub fn send(&mut self, status: &HttpStatus, mut headers: HttpHeaders, mut body: impl Read) {
+        if let Some(bytes) = read_to_vec_if_small(&mut body) {
+            headers.set_content_length(bytes.len());
+            HttpPrinter::new(&mut self.stream)
+                .write_response_fast(status, &headers, &bytes)
+                .ok();
+        } else {
+            if headers.get_content_length().is_none()
+                && !headers.contains(HttpHeaders::TRANSFER_ENCODING)
+            {
+                headers.add("connection", "close");
+            }
+            HttpPrinter::new(&mut self.stream)
+                .write_response_streaming(status, &headers, body)
+                .ok();
+        }
 
-    pub fn get_tcp_stream(&self) -> &TcpStream {
-        &self.stream
+        if headers
+            .get("connection")
+            .map(|v| v.eq_ignore_ascii_case("close"))
+            .unwrap_or(false)
+        {
+            self.stream.shutdown(std::net::Shutdown::Both).ok();
+        }
     }
+}
 
-    pub fn get_tcp_stream_mut(&mut self) -> &mut TcpStream {
-        &mut self.stream
+fn read_to_vec_if_small(body: &mut impl Read) -> Option<Vec<u8>> {
+    const MAX: usize = 8 * 1024;
+    let mut v = Vec::with_capacity(256);
+    let mut buf = [0u8; 1024];
+    loop {
+        match body.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                if v.len() + n > MAX {
+                    return None;
+                }
+                v.extend_from_slice(&buf[..n]);
+            }
+            Err(_) => return None,
+        }
     }
+    Some(v)
 }
 
 pub struct HttpRequestContext {
@@ -139,7 +180,7 @@ impl HttpRequestContext {
     }
 }
 
-fn handle_request<R>(ctx: HttpRequestContext, response: ResponseHandle, router: &R)
+fn handle_request<R>(ctx: HttpRequestContext, response: &mut ResponseHandle, router: &R)
 where
     R: AppRouter<Route = Box<RouteFn>>,
 {
@@ -150,33 +191,54 @@ where
     }
 }
 
-fn handle_request_from_stream<R>(stream: TcpStream, router: &R)
+fn handle_request_from_stream<R>(mut stream: TcpStream, router: &R)
 where
     R: AppRouter<Route = Box<RouteFn>>,
 {
-    let parts = HttpRequestParser::new(stream.try_clone().unwrap()).parse();
+    loop {
+        let parsed = HttpRequestParser::new(stream.try_clone().unwrap()).parse();
 
-    if parts.is_err() {
-        let response = ResponseHandle { stream };
-        response.send(&HttpStatus::of(500), &HttpHeaders::new(), &[][..]);
-        return;
+        match parsed {
+            Ok(parts) => {
+                let content_len = parts.headers.get_content_length().unwrap_or(0);
+                let ctx = HttpRequestContext {
+                    method: parts.method,
+                    headers: parts.headers,
+                    uri: parts.uri,
+                    body: HttpBodyReader {
+                        reader: parts.reader,
+                        remaining: content_len as u64,
+                    },
+                };
+
+                let mut response = ResponseHandle {
+                    stream: &mut stream,
+                };
+
+                handle_request(ctx, &mut response, router);
+            }
+
+            Err(HttpParsingError::IOError) => {
+                let _ = stream.shutdown(Shutdown::Both);
+                break;
+            }
+
+            Err(_) => {
+                let _ = HttpPrinter::new(&mut stream).write_response_fast(
+                    &HttpStatus::of(400),
+                    &HttpHeaders::new(),
+                    &[][..],
+                );
+                let _ = stream.shutdown(Shutdown::Both);
+                break;
+            }
+        }
     }
-    let parts = parts.unwrap();
-
-    let content_len = parts.headers.get_content_length().unwrap_or(0);
-    let ctx = HttpRequestContext {
-        method: parts.method,
-        headers: parts.headers,
-        uri: parts.uri,
-        body: HttpBodyReader {
-            reader: parts.reader,
-            remaining: content_len as u64,
-        },
-    };
-    let response = ResponseHandle { stream };
-    handle_request(ctx, response, router);
 }
 
-fn default_404_handler(_ctx: HttpRequestContext, response: ResponseHandle) {
-    response.send(&HttpStatus::of(404), &HttpHeaders::new(), &[][..]);
+fn default_404_handler(_ctx: HttpRequestContext, response: &mut ResponseHandle) {
+    let mut headers = HttpHeaders::new();
+    headers.set_content_length(0);
+    headers.add("connection", "close");
+    response.send(&HttpStatus::of(404), headers, &[][..]);
 }

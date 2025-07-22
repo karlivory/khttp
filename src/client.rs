@@ -4,7 +4,7 @@ use crate::http_parser::{HttpParsingError, HttpResponseParser};
 use crate::http_printer::HttpPrinter;
 use std::error::Error;
 use std::fmt::Display;
-use std::io::{self, Cursor, Read};
+use std::io::{self, Read};
 use std::net::TcpStream;
 
 pub struct Client {
@@ -18,7 +18,7 @@ impl Client {
         }
     }
     pub fn get(&self, uri: &str, headers: &HttpHeaders) -> Result<HttpResponse, HttpClientError> {
-        self.exchange(&HttpMethod::Get, uri, headers, Cursor::new(""))
+        self.exchange(&HttpMethod::Get, uri, headers, &[][..])
     }
 
     pub fn post(
@@ -47,13 +47,6 @@ impl Client {
 
         Ok(response)
     }
-
-    // fn populate_base_headers(&self, mut headers: HttpHeaders) -> HttpHeaders {
-    //     headers.add_header("host", &self.address);
-    //     headers.add_header("connection", "close");
-    //     headers.add_header("user-agent", "khttp/0.1");
-    //     headers
-    // }
 }
 
 struct ClientRequestTcpStream {
@@ -75,13 +68,26 @@ impl HttpResponse {
     pub fn read_body(&mut self) -> Vec<u8> {
         let mut buf = Vec::new();
         self.body.read_to_end(&mut buf).unwrap();
+        self.close_connection();
         buf
     }
 
     pub fn read_body_to_string(&mut self) -> String {
         let mut buf = String::new();
         self.body.read_to_string(&mut buf).unwrap();
+        self.close_connection();
         buf
+    }
+
+    pub fn close_connection(&mut self) {
+        use std::net::Shutdown;
+        let _ = self.body.reader.get_mut().shutdown(Shutdown::Both);
+    }
+}
+
+impl Drop for HttpResponse {
+    fn drop(&mut self) {
+        self.close_connection();
     }
 }
 

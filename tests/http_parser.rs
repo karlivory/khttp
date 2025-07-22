@@ -178,7 +178,7 @@ mod tests {
             if let Ok(ref mut res) = response {
                 let mut buf = Vec::new();
                 HttpPrinter::new(&mut buf)
-                    .write_response(&res.status, &res.headers, get_reader(&body1))
+                    .write_response_streaming(&res.status, &res.headers, get_reader(&body1))
                     .unwrap();
 
                 res.reader = get_reader(&body1);

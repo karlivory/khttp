@@ -51,7 +51,7 @@ impl From<HashMap<&str, &str>> for HttpHeaders {
     fn from(value: HashMap<&str, &str>) -> Self {
         let mut headers = HttpHeaders::new();
         for (key, val) in value {
-            headers.add_header(key, val);
+            headers.add(key, val);
         }
         headers
     }
@@ -61,7 +61,7 @@ impl From<HashMap<String, String>> for HttpHeaders {
     fn from(value: HashMap<String, String>) -> Self {
         let mut headers = HttpHeaders::new();
         for (key, val) in value {
-            headers.add_header(&key, &val);
+            headers.add(&key, &val);
         }
         headers
     }
@@ -71,7 +71,7 @@ impl From<Vec<(&str, &str)>> for HttpHeaders {
     fn from(value: Vec<(&str, &str)>) -> Self {
         let mut headers = HttpHeaders::new();
         for (key, val) in value {
-            headers.add_header(key, val);
+            headers.add(key, val);
         }
         headers
     }
@@ -82,20 +82,33 @@ impl HttpHeaders {
         Default::default()
     }
 
-    pub fn get_header_map(&self) -> &HashMap<String, String> {
+    pub fn get_map(&self) -> &HashMap<String, String> {
         &self.headers
     }
 
-    pub fn add_header(&mut self, name: &str, value: &str) {
+    pub fn get_count(&self) -> usize {
+        self.headers.len()
+    }
+
+    pub fn get(&mut self, name: &str) -> Option<&String> {
+        self.headers.get(name.to_lowercase().as_str())
+    }
+
+    pub fn add(&mut self, name: &str, value: &str) {
         self.headers.insert(name.to_lowercase(), value.to_string());
     }
 
-    pub fn remove_header(&mut self, name: &str) -> Option<String> {
+    pub fn remove(&mut self, name: &str) -> Option<String> {
         self.headers.remove(name)
+    }
+
+    pub fn contains(&self, name: &str) -> bool {
+        self.headers.contains_key(name)
     }
 
     pub const CONTENT_LENGTH: &str = "content-length";
     pub const CONTENT_TYPE: &str = "content-type";
+    pub const TRANSFER_ENCODING: &str = "transfer-encoding";
 
     pub fn get_content_length(&self) -> Option<usize> {
         let value = self.headers.get(Self::CONTENT_LENGTH)?;

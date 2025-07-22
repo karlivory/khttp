@@ -197,7 +197,7 @@ pub fn parse_headers<R: Read>(
             header_line_bytes = Vec::new();
 
             let (header, value) = parse_header_line(header_line)?;
-            headers.add_header(&header, &value);
+            headers.add(&header, &value);
             continue;
         }
         header_line_bytes.push(byte);

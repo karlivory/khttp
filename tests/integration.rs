@@ -23,7 +23,7 @@ mod tests {
                 let hello = "Hello, World!".to_string();
                 let mut headers = HttpHeaders::new();
                 headers.set_content_length(hello.len());
-                res.send(&HttpStatus::of(200), &headers, Cursor::new(hello));
+                res.send(&HttpStatus::of(200), headers, Cursor::new(hello));
             });
 
             app.map_route(HttpMethod::Post, "/api/uppercase", move |mut ctx, res| {
@@ -32,7 +32,7 @@ mod tests {
 
                 let b = ctx.read_body_to_string().to_ascii_uppercase();
 
-                res.send(&HttpStatus::of(201), &headers, Cursor::new(b));
+                res.send(&HttpStatus::of(201), headers, Cursor::new(b));
             });
 
             app.serve_n(3);

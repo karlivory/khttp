@@ -38,7 +38,7 @@ fn handle_client_op(op: ClientOp) {
     let mut verbose = false;
     for opt_arg in op.opt_args {
         match opt_arg {
-            ClientOpArg::Header((h, v)) => headers.add_header(&h, &v),
+            ClientOpArg::Header((h, v)) => headers.add(&h, &v),
             ClientOpArg::Body(b) => body = b,
             ClientOpArg::Verbose => verbose = true,
         };
@@ -52,7 +52,7 @@ fn handle_client_op(op: ClientOp) {
     let response_body = response.read_body_to_string();
     if verbose {
         println!("{} {}", response.status.code, response.status.reason);
-        for (h, v) in response.headers.get_header_map() {
+        for (h, v) in response.headers.get_map() {
             println!("{}: {}", h, v);
         }
     }
@@ -93,7 +93,7 @@ fn get_app(args: Vec<ServerOpArg>) -> HttpServer<DefaultRouter<Box<RouteFn>>> {
 fn run_echo_server(args: Vec<ServerOpArg>) {
     let mut app = get_app(args);
     app.map_route(HttpMethod::Post, "/**", |mut ctx, res| {
-        res.ok(&ctx.headers.clone(), ctx.get_body_reader());
+        res.ok(ctx.headers.clone(), ctx.get_body_reader());
     });
     app.serve();
 }
@@ -102,7 +102,7 @@ fn run_sleep_server(args: Vec<ServerOpArg>) {
     let mut app = get_app(args);
     app.map_route(HttpMethod::Get, "/sleep", |ctx, res| {
         thread::sleep(Duration::from_secs(3));
-        res.ok(&ctx.headers, &[][..]);
+        res.ok(ctx.headers, &[][..]);
     });
     app.serve();
 }
