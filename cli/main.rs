@@ -60,13 +60,7 @@ fn handle_client_op(op: ClientOp) {
 }
 
 fn handle_client_error(err: HttpClientError) {
-    print!("ERROR: ");
-    match err {
-        HttpClientError::ConnectionFailure(e) => println!("failed to connect: {}", e),
-        HttpClientError::WriteFailure(e) => println!("failed to write to tcp socket: {}", e),
-        HttpClientError::ReadFailure(e) => println!("failed to read from tcp socket: {}", e),
-        HttpClientError::ParsingFailure => println!("failed to parse response"),
-    }
+    println!("ERROR! {}", err);
 }
 
 fn print_help() {

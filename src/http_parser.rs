@@ -3,7 +3,11 @@
 // responsibility: parsing HttpResponseParts or HttpRequestParts from R: std::io::Read
 
 use crate::common::{HttpHeaders, HttpMethod, HttpStatus};
-use std::io::{BufReader, Bytes, Read};
+use std::{
+    error::Error,
+    fmt::Display,
+    io::{BufReader, Bytes, Read},
+};
 
 pub struct HttpRequestParser<R: Read> {
     reader: BufReader<R>,
@@ -197,10 +201,24 @@ fn parse_header_line(line: String) -> Result<(String, String), HttpParsingError>
 }
 
 #[derive(Debug, PartialEq)]
+#[non_exhaustive]
 pub enum HttpParsingError {
     MalformedStatusLine,
     MalformedHeader,
     IOError,
+}
+
+impl Error for HttpParsingError {}
+
+impl Display for HttpParsingError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use HttpParsingError::*;
+        match self {
+            MalformedStatusLine => write!(f, "Malformed status line!"),
+            MalformedHeader => write!(f, "Malformed header!"),
+            IOError => write!(f, "IO error!"),
+        }
+    }
 }
 
 impl From<std::io::Error> for HttpParsingError {

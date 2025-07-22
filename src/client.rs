@@ -2,6 +2,8 @@
 use crate::common::{HttpBodyReader, HttpHeaders, HttpMethod, HttpStatus};
 use crate::http_parser::{HttpParsingError, HttpResponseParser};
 use crate::http_printer::HttpPrinter;
+use std::error::Error;
+use std::fmt::Display;
 use std::io::{self, Cursor, Read};
 use std::net::TcpStream;
 
@@ -121,15 +123,30 @@ impl ClientRequestTcpStream {
 }
 
 impl From<HttpParsingError> for HttpClientError {
-    fn from(_: HttpParsingError) -> Self {
-        HttpClientError::ParsingFailure
+    fn from(e: HttpParsingError) -> Self {
+        HttpClientError::ParsingFailure(e)
     }
 }
 
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum HttpClientError {
     ConnectionFailure(io::Error),
     WriteFailure(io::Error),
     ReadFailure(io::Error),
-    ParsingFailure,
+    ParsingFailure(HttpParsingError),
+}
+
+impl Error for HttpClientError {}
+
+impl Display for HttpClientError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use HttpClientError::*;
+        match self {
+            ConnectionFailure(e) => write!(f, "Connection failure: {}", e),
+            WriteFailure(e) => write!(f, "Failed to write to tcp socket: {}", e),
+            ReadFailure(e) => write!(f, "Failed to read from tcp socket: {}", e),
+            ParsingFailure(e) => write!(f, "Failed to parse http response: {}", e),
+        }
+    }
 }
