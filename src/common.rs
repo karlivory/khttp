@@ -87,8 +87,7 @@ impl HttpHeaders {
     }
 
     pub fn add_header(&mut self, name: &str, value: &str) {
-        self.headers
-            .insert(name.to_lowercase(), value.to_lowercase());
+        self.headers.insert(name.to_lowercase(), value.to_string());
     }
 
     pub fn remove_header(&mut self, name: &str) -> Option<String> {
