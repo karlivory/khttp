@@ -40,7 +40,7 @@ impl<W: Write> HttpPrinter<W> {
         self.writer.write_all(CARRIAGE_BREAK)?;
 
         // body
-        copy(&mut body, &mut self.writer).expect("todo");
+        copy(&mut body, &mut self.writer)?;
 
         Ok(())
     }
@@ -67,7 +67,7 @@ impl<W: Write> HttpPrinter<W> {
         self.writer.write_all(CARRIAGE_BREAK)?;
 
         // body
-        copy(&mut body, &mut self.writer).expect("todo");
+        copy(&mut body, &mut self.writer)?;
 
         Ok(())
     }

@@ -5,7 +5,7 @@ use std::time::Duration;
 use std::{env, thread};
 
 use args_parser::{ArgsParser, ClientOp, ClientOpArg, MainOp, ServerOpArg};
-use khttp::client::Client;
+use khttp::client::{Client, HttpClientError};
 use khttp::common::{HttpHeaders, HttpMethod};
 use khttp::router::DefaultRouter;
 use khttp::server::{App, HttpServer, RouteFn};
@@ -43,9 +43,12 @@ fn handle_client_op(op: ClientOp) {
             ClientOpArg::Verbose => verbose = true,
         };
     }
-    let mut response = client
-        .exchange(&op.method, &op.uri, &headers, Cursor::new(body))
-        .expect("TODO");
+    let response = client.exchange(&op.method, &op.uri, &headers, Cursor::new(body));
+    if let Err(e) = response {
+        handle_client_error(e);
+        return;
+    }
+    let mut response = response.unwrap();
     let response_body = response.read_body_to_string();
     if verbose {
         println!("{} {}", response.status.code, response.status.reason);
@@ -54,6 +57,16 @@ fn handle_client_op(op: ClientOp) {
         }
     }
     print!("{}", response_body);
+}
+
+fn handle_client_error(err: HttpClientError) {
+    print!("ERROR: ");
+    match err {
+        HttpClientError::ConnectionFailure(e) => println!("failed to connect: {}", e),
+        HttpClientError::WriteFailure(e) => println!("failed to write to tcp socket: {}", e),
+        HttpClientError::ReadFailure(e) => println!("failed to read from tcp socket: {}", e),
+        HttpClientError::ParsingFailure => println!("failed to parse response"),
+    }
 }
 
 fn print_help() {
