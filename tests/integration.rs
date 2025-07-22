@@ -17,7 +17,7 @@ mod tests {
     fn simple_multi_test() {
         // start server
         let h = thread::spawn(|| {
-            let mut app = App::new("127.0.0.1", 8080, 3);
+            let mut app = App::new("127.0.0.1", 8080);
 
             app.map_route(HttpMethod::Get, "/hello", move |_, res| {
                 let hello = "Hello, World!".to_string();

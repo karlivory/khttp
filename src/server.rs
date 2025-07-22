@@ -10,17 +10,15 @@ use std::sync::Arc;
 
 pub struct App {}
 
+static DEFAULT_THREAD_COUNT: usize = 20;
+
 impl App {
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(
-        bind_address: &str,
-        port: u16,
-        thread_count: usize,
-    ) -> HttpServer<DefaultRouter<Box<RouteFn>>> {
+    pub fn new(bind_address: &str, port: u16) -> HttpServer<DefaultRouter<Box<RouteFn>>> {
         HttpServer {
             bind_address: bind_address.to_string(),
             port,
-            thread_count,
+            thread_count: DEFAULT_THREAD_COUNT,
             router: DefaultRouter::<Box<RouteFn>>::new(),
         }
     }
@@ -47,6 +45,10 @@ where
         F: Fn(HttpRequestContext, ResponseHandle) + Send + Sync + 'static,
     {
         self.router.add_route(&method, path, Box::new(route_fn))
+    }
+
+    pub fn set_thread_count(&mut self, thread_count: usize) {
+        self.thread_count = thread_count;
     }
 
     pub fn unmap_route(&mut self, method: HttpMethod, path: &str) -> Option<Arc<R::Route>> {

@@ -73,17 +73,21 @@ fn print_help() {
 fn get_app(args: Vec<ServerOpArg>) -> HttpServer<DefaultRouter<Box<RouteFn>>> {
     let mut address = "127.0.0.1".to_string();
     let mut port = 8080;
-    let mut thread_count = 10;
+    let mut thread_count = None;
     let mut _verbose = false;
     for opt_arg in args {
         match opt_arg {
             ServerOpArg::Port(p) => port = p,
             ServerOpArg::BindAddress(a) => address = a.clone(),
-            ServerOpArg::ThreadCount(x) => thread_count = x,
+            ServerOpArg::ThreadCount(x) => thread_count = Some(x),
             ServerOpArg::Verbose => _verbose = true,
         };
     }
-    App::new(address.as_str(), port, thread_count)
+    let mut app = App::new(address.as_str(), port);
+    if let Some(thread_count) = thread_count {
+        app.set_thread_count(thread_count);
+    }
+    app
 }
 
 fn run_echo_server(args: Vec<ServerOpArg>) {
