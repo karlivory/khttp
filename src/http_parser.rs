@@ -143,7 +143,7 @@ pub fn parse_request_status_line<R: Read>(
     let status_line = String::from_utf8_lossy(&status_line).to_string();
 
     let parts = status_line.split_whitespace().collect::<Vec<_>>();
-    if parts.len() < 2 {
+    if parts.len() < 2 || parts.len() > 3 {
         return Err(HttpParsingError::MalformedStatusLine);
     }
 
@@ -200,7 +200,6 @@ fn parse_header_line(line: String) -> Result<(String, String), HttpParsingError>
 pub enum HttpParsingError {
     MalformedStatusLine,
     MalformedHeader,
-    UnknownHttpRequestMethod,
     IOError,
 }
 
