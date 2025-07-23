@@ -6,7 +6,6 @@ mod tests {
             HttpParsingError, HttpRequestParser, HttpRequestParts, HttpResponseParser,
             HttpResponseParts,
         },
-        http_printer::HttpPrinter,
     };
     use std::{
         collections::HashMap,
@@ -174,7 +173,7 @@ mod tests {
             };
 
             let mut response = HttpResponseParser::new(stream).parse();
-            let (body1, _) = assert_eq_response(&mut response, &mut test.expected);
+            let (_, _) = assert_eq_response(&mut response, &mut test.expected);
         }
     }
 
@@ -186,7 +185,7 @@ mod tests {
             };
 
             let mut request = HttpRequestParser::new(stream).parse();
-            let (body1, _) = assert_eq_request(&mut request, &mut test.expected);
+            let (_, _) = assert_eq_request(&mut request, &mut test.expected);
         }
     }
 
