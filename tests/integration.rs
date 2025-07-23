@@ -30,7 +30,7 @@ mod tests {
                 let mut headers = HttpHeaders::new();
                 headers.set_content_length(ctx.headers.get_content_length().unwrap());
 
-                let b = ctx.read_body_to_string().to_ascii_uppercase();
+                let b = ctx.read_body_to_string().unwrap().to_ascii_uppercase();
 
                 res.send(&HttpStatus::of(201), headers, Cursor::new(b));
             });

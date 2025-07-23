@@ -4,7 +4,7 @@ use crate::http_parser::{HttpParsingError, HttpResponseParser};
 use crate::http_printer::HttpPrinter;
 use std::error::Error;
 use std::fmt::Display;
-use std::io::{self, Read};
+use std::io::{self, BufReader, Read};
 use std::net::TcpStream;
 
 pub struct Client {
@@ -57,11 +57,11 @@ struct ClientRequestTcpStream {
 pub struct HttpResponse {
     pub headers: HttpHeaders,
     pub status: HttpStatus,
-    body: HttpBodyReader<TcpStream>,
+    body: HttpBodyReader<BufReader<TcpStream>>,
 }
 
 impl HttpResponse {
-    pub fn get_body_reader(&mut self) -> &mut HttpBodyReader<TcpStream> {
+    pub fn get_body_reader(&mut self) -> &mut HttpBodyReader<BufReader<TcpStream>> {
         &mut self.body
     }
 

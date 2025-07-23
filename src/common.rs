@@ -147,7 +147,7 @@ impl<R: Read> Read for HttpBodyReader<R> {
 }
 
 pub struct HttpBodyReader<R: Read> {
-    pub reader: BufReader<R>,
+    pub reader: R,
     pub remaining: u64,
 }
 
@@ -155,7 +155,7 @@ impl<R: Read> HttpBodyReader<R> {
     pub fn set_remaining_bytes(&mut self, value: u64) {
         self.remaining = value;
     }
-    pub fn get_reader(&mut self) -> &mut BufReader<R> {
+    pub fn get_reader(&mut self) -> &mut R {
         &mut self.reader
     }
 }

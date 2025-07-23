@@ -5,7 +5,7 @@ use crate::http_printer::HttpPrinter;
 use crate::router::{AppRouter, DefaultRouter};
 use crate::threadpool::ThreadPool;
 use std::collections::HashMap;
-use std::io::{self, Read};
+use std::io::{self, BufReader, Read};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
@@ -161,11 +161,11 @@ pub struct HttpRequestContext<'c, 'r> {
     pub route_params: &'r HashMap<&'r str, &'r str>,
     pub uri: &'r String,
     pub conn: &'c ConnectionMeta,
-    body: HttpBodyReader<TcpStream>,
+    body: HttpBodyReader<BufReader<TcpStream>>,
 }
 
 impl HttpRequestContext<'_, '_> {
-    pub fn get_body_reader(&mut self) -> &mut HttpBodyReader<TcpStream> {
+    pub fn get_body_reader(&mut self) -> &mut HttpBodyReader<BufReader<TcpStream>> {
         &mut self.body
     }
 
