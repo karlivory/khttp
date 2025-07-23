@@ -60,9 +60,10 @@ mod tests {
         assert_eq!(response.read_body_to_string(), "TEST123");
 
         // test for 404
-        let response = client
+        let mut response = client
             .post("/not-routed", &HttpHeaders::new(), Cursor::new(""))
             .unwrap();
+        let _ = response.read_body(); // close socket
         assert_eq!(response.status.code, 404);
 
         // wait for server thread to finish

@@ -4,6 +4,7 @@ use crate::http_parser::{HttpParsingError, HttpRequestParser};
 use crate::http_printer::HttpPrinter;
 use crate::router::{AppRouter, DefaultRouter};
 use crate::threadpool::ThreadPool;
+use std::collections::HashMap;
 use std::io::Read;
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::Arc;
@@ -131,6 +132,7 @@ impl ResponseHandle<'_> {
 pub struct HttpRequestContext {
     pub headers: HttpHeaders,
     pub method: HttpMethod,
+    pub route_params: HashMap<String, String>,
     pub uri: String,
     body: HttpBodyReader<TcpStream>,
 }
@@ -153,17 +155,6 @@ impl HttpRequestContext {
     }
 }
 
-fn handle_request<R>(ctx: HttpRequestContext, response: &mut ResponseHandle, router: &R)
-where
-    R: AppRouter<Route = Box<RouteFn>>,
-{
-    let route = router.match_route(&ctx.method, &ctx.uri);
-    match route {
-        Some(route) => (route)(ctx, response),
-        None => default_404_handler(ctx, response),
-    }
-}
-
 fn handle_request_from_stream<R>(mut stream: TcpStream, router: &R)
 where
     R: AppRouter<Route = Box<RouteFn>>,
@@ -174,21 +165,36 @@ where
         match parsed {
             Ok(parts) => {
                 let content_len = parts.headers.get_content_length().unwrap_or(0);
+                let route = router.match_route_params(&parts.method, &parts.uri);
+                let mut response = ResponseHandle {
+                    stream: &mut stream,
+                };
+                if route.is_none() {
+                    let ctx = HttpRequestContext {
+                        method: parts.method,
+                        headers: parts.headers,
+                        uri: parts.uri,
+                        route_params: HashMap::new(),
+                        body: HttpBodyReader {
+                            reader: parts.reader,
+                            remaining: content_len as u64,
+                        },
+                    };
+                    default_404_handler(ctx, &mut response);
+                    continue;
+                }
+                let route = route.unwrap();
                 let ctx = HttpRequestContext {
                     method: parts.method,
                     headers: parts.headers,
                     uri: parts.uri,
+                    route_params: route.params,
                     body: HttpBodyReader {
                         reader: parts.reader,
                         remaining: content_len as u64,
                     },
                 };
-
-                let mut response = ResponseHandle {
-                    stream: &mut stream,
-                };
-
-                handle_request(ctx, &mut response, router);
+                (route.route)(ctx, &mut response);
             }
 
             Err(HttpParsingError::IOError) => {
@@ -210,8 +216,6 @@ where
 }
 
 fn default_404_handler(_ctx: HttpRequestContext, response: &mut ResponseHandle) {
-    let mut headers = HttpHeaders::new();
-    headers.set_content_length(0);
-    headers.add("connection", "close");
+    let headers = HttpHeaders::new();
     response.send(&HttpStatus::of(404), headers, &[][..]);
 }
