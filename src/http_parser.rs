@@ -1,12 +1,10 @@
 // src/http_parser.rs
-//
-// responsibility: parsing HttpResponseParts or HttpRequestParts from R: std::io::Read
 
 use crate::common::{HttpHeaders, HttpMethod, HttpStatus};
 use std::{
     error::Error,
     fmt::Display,
-    io::{BufReader, Bytes, Read},
+    io::{self, BufRead, BufReader, Read},
 };
 
 pub struct HttpRequestParser<R: Read> {
@@ -33,11 +31,9 @@ impl<R: Read> HttpRequestParser<R> {
     }
 
     pub fn parse(mut self) -> Result<HttpRequestParts<R>, HttpParsingError> {
-        let mut peekable = self.reader.by_ref().bytes();
-        let byte_iter = peekable.by_ref();
-
-        let status_line = parse_request_status_line(byte_iter)?;
-        let headers = parse_headers(byte_iter)?;
+        let mut line_buf = Vec::with_capacity(128);
+        let status_line = parse_request_status_line(&mut self.reader, &mut line_buf)?;
+        let headers = parse_headers(&mut self.reader, &mut line_buf)?;
 
         Ok(HttpRequestParts {
             method: status_line.method,
@@ -67,11 +63,9 @@ impl<R: Read> HttpResponseParser<R> {
     }
 
     pub fn parse(mut self) -> Result<HttpResponseParts<R>, HttpParsingError> {
-        let mut peekable = self.reader.by_ref().bytes();
-        let byte_iter = peekable.by_ref();
-
-        let status = parse_response_status_line(byte_iter)?;
-        let headers = parse_headers(byte_iter)?;
+        let mut line_buf = Vec::with_capacity(128);
+        let status = parse_response_status_line(&mut self.reader, &mut line_buf)?;
+        let headers = parse_headers(&mut self.reader, &mut line_buf)?;
 
         Ok(HttpResponseParts {
             status,
@@ -81,33 +75,30 @@ impl<R: Read> HttpResponseParser<R> {
     }
 }
 
-pub fn parse_response_status_line<R: Read>(
-    byte_iter: &mut Bytes<&mut BufReader<R>>,
-) -> Result<HttpStatus, HttpParsingError> {
-    let mut status_line: Vec<u8> = Vec::new();
-
-    loop {
-        let byte = byte_iter.next();
-        if byte.is_none() {
-            break;
-        }
-        let byte = byte.unwrap().unwrap();
-
-        if byte == b'\r' {
-            let next_byte = byte_iter.next().unwrap().unwrap();
-            if next_byte == b'\n' {
-                break;
-            } else {
-                status_line.push(byte);
-                status_line.push(next_byte);
-                continue;
-            }
-        }
-        status_line.push(byte);
+fn read_crlf_line<R: BufRead>(r: &mut R, buf: &mut Vec<u8>) -> io::Result<bool> {
+    buf.clear();
+    let n = r.read_until(b'\n', buf)?;
+    if n == 0 {
+        return Ok(false);
     }
-    let status_line = String::from_utf8_lossy(&status_line).to_string();
+    if n >= 2 && buf[n - 2] == b'\r' {
+        buf.truncate(n - 2);
+    } else {
+        buf.truncate(n - 1);
+    }
+    Ok(true)
+}
 
-    let parts = status_line.splitn(3, " ").collect::<Vec<_>>();
+pub fn parse_response_status_line<R: BufRead>(
+    reader: &mut R,
+    buf: &mut Vec<u8>,
+) -> Result<HttpStatus, HttpParsingError> {
+    if !read_crlf_line(reader, buf)? {
+        return Err(HttpParsingError::UnexpectedEof);
+    }
+
+    let line = std::str::from_utf8(buf).map_err(|_| HttpParsingError::MalformedStatusLine)?;
+    let parts: Vec<&str> = line.splitn(3, ' ').collect();
     if parts.len() < 3 {
         return Err(HttpParsingError::MalformedStatusLine);
     }
@@ -115,46 +106,33 @@ pub fn parse_response_status_line<R: Read>(
     let code = parts[1]
         .parse::<u16>()
         .map_err(|_| HttpParsingError::MalformedStatusLine)?;
+    if !(100..=999).contains(&code) {
+        // RFC: status code has to be a 3-number digit
+        return Err(HttpParsingError::MalformedStatusLine);
+    }
     let reason = parts[2].to_string();
 
     Ok(HttpStatus::new(code, reason))
 }
 
-pub fn parse_request_status_line<R: Read>(
-    byte_iter: &mut Bytes<&mut BufReader<R>>,
+pub fn parse_request_status_line<R: BufRead>(
+    reader: &mut R,
+    buf: &mut Vec<u8>,
 ) -> Result<HttpRequestStatusLine, HttpParsingError> {
-    let mut status_line: Vec<u8> = Vec::new();
-
-    loop {
-        let byte = byte_iter.next();
-        if byte.is_none() {
-            break;
-        }
-        let byte = byte.unwrap()?;
-
-        if byte == b'\r' {
-            let next_byte = byte_iter.next().unwrap()?;
-            if next_byte == b'\n' {
-                break;
-            } else {
-                status_line.push(byte);
-                status_line.push(next_byte);
-                continue;
-            }
-        }
-        status_line.push(byte);
+    if !read_crlf_line(reader, buf)? {
+        return Err(HttpParsingError::UnexpectedEof);
     }
-    let status_line = String::from_utf8_lossy(&status_line).to_string();
 
-    let parts = status_line.split_whitespace().collect::<Vec<_>>();
-    if parts.len() < 2 || parts.len() > 3 {
+    let line = std::str::from_utf8(buf).map_err(|_| HttpParsingError::MalformedStatusLine)?;
+    let parts: Vec<&str> = line.split_whitespace().collect();
+    if !(2..=3).contains(&parts.len()) {
         return Err(HttpParsingError::MalformedStatusLine);
     }
 
     let method = parts[0].into();
     let raw_uri = parts[1];
 
-    // handle absolute form uri-s
+    // Normalize absolute-form to origin-form path (ignore authority/scheme)
     let uri = if raw_uri.starts_with("http://") || raw_uri.starts_with("https://") {
         let pos = raw_uri.find("://").unwrap();
         let after_scheme = &raw_uri[pos + 3..];
@@ -170,46 +148,47 @@ pub fn parse_request_status_line<R: Read>(
     Ok(HttpRequestStatusLine { method, uri })
 }
 
-pub fn parse_headers<R: Read>(
-    byte_iter: &mut Bytes<&mut BufReader<R>>,
+pub fn parse_headers<R: BufRead>(
+    reader: &mut R,
+    buf: &mut Vec<u8>,
 ) -> Result<HttpHeaders, HttpParsingError> {
     let mut headers = HttpHeaders::new();
 
-    let mut header_line_bytes: Vec<u8> = Vec::new();
     loop {
-        let byte = byte_iter.next();
-        if byte.is_none() {
-            break;
-        }
-        let byte = byte.unwrap()?;
+        match read_crlf_line(reader, buf) {
+            Ok(true) => {
+                // Empty line -> end of header section
+                if buf.is_empty() {
+                    return Ok(headers);
+                }
 
-        if byte == b'\r' {
-            let next_byte = byte_iter.next().unwrap()?;
-            if next_byte != b'\n' {
-                header_line_bytes.push(byte);
-                header_line_bytes.push(next_byte);
-                continue;
+                // Find first ':'
+                let colon = buf
+                    .iter()
+                    .position(|&b| b == b':')
+                    .ok_or(HttpParsingError::MalformedHeader)?;
+
+                let name_bytes = &buf[..colon];
+                let value_bytes = &buf[colon + 1..];
+
+                let name = std::str::from_utf8(name_bytes)
+                    .map_err(|_| HttpParsingError::MalformedHeader)?;
+                validate_field_name(name)?;
+
+                let value_raw = std::str::from_utf8(value_bytes)
+                    .map_err(|_| HttpParsingError::MalformedHeader)?;
+                let value = value_raw
+                    .trim_matches(|c| c == ' ' || c == '\t')
+                    .to_string();
+
+                headers.add(name, &value);
             }
-            if header_line_bytes.is_empty() {
-                break;
+            Ok(false) => {
+                // EOF before blank line
+                return Err(HttpParsingError::UnexpectedEof);
             }
-            let header_line = String::from_utf8_lossy(&header_line_bytes).to_string();
-            header_line_bytes = Vec::new();
-
-            let (header, value) = parse_header_line(header_line)?;
-            headers.add(&header, &value);
-            continue;
+            Err(_) => return Err(HttpParsingError::IOError),
         }
-        header_line_bytes.push(byte);
-    }
-
-    Ok(headers)
-}
-
-fn parse_header_line(line: String) -> Result<(String, String), HttpParsingError> {
-    match line.split_once(": ") {
-        Some((header, value)) => Ok((header.to_string(), value.to_string())),
-        None => Err(HttpParsingError::MalformedHeader),
     }
 }
 
@@ -218,6 +197,7 @@ fn parse_header_line(line: String) -> Result<(String, String), HttpParsingError>
 pub enum HttpParsingError {
     MalformedStatusLine,
     MalformedHeader,
+    UnexpectedEof,
     IOError,
 }
 
@@ -229,6 +209,7 @@ impl Display for HttpParsingError {
         match self {
             MalformedStatusLine => write!(f, "Malformed status line!"),
             MalformedHeader => write!(f, "Malformed header!"),
+            UnexpectedEof => write!(f, "Unexpected end of stream!"),
             IOError => write!(f, "IO error!"),
         }
     }
@@ -238,4 +219,14 @@ impl From<std::io::Error> for HttpParsingError {
     fn from(_: std::io::Error) -> Self {
         HttpParsingError::IOError
     }
+}
+
+fn validate_field_name(name: &str) -> Result<(), HttpParsingError> {
+    if name.is_empty() {
+        return Err(HttpParsingError::MalformedHeader);
+    }
+    if name.bytes().any(|b| b <= 0x20 || b >= 0x7f || b == b':') {
+        return Err(HttpParsingError::MalformedHeader);
+    }
+    Ok(())
 }

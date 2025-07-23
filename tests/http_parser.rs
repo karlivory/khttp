@@ -153,12 +153,14 @@ mod tests {
     fn test_responses_invalid() {
         let tests = vec![
             HttpParserResponseTest {
-                str: "HTTP/1.1 20000000000000 BAD\r\n\r\n",
+                str: "HTTP/1.1 2000 BAD\r\n\r\n",
                 expected: Err(HttpParsingError::MalformedStatusLine),
             },
+            // empty header is ok according to http spec
+            // but final \r\n is missing here
             HttpParserResponseTest {
                 str: "HTTP/1.1 200 OK\r\nheader:\r\n",
-                expected: Err(HttpParsingError::MalformedHeader),
+                expected: Err(HttpParsingError::UnexpectedEof),
             },
         ];
         test_responses(tests);
