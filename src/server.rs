@@ -127,17 +127,27 @@ impl ResponseHandle<'_> {
     }
 
     pub fn send(&mut self, status: &HttpStatus, headers: HttpHeaders, body: impl Read) {
+        let _ = self.try_send(status, headers, body);
+    }
+
+    pub fn try_send(
+        &mut self,
+        status: &HttpStatus,
+        headers: HttpHeaders,
+        body: impl Read,
+    ) -> io::Result<()> {
         let should_close = headers
             .get("connection")
             .map(|v| v.eq_ignore_ascii_case("close"))
             .unwrap_or(false);
 
-        // TODO: what to do about io errors?
-        let _ = HttpPrinter::new(&mut self.stream).write_response(status, headers, body);
+        HttpPrinter::new(&mut self.stream).write_response(status, headers, body)?;
 
         if should_close {
-            let _ = self.stream.shutdown(Shutdown::Both);
+            self.stream.shutdown(Shutdown::Both)?;
         }
+
+        Ok(())
     }
 
     pub fn get_stream(&mut self) -> &TcpStream {

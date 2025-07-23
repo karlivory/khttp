@@ -3,7 +3,7 @@ use std::cmp;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::fmt::{self};
-use std::io::{BufReader, Read};
+use std::io::Read;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum HttpMethod {
