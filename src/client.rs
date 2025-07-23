@@ -1,10 +1,11 @@
 // src/client.rs
-use crate::common::{HttpBodyReader, HttpHeaders, HttpMethod, HttpStatus};
+use crate::body_reader::BodyReader;
+use crate::common::{HttpHeaders, HttpMethod, HttpStatus};
 use crate::http_parser::{HttpParsingError, HttpResponseParser};
 use crate::http_printer::HttpPrinter;
 use std::error::Error;
 use std::fmt::Display;
-use std::io::{self, BufReader, Read};
+use std::io::{self, Read};
 use std::net::TcpStream;
 
 pub struct Client {
@@ -40,6 +41,7 @@ impl Client {
         // establish connection
         let mut stream = ClientRequestTcpStream::new(&self.address)?;
 
+        // write request
         stream.write(method, uri, headers, body)?;
 
         // read response
@@ -57,37 +59,44 @@ struct ClientRequestTcpStream {
 pub struct HttpResponse {
     pub headers: HttpHeaders,
     pub status: HttpStatus,
-    body: HttpBodyReader<BufReader<TcpStream>>,
+    body: BodyReader<TcpStream>,
 }
 
 impl HttpResponse {
-    pub fn get_body_reader(&mut self) -> &mut HttpBodyReader<BufReader<TcpStream>> {
+    pub fn get_body_reader(&mut self) -> &mut BodyReader<TcpStream> {
         &mut self.body
     }
 
-    pub fn read_body(&mut self) -> Vec<u8> {
+    pub fn read_body(&mut self) -> io::Result<Vec<u8>> {
         let mut buf = Vec::new();
-        self.body.read_to_end(&mut buf).unwrap();
-        self.close_connection();
-        buf
+        self.body.read_to_end(&mut buf)?;
+        self.close_connection().ok();
+        Ok(buf)
     }
 
-    pub fn read_body_to_string(&mut self) -> String {
+    pub fn read_body_to_string(&mut self) -> io::Result<String> {
         let mut buf = String::new();
-        self.body.read_to_string(&mut buf).unwrap();
-        self.close_connection();
-        buf
+        self.body.read_to_string(&mut buf)?;
+        self.close_connection().ok();
+        Ok(buf)
     }
 
-    pub fn close_connection(&mut self) {
-        use std::net::Shutdown;
-        let _ = self.body.reader.get_mut().shutdown(Shutdown::Both);
+    pub fn stream(&self) -> &TcpStream {
+        self.body.inner().get_ref()
+    }
+
+    pub fn stream_mut(&mut self) -> &mut TcpStream {
+        self.body.inner_mut().get_mut()
+    }
+
+    pub fn close_connection(&mut self) -> io::Result<()> {
+        self.stream_mut().shutdown(std::net::Shutdown::Both)
     }
 }
 
 impl Drop for HttpResponse {
     fn drop(&mut self) {
-        self.close_connection();
+        self.close_connection().ok();
     }
 }
 
@@ -115,22 +124,13 @@ impl ClientRequestTcpStream {
 
     fn read(self) -> Result<HttpResponse, HttpClientError> {
         let parts = HttpResponseParser::new(self.stream).parse()?;
-        let content_len = parts.headers.get_content_length().unwrap_or(0);
+        let body = BodyReader::from(&parts.headers, parts.reader);
         let response = HttpResponse {
             headers: parts.headers,
             status: parts.status,
-            body: HttpBodyReader {
-                reader: parts.reader,
-                remaining: content_len as u64,
-            },
+            body,
         };
         Ok(response)
-    }
-}
-
-impl From<HttpParsingError> for HttpClientError {
-    fn from(e: HttpParsingError) -> Self {
-        HttpClientError::ParsingFailure(e)
     }
 }
 
@@ -141,6 +141,12 @@ pub enum HttpClientError {
     WriteFailure(io::Error),
     ReadFailure(io::Error),
     ParsingFailure(HttpParsingError),
+}
+
+impl From<HttpParsingError> for HttpClientError {
+    fn from(e: HttpParsingError) -> Self {
+        HttpClientError::ParsingFailure(e)
+    }
 }
 
 impl Error for HttpClientError {}

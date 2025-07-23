@@ -1,9 +1,7 @@
 // src/common.rs
-use std::cmp;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::fmt::{self};
-use std::io::Read;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum HttpMethod {
@@ -127,37 +125,6 @@ pub struct TransferEncoding {}
 
 impl TransferEncoding {
     pub const CHUNKED: &str = "chunked";
-}
-
-impl<R: Read> Read for HttpBodyReader<R> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        if self.remaining == 0 {
-            return Ok(0);
-        }
-
-        let max = cmp::min(buf.len() as u64, self.remaining) as usize;
-        let n = self.reader.read(&mut buf[..max])?;
-        assert!(
-            n as u64 <= self.remaining,
-            "number of read bytes exceeds limit"
-        );
-        self.remaining -= n as u64;
-        Ok(n)
-    }
-}
-
-pub struct HttpBodyReader<R: Read> {
-    pub reader: R,
-    pub remaining: u64,
-}
-
-impl<R: Read> HttpBodyReader<R> {
-    pub fn set_remaining_bytes(&mut self, value: u64) {
-        self.remaining = value;
-    }
-    pub fn get_reader(&mut self) -> &mut R {
-        &mut self.reader
-    }
 }
 
 impl Display for HttpMethod {

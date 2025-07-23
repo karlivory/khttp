@@ -46,7 +46,7 @@ mod tests {
         // test: GET /hello
         let mut response = client.get("/hello", &HttpHeaders::new()).unwrap();
         assert_eq!(response.status.code, 200);
-        assert_eq!(response.read_body_to_string(), "Hello, World!");
+        assert_eq!(response.read_body_to_string().unwrap(), "Hello, World!");
 
         // test: POST /api/uppercase
         let mut response = client
@@ -57,7 +57,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(response.status.code, 201);
-        assert_eq!(response.read_body_to_string(), "TEST123");
+        assert_eq!(response.read_body_to_string().unwrap(), "TEST123");
 
         // test for 404
         let mut response = client

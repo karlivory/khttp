@@ -43,6 +43,7 @@ fn handle_client_op(op: ClientOp) {
             ClientOpArg::Verbose => verbose = true,
         };
     }
+    headers.set_content_length(body.len());
     let response = client.exchange(&op.method, &op.uri, &headers, Cursor::new(body));
     if let Err(e) = response {
         handle_client_error(e);
@@ -55,8 +56,9 @@ fn handle_client_op(op: ClientOp) {
         for (h, v) in response.headers.get_map() {
             println!("{}: {}", h, v);
         }
+        println!();
     }
-    print!("{}", response_body);
+    print!("{}", response_body.unwrap_or("".to_string()));
 }
 
 fn handle_client_error(err: HttpClientError) {

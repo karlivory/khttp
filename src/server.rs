@@ -1,11 +1,12 @@
 // src/server.rs
-use crate::common::{HttpBodyReader, HttpHeaders, HttpMethod, HttpStatus};
+use crate::body_reader::BodyReader;
+use crate::common::{HttpHeaders, HttpMethod, HttpStatus};
 use crate::http_parser::{HttpParsingError, HttpRequestParser};
 use crate::http_printer::HttpPrinter;
 use crate::router::{AppRouter, DefaultRouter};
 use crate::threadpool::ThreadPool;
 use std::collections::HashMap;
-use std::io::{self, BufReader, Read};
+use std::io::{self, Read};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
@@ -171,11 +172,11 @@ pub struct HttpRequestContext<'c, 'r> {
     pub route_params: &'r HashMap<&'r str, &'r str>,
     pub uri: &'r String,
     pub conn: &'c ConnectionMeta,
-    body: HttpBodyReader<BufReader<TcpStream>>,
+    body: BodyReader<TcpStream>,
 }
 
 impl HttpRequestContext<'_, '_> {
-    pub fn get_body_reader(&mut self) -> &mut HttpBodyReader<BufReader<TcpStream>> {
+    pub fn get_body_reader(&mut self) -> &mut BodyReader<TcpStream> {
         &mut self.body
     }
 
@@ -190,11 +191,11 @@ impl HttpRequestContext<'_, '_> {
     }
 
     pub fn get_stream(&mut self) -> &TcpStream {
-        self.body.reader.get_ref()
+        self.body.inner().get_ref()
     }
 
     pub fn get_stream_mut(&mut self) -> &mut TcpStream {
-        self.body.reader.get_mut()
+        self.body.inner_mut().get_mut()
     }
 }
 
@@ -244,11 +245,10 @@ where
             None => (handler_404, &*EMPTY_PARAMS),
         };
 
-        // TODO: don't just blindly set CL=0, handle missing CL or TE=chunked
-        let content_len = parts.headers.get_content_length().unwrap_or(0) as u64;
         let mut response = ResponseHandle {
             stream: &mut stream,
         };
+        let body = BodyReader::from(&parts.headers, parts.reader);
 
         let ctx = HttpRequestContext {
             method: parts.method,
@@ -256,10 +256,7 @@ where
             uri: &parts.uri,
             conn: &conn_meta,
             route_params: params,
-            body: HttpBodyReader {
-                reader: parts.reader,
-                remaining: content_len,
-            },
+            body,
         };
 
         (handler)(ctx, &mut response);
