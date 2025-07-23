@@ -201,7 +201,14 @@ where
     };
 
     loop {
-        let parts = match HttpRequestParser::new(stream.try_clone().unwrap()).parse() {
+        let read_stream = match stream.try_clone() {
+            Ok(s) => s,
+            Err(_) => {
+                let _ = stream.shutdown(Shutdown::Both);
+                break;
+            }
+        };
+        let parts = match HttpRequestParser::new(read_stream).parse() {
             Ok(p) => p,
             Err(HttpParsingError::IOError) => {
                 let _ = stream.shutdown(Shutdown::Both);
