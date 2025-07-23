@@ -5,7 +5,7 @@ use crate::http_printer::HttpPrinter;
 use crate::router::{AppRouter, DefaultRouter};
 use crate::threadpool::ThreadPool;
 use std::collections::HashMap;
-use std::io::Read;
+use std::io::{self, Read};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
@@ -92,7 +92,7 @@ where
             }
             let router = self.router.clone(); // TODO: this seems inefficient...
             let handler_404 = self.fallback_route.clone();
-            pool.execute(move || handle_connection(stream, &router, handler_404));
+            pool.execute(move || handle_connection(stream, &router, &handler_404));
 
             i += 1;
             if i == n {
@@ -112,7 +112,7 @@ where
             }
             let router = self.router.clone();
             let handler_404 = self.fallback_route.clone();
-            pool.execute(move || handle_connection(stream, &router, handler_404));
+            pool.execute(move || handle_connection(stream, &router, &handler_404));
         }
     }
 }
@@ -161,22 +161,28 @@ impl HttpRequestContext<'_, '_> {
         &mut self.body
     }
 
-    pub fn read_body(&mut self) -> Vec<u8> {
+    pub fn read_body(&mut self) -> io::Result<Vec<u8>> {
         let mut buf = Vec::new();
-        self.body.read_to_end(&mut buf).unwrap();
-        buf
+        self.body.read_to_end(&mut buf).map(|_| buf)
     }
 
-    pub fn read_body_to_string(&mut self) -> String {
+    pub fn read_body_to_string(&mut self) -> io::Result<String> {
         let mut buf = String::new();
-        self.body.read_to_string(&mut buf).unwrap();
-        buf
+        self.body.read_to_string(&mut buf).map(|_| buf)
+    }
+
+    pub fn get_stream(&mut self) -> &TcpStream {
+        self.body.reader.get_ref()
+    }
+
+    pub fn get_stream_mut(&mut self) -> &mut TcpStream {
+        self.body.reader.get_mut()
     }
 }
 
 static EMPTY_PARAMS: LazyLock<HashMap<&str, &str>> = LazyLock::new(HashMap::new);
 
-fn handle_connection<R>(mut stream: TcpStream, router: &R, handler_404: Arc<Box<RouteFn>>)
+fn handle_connection<R>(mut stream: TcpStream, router: &R, handler_404: &Arc<Box<RouteFn>>)
 where
     R: AppRouter<Route = Box<RouteFn>>,
 {
@@ -210,9 +216,10 @@ where
         let matched = router.match_route(&parts.method, &parts.uri);
         let (handler, params) = match &matched {
             Some(r) => (r.route, &r.params),
-            None => (&handler_404, &*EMPTY_PARAMS),
+            None => (handler_404, &*EMPTY_PARAMS),
         };
 
+        // TODO: don't just blindly set CL=0, handle missing CL or TE=chunked
         let content_len = parts.headers.get_content_length().unwrap_or(0) as u64;
         let mut response = ResponseHandle {
             stream: &mut stream,
