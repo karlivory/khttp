@@ -139,6 +139,14 @@ impl ResponseHandle<'_> {
             let _ = self.stream.shutdown(Shutdown::Both);
         }
     }
+
+    pub fn get_stream(&mut self) -> &TcpStream {
+        self.stream
+    }
+
+    pub fn get_stream_mut(&mut self) -> &mut TcpStream {
+        self.stream
+    }
 }
 
 pub struct ConnectionMeta {
