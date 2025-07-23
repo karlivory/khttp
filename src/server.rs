@@ -113,51 +113,19 @@ impl ResponseHandle<'_> {
         self.send(&HttpStatus::of(200), headers, body);
     }
 
-    pub fn send(&mut self, status: &HttpStatus, mut headers: HttpHeaders, mut body: impl Read) {
-        if let Some(bytes) = read_to_vec_if_small(&mut body) {
-            headers.set_content_length(bytes.len());
-            HttpPrinter::new(&mut self.stream)
-                .write_response_fast(status, &headers, &bytes)
-                .ok();
-        } else {
-            if headers.get_content_length().is_none()
-                && !headers.contains(HttpHeaders::TRANSFER_ENCODING)
-            {
-                headers.add("connection", "close");
-            }
-            HttpPrinter::new(&mut self.stream)
-                .write_response_streaming(status, &headers, body)
-                .ok();
-        }
-
-        if headers
+    pub fn send(&mut self, status: &HttpStatus, headers: HttpHeaders, body: impl Read) {
+        let should_close = headers
             .get("connection")
             .map(|v| v.eq_ignore_ascii_case("close"))
-            .unwrap_or(false)
-        {
-            self.stream.shutdown(std::net::Shutdown::Both).ok();
-        }
-    }
-}
+            .unwrap_or(false);
 
-// TODO: this is bugged;
-fn read_to_vec_if_small(body: &mut impl Read) -> Option<Vec<u8>> {
-    const MAX: usize = 8 * 1024;
-    let mut v = Vec::with_capacity(256);
-    let mut buf = [0u8; 1024];
-    loop {
-        match body.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => {
-                if v.len() + n > MAX {
-                    return None;
-                }
-                v.extend_from_slice(&buf[..n]);
-            }
-            Err(_) => return None,
+        // TODO: what to do about io errors?
+        let _ = HttpPrinter::new(&mut self.stream).write_response(status, headers, body);
+
+        if should_close {
+            let _ = self.stream.shutdown(Shutdown::Both);
         }
     }
-    Some(v)
 }
 
 pub struct HttpRequestContext {
@@ -229,9 +197,9 @@ where
             }
 
             Err(_) => {
-                let _ = HttpPrinter::new(&mut stream).write_response_fast(
+                let _ = HttpPrinter::new(&mut stream).write_response(
                     &HttpStatus::of(400),
-                    &HttpHeaders::new(),
+                    HttpHeaders::new(),
                     &[][..],
                 );
                 let _ = stream.shutdown(Shutdown::Both);

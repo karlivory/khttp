@@ -5,8 +5,6 @@ use std::fmt::Display;
 use std::fmt::{self};
 use std::io::{BufReader, Read};
 
-pub static HTTP_VERSION: &str = "HTTP/1.1";
-
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum HttpMethod {
     Get,
@@ -90,7 +88,7 @@ impl HttpHeaders {
         self.headers.len()
     }
 
-    pub fn get(&mut self, name: &str) -> Option<&String> {
+    pub fn get(&self, name: &str) -> Option<&String> {
         self.headers.get(name.to_lowercase().as_str())
     }
 
@@ -119,6 +117,16 @@ impl HttpHeaders {
         self.headers
             .insert(Self::CONTENT_LENGTH.into(), len.to_string());
     }
+
+    pub fn set_transfer_encoding_chunked(&mut self) {
+        self.add(Self::TRANSFER_ENCODING, TransferEncoding::CHUNKED);
+    }
+}
+
+pub struct TransferEncoding {}
+
+impl TransferEncoding {
+    pub const CHUNKED: &str = "chunked";
 }
 
 impl<R: Read> Read for HttpBodyReader<R> {

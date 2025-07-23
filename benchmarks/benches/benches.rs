@@ -3,7 +3,7 @@
 //! Parser benches -> Criterion
 //!
 //! Run from repo root:
-//!   cargo bench --manifest-path khttp/benchmarks/Cargo.toml -- server:minimal
+//!   cargo bench --manifest-path benchmarks/Cargo.toml -- server:minimal
 //!
 //! Filters allowed: `server`, `server:*`, `server:name`, `parser`, `parser:*`, `parser:name`
 //!
@@ -47,7 +47,6 @@ struct ParserBench {
 }
 
 fn main() {
-    // -------- collect benches --------
     let mut server_benches: Vec<ServerBench> = Vec::new();
     let mut parser_benches: Vec<ParserBench> = Vec::new();
 
@@ -109,7 +108,7 @@ fn main() {
         path: "/a/b/c",
         kind: ServerKind::Axum(Box::new(|router| {
             use axum::routing::get;
-            router.route("/a/b/c", get(|| async { "Hello, World!".repeat(100_000) }))
+            router.route("/a/b/c", get(|| async { heavy_body() }))
         })),
     });
 
@@ -127,6 +126,38 @@ fn main() {
                 }
             }
             router.route("/foo/bar/baz", get(|| async { "" }))
+        })),
+    });
+
+    server_benches.push(ServerBench {
+        full: "server:chunked",
+        path: "/chunked",
+        kind: ServerKind::Khttp(Box::new(|| {
+            let mut app = make_khttp_server(0);
+            app.map_route(HttpMethod::Get, "/chunked", |_c, r| respond_chunked(r));
+            app
+        })),
+    });
+
+    // axum: chunked
+    server_benches.push(ServerBench {
+        full: "axum:chunked",
+        path: "/chunked",
+        kind: ServerKind::Axum(Box::new(|router| {
+            use axum::body::Body;
+            use axum::routing::get;
+            use bytes::Bytes;
+            use futures_util::stream;
+
+            router.route(
+                "/chunked",
+                get(|| async {
+                    // TODO: is this correct?
+                    let msg = heavy_body();
+                    let stream = stream::iter(vec![Ok::<_, std::io::Error>(Bytes::from(msg))]);
+                    Body::from_stream(stream)
+                }),
+            )
         })),
     });
 
@@ -307,14 +338,32 @@ fn make_khttp_server(port: u16) -> KhttpServer {
 
 fn respond_hello(res: &mut khttp::server::ResponseHandle) {
     let msg = "Hello, World!";
-    res.ok(HttpHeaders::new(), msg.as_bytes());
+    let headers = HttpHeaders::new();
+    res.ok(headers, msg.as_bytes());
+}
+
+use std::sync::OnceLock;
+
+static HEAVY: OnceLock<Vec<u8>> = OnceLock::new();
+
+fn heavy_body() -> &'static [u8] {
+    HEAVY
+        .get_or_init(|| b"Hello, World!".repeat(100_000))
+        .as_slice()
 }
 
 fn respond_heavy(res: &mut khttp::server::ResponseHandle) {
-    let msg = b"Hello, World!".repeat(100_000);
+    let msg = heavy_body();
     let mut headers = HttpHeaders::new();
-    headers.set_content_length(msg.len()); // <-- key
-    res.ok(headers, &msg[..]);
+    headers.set_content_length(msg.len());
+    res.ok(headers, msg);
+}
+
+fn respond_chunked(res: &mut khttp::server::ResponseHandle) {
+    let msg = heavy_body();
+    let mut headers = HttpHeaders::new();
+    headers.set_transfer_encoding_chunked();
+    res.ok(headers, msg);
 }
 
 fn ensure_rewrk() {

@@ -10,6 +10,8 @@ path = "benches/benches.rs"
 harness = false
 
 [dependencies]
+futures-util = "0.3"
+bytes = "1"
 khttp = { path = ".." }
 criterion = { version = "0.6.0", features = ["html_reports"] }
 axum = "0.8.4"

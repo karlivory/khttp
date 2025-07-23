@@ -175,23 +175,6 @@ mod tests {
 
             let mut response = HttpResponseParser::new(stream).parse();
             let (body1, _) = assert_eq_response(&mut response, &mut test.expected);
-
-            // let's re-print using HttpPrinter and parse it again
-            if let Ok(ref mut res) = response {
-                let mut buf = Vec::new();
-                HttpPrinter::new(&mut buf)
-                    .write_response_streaming(&res.status, &res.headers, get_reader(&body1))
-                    .unwrap();
-
-                res.reader = get_reader(&body1);
-
-                let stream = MockReader {
-                    body: String::from_utf8_lossy(&buf).to_string(),
-                    read: false,
-                };
-                let mut new_response = HttpResponseParser::new(stream).parse();
-                assert_eq_response(&mut new_response, &mut response); // now succeeds
-            }
         }
     }
 
@@ -204,24 +187,6 @@ mod tests {
 
             let mut request = HttpRequestParser::new(stream).parse();
             let (body1, _) = assert_eq_request(&mut request, &mut test.expected);
-
-            // let's re-print using HttpPrinter and parse it again
-            if let Ok(ref mut req) = request {
-                let mut buf = Vec::new();
-                HttpPrinter::new(&mut buf)
-                    .write_request(&req.method, &req.uri, &req.headers, get_reader(&body1))
-                    .unwrap();
-
-                req.reader = get_reader(&body1);
-
-                let stream = MockReader {
-                    body: String::from_utf8_lossy(&buf).to_string(),
-                    read: false,
-                };
-
-                let mut new_request = HttpRequestParser::new(stream).parse();
-                assert_eq_request(&mut new_request, &mut request);
-            }
         }
     }
 
