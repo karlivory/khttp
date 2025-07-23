@@ -13,8 +13,11 @@ pub trait AppRouter {
     type Route;
 
     fn new() -> Self;
-    fn match_route_params(&self, method: &HttpMethod, path: &str)
-    -> Option<Match<'_, Self::Route>>;
+    fn match_route<'a, 'r>(
+        &'a self,
+        method: &HttpMethod,
+        path: &'r str,
+    ) -> Option<Match<'a, 'r, Self::Route>>;
     fn add_route(&mut self, method: &HttpMethod, path: &str, route: Self::Route);
     fn remove_route(&mut self, method: &HttpMethod, path: &str) -> Option<Arc<Self::Route>>;
     fn clone(&self) -> Self;
@@ -59,7 +62,11 @@ impl<T> AppRouter for DefaultRouter<T> {
         }
     }
 
-    fn match_route_params(&self, method: &HttpMethod, uri: &str) -> Option<Match<'_, Self::Route>> {
+    fn match_route<'a, 'r>(
+        &'a self,
+        method: &HttpMethod,
+        uri: &'r str,
+    ) -> Option<Match<'a, 'r, Self::Route>> {
         let uri_parts = split_uri_into_parts(uri);
         let routes = self.routes.get(method)?;
 
@@ -69,7 +76,7 @@ impl<T> AppRouter for DefaultRouter<T> {
             Precedence,
             &Vec<RouteSegment>,
             &Arc<T>,
-            HashMap<String, String>,
+            HashMap<&str, &str>,
         )> = Vec::new();
         let mut max_lml = 0u16;
 
@@ -97,7 +104,7 @@ impl<T> AppRouter for DefaultRouter<T> {
                     }
                     Some(RouteSegment::Param(name)) => {
                         if let Some(v) = uri_part {
-                            params.insert(name.clone(), (*v).to_string());
+                            params.insert(name.as_str(), *v);
                         } else {
                             ok = false;
                             break;
@@ -150,9 +157,9 @@ impl<T> AppRouter for DefaultRouter<T> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Match<'a, T> {
+pub struct Match<'a, 'r, T> {
     pub route: &'a Arc<T>,
-    pub params: HashMap<String, String>,
+    pub params: HashMap<&'a str, &'r str>,
 }
 
 #[derive(Debug, Clone, Eq)]

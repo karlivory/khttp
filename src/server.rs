@@ -7,11 +7,12 @@ use crate::threadpool::ThreadPool;
 use std::collections::HashMap;
 use std::io::Read;
 use std::net::{Shutdown, TcpListener, TcpStream};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
+use std::time::Instant;
 
 pub struct App {}
 
-static DEFAULT_THREAD_COUNT: usize = 20;
+const DEFAULT_THREAD_COUNT: usize = 20;
 
 impl App {
     #[allow(clippy::new_ret_no_self)]
@@ -22,6 +23,7 @@ impl App {
             port,
             thread_count: DEFAULT_THREAD_COUNT,
             router: DefaultRouter::<Box<RouteFn>>::new(),
+            fallback_route: Arc::new(Box::new(default_404_handler)),
         }
     }
 }
@@ -37,6 +39,7 @@ where
     port: u16,
     thread_count: usize,
     router: R,
+    fallback_route: Arc<Box<RouteFn>>,
 }
 
 impl<R> HttpServer<R>
@@ -56,6 +59,13 @@ where
 
     pub fn set_tcp_nodelay(&mut self, tcp_nodelay: bool) {
         self.tcp_nodelay = tcp_nodelay;
+    }
+
+    pub fn set_fallback_route<F>(&mut self, f: F)
+    where
+        F: Fn(HttpRequestContext, &mut ResponseHandle) + Send + Sync + 'static,
+    {
+        self.fallback_route = Arc::new(Box::new(f));
     }
 
     pub fn port(&self) -> &u16 {
@@ -81,7 +91,8 @@ where
                 stream.set_nodelay(true).unwrap();
             }
             let router = self.router.clone(); // TODO: this seems inefficient...
-            pool.execute(move || handle_request_from_stream(stream, &router));
+            let handler_404 = self.fallback_route.clone();
+            pool.execute(move || handle_connection(stream, &router, handler_404));
 
             i += 1;
             if i == n {
@@ -100,7 +111,8 @@ where
                 stream.set_nodelay(true).unwrap();
             }
             let router = self.router.clone();
-            pool.execute(move || handle_request_from_stream(stream, &router));
+            let handler_404 = self.fallback_route.clone();
+            pool.execute(move || handle_connection(stream, &router, handler_404));
         }
     }
 }
@@ -129,15 +141,22 @@ impl ResponseHandle<'_> {
     }
 }
 
-pub struct HttpRequestContext {
+pub struct ConnectionMeta {
+    pub req_index: usize,
+    pub started_at: Instant,
+    pub last_activity: Instant,
+}
+
+pub struct HttpRequestContext<'c, 'r> {
     pub headers: HttpHeaders,
     pub method: HttpMethod,
-    pub route_params: HashMap<String, String>,
-    pub uri: String,
+    pub route_params: &'r HashMap<&'r str, &'r str>,
+    pub uri: &'r String,
+    pub conn: &'c ConnectionMeta,
     body: HttpBodyReader<TcpStream>,
 }
 
-impl HttpRequestContext {
+impl HttpRequestContext<'_, '_> {
     pub fn get_body_reader(&mut self) -> &mut HttpBodyReader<TcpStream> {
         &mut self.body
     }
@@ -155,53 +174,25 @@ impl HttpRequestContext {
     }
 }
 
-fn handle_request_from_stream<R>(mut stream: TcpStream, router: &R)
+static EMPTY_PARAMS: LazyLock<HashMap<&str, &str>> = LazyLock::new(HashMap::new);
+
+fn handle_connection<R>(mut stream: TcpStream, router: &R, handler_404: Arc<Box<RouteFn>>)
 where
     R: AppRouter<Route = Box<RouteFn>>,
 {
+    let mut conn_meta = ConnectionMeta {
+        req_index: 0,
+        last_activity: Instant::now(),
+        started_at: Instant::now(),
+    };
+
     loop {
-        let parsed = HttpRequestParser::new(stream.try_clone().unwrap()).parse();
-
-        match parsed {
-            Ok(parts) => {
-                let content_len = parts.headers.get_content_length().unwrap_or(0);
-                let route = router.match_route_params(&parts.method, &parts.uri);
-                let mut response = ResponseHandle {
-                    stream: &mut stream,
-                };
-                if route.is_none() {
-                    let ctx = HttpRequestContext {
-                        method: parts.method,
-                        headers: parts.headers,
-                        uri: parts.uri,
-                        route_params: HashMap::new(),
-                        body: HttpBodyReader {
-                            reader: parts.reader,
-                            remaining: content_len as u64,
-                        },
-                    };
-                    default_404_handler(ctx, &mut response);
-                    continue;
-                }
-                let route = route.unwrap();
-                let ctx = HttpRequestContext {
-                    method: parts.method,
-                    headers: parts.headers,
-                    uri: parts.uri,
-                    route_params: route.params,
-                    body: HttpBodyReader {
-                        reader: parts.reader,
-                        remaining: content_len as u64,
-                    },
-                };
-                (route.route)(ctx, &mut response);
-            }
-
+        let parts = match HttpRequestParser::new(stream.try_clone().unwrap()).parse() {
+            Ok(p) => p,
             Err(HttpParsingError::IOError) => {
                 let _ = stream.shutdown(Shutdown::Both);
                 break;
             }
-
             Err(_) => {
                 let _ = HttpPrinter::new(&mut stream).write_response(
                     &HttpStatus::of(400),
@@ -211,7 +202,35 @@ where
                 let _ = stream.shutdown(Shutdown::Both);
                 break;
             }
-        }
+        };
+
+        conn_meta.req_index = conn_meta.req_index.wrapping_add(1);
+        conn_meta.last_activity = Instant::now();
+
+        let matched = router.match_route(&parts.method, &parts.uri);
+        let (handler, params) = match &matched {
+            Some(r) => (r.route, &r.params),
+            None => (&handler_404, &*EMPTY_PARAMS),
+        };
+
+        let content_len = parts.headers.get_content_length().unwrap_or(0) as u64;
+        let mut response = ResponseHandle {
+            stream: &mut stream,
+        };
+
+        let ctx = HttpRequestContext {
+            method: parts.method,
+            headers: parts.headers,
+            uri: &parts.uri,
+            conn: &conn_meta,
+            route_params: params,
+            body: HttpBodyReader {
+                reader: parts.reader,
+                remaining: content_len,
+            },
+        };
+
+        (handler)(ctx, &mut response);
     }
 }
 

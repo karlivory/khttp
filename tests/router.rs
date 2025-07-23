@@ -24,7 +24,7 @@ fn add_routes(router: &mut Router, method: &HttpMethod, routes: &[(&'static str,
 /// Assert that `uri` matches and the route index equals `expected_idx`.
 fn assert_match(router: &Router, method: &HttpMethod, uri: &str, expected_idx: usize) {
     let m = router
-        .match_route_params(method, uri)
+        .match_route(method, uri)
         .unwrap_or_else(|| panic!("expected match for URI {}", uri));
     assert_eq!(m.route.0, expected_idx, "URI: {}", uri);
 }
@@ -39,13 +39,13 @@ fn assert_match_params(
     expected_params: &[(&str, &str)],
 ) {
     let m = router
-        .match_route_params(method, uri)
+        .match_route(method, uri)
         .unwrap_or_else(|| panic!("expected match for URI {}", uri));
     assert_eq!(m.route.0, expected_idx, "URI: {}", uri);
     for (k, v) in expected_params {
         assert_eq!(
             m.params.get(*k).unwrap(),
-            *v,
+            v,
             "param '{}' mismatch for {}",
             k,
             uri
@@ -55,7 +55,7 @@ fn assert_match_params(
 
 fn assert_404(router: &Router, method: &HttpMethod, uri: &str) {
     assert!(
-        router.match_route_params(method, uri).is_none(),
+        router.match_route(method, uri).is_none(),
         "expected 404 for URI {}",
         uri
     );
