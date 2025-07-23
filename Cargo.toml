@@ -7,10 +7,6 @@ edition = "2024"
 name = "khttp"
 path = "src/lib.rs"
 
-[[bench]]
-name = "benches"
-harness = false
-
 [[bin]]
 name = "khttp"
 path = "cli/main.rs"

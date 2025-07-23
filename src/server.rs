@@ -57,6 +57,10 @@ where
         self.tcp_nodelay = tcp_nodelay;
     }
 
+    pub fn port(&self) -> &u16 {
+        &self.port
+    }
+
     pub fn unmap_route(&mut self, method: HttpMethod, path: &str) -> Option<Arc<R::Route>> {
         self.router.remove_route(&method, path)
     }
@@ -136,6 +140,7 @@ impl ResponseHandle<'_> {
     }
 }
 
+// TODO: this is bugged;
 fn read_to_vec_if_small(body: &mut impl Read) -> Option<Vec<u8>> {
     const MAX: usize = 8 * 1024;
     let mut v = Vec::with_capacity(256);

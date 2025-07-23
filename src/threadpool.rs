@@ -50,7 +50,7 @@ impl Drop for ThreadPool {
 }
 
 struct Worker {
-    id: usize,
+    _id: usize,
     thread: Option<thread::JoinHandle<()>>,
 }
 
@@ -74,7 +74,7 @@ impl Worker {
         });
 
         Worker {
-            id,
+            _id: id,
             thread: Some(thread),
         }
     }

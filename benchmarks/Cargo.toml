@@ -1,0 +1,16 @@
+[package]
+name = "khttp-benchmarks"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bench]]
+name = "benches"
+path = "benches/benches.rs"
+harness = false
+
+[dependencies]
+khttp = { path = ".." }
+criterion = { version = "0.6.0", features = ["html_reports"] }
+axum = "0.8.4"
+tokio = { version = "1.46.1", features = ["rt-multi-thread", "macros", "net"] }
