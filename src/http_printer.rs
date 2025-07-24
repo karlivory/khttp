@@ -48,7 +48,7 @@ impl<W: Write> HttpPrinter<W> {
                 return self.write_response_fast(status, &headers, &buf);
             } else {
                 // big body with CL: stream directly, no probe
-                return self.write_response_streaming(status, &headers, &[], body);
+                return self.write_response_streaming(status, &headers, body);
             }
         }
 
@@ -109,14 +109,10 @@ impl<W: Write> HttpPrinter<W> {
         &mut self,
         status: &HttpStatus,
         headers: &HttpHeaders,
-        prefix: &[u8],
         mut body: impl Read,
     ) -> io::Result<()> {
         let head = build_response_head(status, headers);
         self.writer.write_all(&head)?;
-        if !prefix.is_empty() {
-            self.writer.write_all(prefix)?;
-        }
         std::io::copy(&mut body, &mut self.writer).map(|_| ())
     }
 
