@@ -54,6 +54,10 @@ impl HttpHeaders {
         &self.headers
     }
 
+    pub fn get_map_mut(&mut self) -> &mut HashMap<String, Vec<String>> {
+        &mut self.headers
+    }
+
     pub fn get_count(&self) -> usize {
         self.headers.len()
     }
