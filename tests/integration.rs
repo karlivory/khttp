@@ -44,7 +44,7 @@ mod tests {
         let client = Client::new("localhost:8080");
 
         // test: GET /hello
-        let mut response = client.get("/hello", &HttpHeaders::new()).unwrap();
+        let mut response = client.get("/hello", HttpHeaders::new()).unwrap();
         assert_eq!(response.status.code, 200);
         assert_eq!(response.read_body_to_string().unwrap(), "Hello, World!");
 
@@ -52,7 +52,7 @@ mod tests {
         let mut response = client
             .post(
                 "/api/uppercase",
-                &HttpHeaders::from(vec![(HttpHeaders::CONTENT_LENGTH, "7")]),
+                HttpHeaders::from(vec![(HttpHeaders::CONTENT_LENGTH, "7")]),
                 Cursor::new("test123"),
             )
             .unwrap();
@@ -61,7 +61,7 @@ mod tests {
 
         // test for 404
         let mut response = client
-            .post("/not-routed", &HttpHeaders::new(), Cursor::new(""))
+            .post("/not-routed", HttpHeaders::new(), Cursor::new(""))
             .unwrap();
         let _ = response.read_body(); // close socket
         assert_eq!(response.status.code, 404);

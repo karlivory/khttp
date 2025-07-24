@@ -157,7 +157,11 @@ impl ResponseHandle<'_> {
             .map(|v| v.eq_ignore_ascii_case("close"))
             .unwrap_or(false);
 
-        HttpPrinter::new(&mut self.stream).write_response(status, headers, body)?;
+        {
+            let mut p = HttpPrinter::new(&mut self.stream);
+            p.write_response(status, headers, body)?;
+            p.flush()?;
+        }
 
         if should_close {
             self.stream.shutdown(Shutdown::Both)?;

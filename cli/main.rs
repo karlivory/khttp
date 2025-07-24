@@ -44,7 +44,7 @@ fn handle_client_op(op: ClientOp) {
         };
     }
     headers.set_content_length(body.len());
-    let response = client.exchange(&op.method, &op.uri, &headers, Cursor::new(body));
+    let response = client.exchange(&op.method, &op.uri, headers, Cursor::new(body));
     if let Err(e) = response {
         handle_client_error(e);
         return;

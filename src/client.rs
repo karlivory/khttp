@@ -18,14 +18,14 @@ impl Client {
             address: address.to_string(),
         }
     }
-    pub fn get(&self, uri: &str, headers: &HttpHeaders) -> Result<HttpResponse, HttpClientError> {
+    pub fn get(&self, uri: &str, headers: HttpHeaders) -> Result<HttpResponse, HttpClientError> {
         self.exchange(&HttpMethod::Get, uri, headers, &[][..])
     }
 
     pub fn post(
         &self,
         uri: &str,
-        headers: &HttpHeaders,
+        headers: HttpHeaders,
         body: impl Read,
     ) -> Result<HttpResponse, HttpClientError> {
         self.exchange(&HttpMethod::Post, uri, headers, body)
@@ -35,7 +35,7 @@ impl Client {
         &self,
         method: &HttpMethod,
         uri: &str,
-        headers: &HttpHeaders,
+        headers: HttpHeaders,
         body: impl Read,
     ) -> Result<HttpResponse, HttpClientError> {
         // establish connection
@@ -113,7 +113,7 @@ impl ClientRequestTcpStream {
         &mut self,
         method: &HttpMethod,
         uri: &str,
-        headers: &HttpHeaders,
+        headers: HttpHeaders,
         body: impl Read,
     ) -> Result<(), HttpClientError> {
         HttpPrinter::new(&self.stream)
