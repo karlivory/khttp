@@ -1,5 +1,6 @@
 // tests/integration.rs
 
+#[cfg(feature = "client")]
 #[cfg(test)]
 mod tests {
     use khttp::{

@@ -7,6 +7,12 @@ edition = "2024"
 name = "khttp"
 path = "src/lib.rs"
 
+[features]
+default = []
+client = []
+cli = ["client"]
+
 [[bin]]
 name = "khttp"
 path = "cli/main.rs"
+required-features = ["cli"]
