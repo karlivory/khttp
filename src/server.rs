@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::io::{self, Read};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::{Arc, LazyLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 pub struct App {}
 
@@ -21,6 +21,8 @@ impl App {
         HttpServer {
             bind_address: bind_address.to_string(),
             tcp_nodelay: false,
+            tcp_read_timeout: None,
+            tcp_write_timeout: None,
             port,
             thread_count: DEFAULT_THREAD_COUNT,
             router: DefaultRouter::<Box<RouteFn>>::new(),
@@ -34,6 +36,8 @@ pub type RouteFn = dyn Fn(HttpRequestContext, &mut ResponseHandle) + Send + Sync
 pub struct HttpServer<R> {
     bind_address: String,
     tcp_nodelay: bool,
+    tcp_read_timeout: Option<Duration>,
+    tcp_write_timeout: Option<Duration>,
     port: u16,
     thread_count: usize,
     router: R,
@@ -57,6 +61,14 @@ where
 
     pub fn set_tcp_nodelay(&mut self, tcp_nodelay: bool) {
         self.tcp_nodelay = tcp_nodelay;
+    }
+
+    pub fn set_tcp_read_timeout(&mut self, duration: Option<Duration>) {
+        self.tcp_read_timeout = duration;
+    }
+
+    pub fn set_tcp_write_timeout(&mut self, duration: Option<Duration>) {
+        self.tcp_write_timeout = duration;
     }
 
     pub fn set_fallback_route<F>(&mut self, f: F)
@@ -99,14 +111,23 @@ where
                     continue;
                 }
             };
+
             if self.tcp_nodelay {
                 if let Err(e) = stream.set_nodelay(true) {
                     eprintln!("Failed to set TCP_NODELAY: {}", e);
                 }
             }
 
+            if let Err(e) = stream.set_read_timeout(self.tcp_read_timeout) {
+                eprintln!("Failed to set TCP read timeout: {}", e);
+            }
+            if let Err(e) = stream.set_write_timeout(self.tcp_write_timeout) {
+                eprintln!("Failed to set TCP read timeout: {}", e);
+            }
+
             let router = router.clone();
             let handler_404 = self.fallback_route.clone();
+
             pool.execute(move || handle_connection(stream, &router, &handler_404));
 
             i += 1;
