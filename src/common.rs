@@ -45,6 +45,28 @@ impl From<Vec<(&str, &str)>> for HttpHeaders {
     }
 }
 
+impl From<&[(&str, &str)]> for HttpHeaders {
+    fn from(value: &[(&str, &str)]) -> Self {
+        let mut headers = HttpHeaders::new();
+        for (key, val) in value {
+            headers.add(key, val);
+        }
+        headers
+    }
+}
+
+impl From<&[(&str, &[&str])]> for HttpHeaders {
+    fn from(value: &[(&str, &[&str])]) -> Self {
+        let mut headers = HttpHeaders::new();
+        for (key, vals) in value {
+            for val in *vals {
+                headers.add(key, val);
+            }
+        }
+        headers
+    }
+}
+
 impl HttpHeaders {
     pub fn new() -> Self {
         Default::default()

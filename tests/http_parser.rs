@@ -1,26 +1,228 @@
 #[cfg(test)]
 mod tests {
     use khttp::{
-        common::{HttpHeaders, HttpMethod, HttpStatus},
-        http_parser::{
-            HttpParsingError, HttpRequestParser, HttpRequestParts, HttpResponseParser,
-            HttpResponseParts,
-        },
+        common::{HttpHeaders, HttpMethod},
+        http_parser::{HttpParsingError, HttpRequestParser, HttpResponseParser},
     };
-    use std::{
-        collections::HashMap,
-        io::{BufReader, Read},
-    };
+    use std::io::Read;
 
-    struct HttpParserResponseTest {
-        str: &'static str,
-        expected: Result<HttpResponseParts<MockReader>, HttpParsingError>,
+    // ---------------------------------------------------------------------
+    // REQUEST OK
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn test_request_get_simple() {
+        assert_parse_request_ok(
+            "GET /foo HTTP/1.1\r\nhost: localhost\r\n\r\n",
+            HttpMethod::Get,
+            "/foo",
+            &[("host", &["localhost"])],
+            "",
+        );
     }
 
-    struct HttpParserRequestTest {
-        str: &'static str,
-        expected: Result<HttpRequestParts<MockReader>, HttpParsingError>,
+    #[test]
+    fn test_request_post_with_body() {
+        assert_parse_request_ok(
+            "POST /data HTTP/1.1\r\nContent-Length: 5\r\n\r\nhello",
+            HttpMethod::Post,
+            "/data",
+            &[("Content-Length", &["5"])],
+            "hello",
+        );
     }
+
+    #[test]
+    fn test_request_extra_whitespace() {
+        assert_parse_request_ok(
+            "GET    /abc     HTTP/1.1\r\nhost: x\r\n\r\n",
+            HttpMethod::Get,
+            "/abc",
+            &[("host", &["x"])],
+            "",
+        );
+    }
+
+    #[test]
+    fn test_response_crlf_only_headers() {
+        assert_parse_response_ok(
+            "HTTP/1.1 204 No Content\r\n\r\n",
+            204,
+            "No Content",
+            &[],
+            "",
+        );
+    }
+
+    #[test]
+    fn test_request_header_empty_value() {
+        assert_parse_request_ok(
+            "GET /foo HTTP/1.1\r\nX-Test:\r\n\r\n",
+            HttpMethod::Get,
+            "/foo",
+            &[("X-Test", &[""])],
+            "",
+        );
+    }
+
+    #[test]
+    fn test_request_header_with_tabs() {
+        assert_parse_request_ok(
+            "GET / HTTP/1.1\r\nFoo:\t bar \t\r\n\r\n",
+            HttpMethod::Get,
+            "/",
+            &[("Foo", &["bar"])],
+            "",
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // REQUEST ERRORS
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn test_request_missing_headers_eof() {
+        assert_parse_request_err("GET / HTTP/1.1", HttpParsingError::UnexpectedEof);
+    }
+
+    #[test]
+    fn test_request_missing_http_version() {
+        assert_parse_request_err(
+            "GET /hello\r\nheader: value\r\n\r\n",
+            HttpParsingError::MalformedStatusLine,
+        );
+    }
+
+    #[test]
+    fn test_request_header_without_colon() {
+        assert_parse_request_err(
+            "GET / HTTP/1.1\r\nbadheader\r\n\r\n",
+            HttpParsingError::MalformedHeader,
+        );
+    }
+
+    #[test]
+    fn test_request_header_with_invalid_characters() {
+        assert_parse_request_err(
+            "GET / HTTP/1.1\r\nbad\x01header: val\r\n\r\n",
+            HttpParsingError::MalformedHeader,
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // RESPONSE OK
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn test_response_simple_ok() {
+        assert_parse_response_ok(
+            "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello",
+            200,
+            "OK",
+            &[("Content-Length", &["5"])],
+            "hello",
+        );
+    }
+
+    #[test]
+    fn test_response_not_found() {
+        assert_parse_response_ok("HTTP/1.1 404 Not Found\r\n\r\n", 404, "Not Found", &[], "");
+    }
+
+    #[test]
+    fn test_response_empty_reason_phrase() {
+        assert_parse_response_ok("HTTP/1.1 204 \r\n\r\n", 204, "", &[], "");
+    }
+
+    #[test]
+    fn test_response_multiple_headers_same_name() {
+        assert_parse_response_ok(
+            "HTTP/1.1 200 OK\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\n\r\n",
+            200,
+            "OK",
+            &[("Set-Cookie", &["a=1", "b=2"])],
+            "",
+        );
+    }
+
+    #[test]
+    fn test_response_large_header_value() {
+        let big = "a".repeat(1024);
+        assert_parse_response_ok(
+            &format!("HTTP/1.1 200 OK\r\nBig: {}\r\n\r\n", big),
+            200,
+            "OK",
+            &[("Big", &[&big])],
+            "",
+        );
+    }
+
+    #[test]
+    fn test_response_extra_crlf_after_headers() {
+        assert_parse_response_ok(
+            "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n\r\nhello",
+            200,
+            "OK",
+            &[("Content-Length", &["5"])],
+            "\r\nhello", // \r\n included in body
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // RESPONSE ERRORS
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn test_response_invalid_status_code_4_digits() {
+        assert_parse_response_err(
+            "HTTP/1.1 2000 OK\r\n\r\n",
+            HttpParsingError::MalformedStatusLine,
+        );
+    }
+
+    #[test]
+    fn test_response_header_eof_before_complete() {
+        assert_parse_response_err(
+            "HTTP/1.1 200 OK\r\nheader:\r\n",
+            HttpParsingError::UnexpectedEof,
+        );
+    }
+
+    #[test]
+    fn test_response_header_without_colon() {
+        assert_parse_response_err(
+            "HTTP/1.1 200 OK\r\ninvalidheader\r\n\r\n",
+            HttpParsingError::MalformedHeader,
+        );
+    }
+
+    #[test]
+    fn test_response_header_invalid_name() {
+        assert_parse_response_err(
+            "HTTP/1.1 200 OK\r\nX-\x01Bad: foo\r\n\r\n",
+            HttpParsingError::MalformedHeader,
+        );
+    }
+
+    #[test]
+    fn test_response_status_code_two_digits() {
+        assert_parse_response_err(
+            "HTTP/1.1 99 Weird\r\n\r\n",
+            HttpParsingError::MalformedStatusLine,
+        );
+    }
+
+    #[test]
+    fn test_response_status_code_non_numeric() {
+        assert_parse_response_err(
+            "HTTP/1.1 abc OK\r\n\r\n",
+            HttpParsingError::MalformedStatusLine,
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // UTILS
+    // ---------------------------------------------------------------------
 
     #[derive(Debug, PartialEq)]
     struct MockReader {
@@ -44,211 +246,69 @@ mod tests {
         }
     }
 
-    fn get_reader(s: &str) -> BufReader<MockReader> {
+    fn assert_parse_request_ok(
+        input: &str,
+        method: HttpMethod,
+        uri: &str,
+        headers: &[(&str, &[&str])],
+        body: &str,
+    ) {
         let reader = MockReader {
-            body: s.to_string(),
+            body: input.to_string(),
             read: false,
         };
-        BufReader::new(reader)
+        let mut parsed = HttpRequestParser::new(reader)
+            .parse()
+            .expect("should parse");
+
+        assert_eq!(parsed.method, method);
+        assert_eq!(parsed.full_uri, uri);
+        assert_eq!(parsed.headers, HttpHeaders::from(headers));
+
+        let mut buf = String::new();
+        _ = parsed.reader.read_to_string(&mut buf);
+        assert_eq!(buf, body);
     }
 
-    #[test]
-    fn test_requests_complex() {
-        let tests = vec![
-            HttpParserRequestTest {
-                str: "GET /hello HTTP/1.1\r\nheader1: foo\r\nheader2: bar\r\ncontent-length: 3\r\n\r\n",
-                expected: Ok(HttpRequestParts {
-                    method: HttpMethod::Get,
-                    full_uri: "/hello".to_string(),
-                    headers: HttpHeaders::from(HashMap::from([
-                        ("header1", "foo"),
-                        ("header2", "bar"),
-                        ("content-length", "3"),
-                    ])),
-                    reader: get_reader(""),
-                }),
-            },
-            HttpParserRequestTest {
-                str: "POST /foo?fizz=buzz HTTP/1.1\r\nheader1: foo\r\nheader2: bar\r\ncontent-length: 3\r\n\r\nabc",
-                expected: Ok(HttpRequestParts {
-                    method: HttpMethod::Post,
-                    full_uri: "/foo?fizz=buzz".to_string(),
-                    headers: HttpHeaders::from(HashMap::from([
-                        ("header1", "foo"),
-                        ("header2", "bar"),
-                        ("content-length", "3"),
-                    ])),
-                    reader: get_reader("abc"),
-                }),
-            },
-        ];
-        test_requests(tests);
+    fn assert_parse_request_err(input: &str, expected: HttpParsingError) {
+        let reader = MockReader {
+            body: input.to_string(),
+            read: false,
+        };
+        let parsed = HttpRequestParser::new(reader).parse();
+        assert_eq!(parsed.unwrap_err(), expected);
     }
 
-    #[test]
-    fn test_requests_invalid() {
-        let tests = vec![HttpParserRequestTest {
-            str: "GET / / HTTP/1.1",
-            expected: Err(HttpParsingError::MalformedStatusLine),
-        }];
-        test_requests(tests);
+    fn assert_parse_response_ok(
+        input: &str,
+        code: u16,
+        reason: &str,
+        headers: &[(&str, &[&str])],
+        body: &str,
+    ) {
+        let reader = MockReader {
+            body: input.to_string(),
+            read: false,
+        };
+        let mut parsed = HttpResponseParser::new(reader)
+            .parse()
+            .expect("should parse");
+
+        assert_eq!(parsed.status.code, code);
+        assert_eq!(parsed.status.reason, reason);
+        assert_eq!(parsed.headers, HttpHeaders::from(headers));
+
+        let mut buf = String::new();
+        _ = parsed.reader.read_to_string(&mut buf);
+        assert_eq!(buf, body);
     }
 
-    #[test]
-    fn test_responses_status_line() {
-        let tests = vec![
-            // test1
-            HttpParserResponseTest {
-                str: "HTTP/1.1 200 OK\r\n\r\n",
-                expected: Ok(HttpResponseParts {
-                    headers: HttpHeaders::new(),
-                    status: HttpStatus::owned(200, "OK".to_string()),
-                    reader: get_reader(""),
-                }),
-            },
-            HttpParserResponseTest {
-                str: "HTTP/1.1 500 Internal Server Foobar\r\n\r\n",
-                expected: Ok(HttpResponseParts {
-                    headers: HttpHeaders::new(),
-                    status: HttpStatus::owned(500, "Internal Server Foobar".to_string()),
-                    reader: get_reader(""),
-                }),
-            },
-        ];
-        test_responses(tests);
-    }
-
-    #[test]
-    fn test_responses_headers() {
-        let tests = vec![
-            HttpParserResponseTest {
-                str: "HTTP/1.1 200 OK\r\nheader1: foobar\r\nheader2: 123\r\n\r\n",
-                expected: Ok(HttpResponseParts {
-                    headers: HttpHeaders::from(HashMap::from([
-                        ("header1", "foobar"),
-                        ("header2", "123"),
-                    ])),
-                    status: HttpStatus::owned(200, "OK".to_string()),
-                    reader: get_reader(""),
-                }),
-            },
-            // test3
-            HttpParserResponseTest {
-                str: "HTTP/1.1 200 OK\r\nheader1: foobar\r\ncontent-length: 5\r\n\r\nabcde",
-                expected: Ok(HttpResponseParts {
-                    headers: HttpHeaders::from(HashMap::from([
-                        ("header1", "foobar"),
-                        ("content-length", "5"),
-                    ])),
-                    status: HttpStatus::owned(200, "OK".to_string()),
-                    reader: get_reader("abcde"),
-                }),
-            },
-        ];
-        test_responses(tests);
-    }
-
-    #[test]
-    fn test_responses_invalid() {
-        let tests = vec![
-            HttpParserResponseTest {
-                str: "HTTP/1.1 2000 BAD\r\n\r\n",
-                expected: Err(HttpParsingError::MalformedStatusLine),
-            },
-            // empty header is ok according to http spec
-            // but final \r\n is missing here
-            HttpParserResponseTest {
-                str: "HTTP/1.1 200 OK\r\nheader:\r\n",
-                expected: Err(HttpParsingError::UnexpectedEof),
-            },
-        ];
-        test_responses(tests);
-    }
-
-    fn test_responses(tests: Vec<HttpParserResponseTest>) {
-        for mut test in tests {
-            let stream = MockReader {
-                body: test.str.to_string(),
-                read: false,
-            };
-
-            let mut response = HttpResponseParser::new(stream).parse();
-            let (_, _) = assert_eq_response(&mut response, &mut test.expected);
-        }
-    }
-
-    fn test_requests(tests: Vec<HttpParserRequestTest>) {
-        for mut test in tests {
-            let stream = MockReader {
-                body: test.str.to_string(),
-                read: false,
-            };
-
-            let mut request = HttpRequestParser::new(stream).parse();
-            let (_, _) = assert_eq_request(&mut request, &mut test.expected);
-        }
-    }
-
-    fn assert_eq_request(
-        req1: &mut Result<HttpRequestParts<MockReader>, HttpParsingError>,
-        req2: &mut Result<HttpRequestParts<MockReader>, HttpParsingError>,
-    ) -> (String, String) {
-        match (req1, req2) {
-            (Ok(req1), Ok(req2)) => assert_eq_request_parts(req1, req2),
-            (Err(e1), Err(e2)) => {
-                assert_eq!(e1, e2);
-                ("".to_string(), "".to_string())
-            }
-            (Ok(_), Err(_)) => panic!("did not yield Err as expected"),
-            (Err(_), Ok(_)) => panic!("did not yield Ok as expected"),
-        }
-    }
-
-    fn assert_eq_request_parts(
-        req1: &mut HttpRequestParts<MockReader>,
-        req2: &mut HttpRequestParts<MockReader>,
-    ) -> (String, String) {
-        assert_eq!(req1.method, req2.method);
-        assert_eq!(req1.full_uri, req2.full_uri);
-        assert_eq!(req1.headers, req2.headers);
-
-        let mut body1_buf = String::new();
-        let mut body2_buf = String::new();
-        _ = req1.reader.read_to_string(&mut body1_buf);
-        _ = req2.reader.read_to_string(&mut body2_buf);
-        assert_eq!(body1_buf, body2_buf);
-
-        (body1_buf, body2_buf)
-    }
-
-    fn assert_eq_response(
-        res1: &mut Result<HttpResponseParts<MockReader>, HttpParsingError>,
-        res2: &mut Result<HttpResponseParts<MockReader>, HttpParsingError>,
-    ) -> (String, String) {
-        match (res1, res2) {
-            (Ok(res1), Ok(res2)) => assert_eq_response_parts(res1, res2),
-            (Err(e1), Err(e2)) => {
-                assert_eq!(e1, e2);
-                ("".to_string(), "".to_string())
-            }
-            (Ok(_), Err(_)) => panic!("did not yield Err as expected"),
-            (Err(_), Ok(_)) => panic!("did not yield Ok as expected"),
-        }
-    }
-
-    fn assert_eq_response_parts(
-        res1: &mut HttpResponseParts<MockReader>,
-        res2: &mut HttpResponseParts<MockReader>,
-    ) -> (String, String) {
-        assert_eq!(res1.status, res2.status);
-        assert_eq!(res1.headers, res2.headers);
-
-        let mut body1_buf = String::new();
-        let mut body2_buf = String::new();
-        _ = res1.reader.read_to_string(&mut body1_buf);
-        _ = res2.reader.read_to_string(&mut body2_buf);
-        assert_eq!(body1_buf, body2_buf);
-
-        (body1_buf, body2_buf)
+    fn assert_parse_response_err(input: &str, expected: HttpParsingError) {
+        let reader = MockReader {
+            body: input.to_string(),
+            read: false,
+        };
+        let parsed = HttpResponseParser::new(reader).parse();
+        assert_eq!(parsed.unwrap_err(), expected);
     }
 }
