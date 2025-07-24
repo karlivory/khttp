@@ -14,13 +14,16 @@ pub struct HttpRequestParser<R: Read> {
 pub struct HttpRequestStatusLine {
     pub method: HttpMethod,
     pub uri: String,
+    pub version: String,
 }
 
+#[derive(Debug)]
 pub struct HttpRequestParts<R: Read> {
     pub headers: HttpHeaders,
     pub method: HttpMethod,
     pub full_uri: String,
     pub reader: BufReader<R>,
+    pub http_version: String,
 }
 
 impl<R: Read> HttpRequestParser<R> {
@@ -38,6 +41,7 @@ impl<R: Read> HttpRequestParser<R> {
         Ok(HttpRequestParts {
             method: status_line.method,
             full_uri: status_line.uri,
+            http_version: status_line.version,
             headers,
             reader: self.reader,
         })
@@ -125,13 +129,23 @@ pub fn parse_request_status_line<R: BufRead>(
 
     let line = std::str::from_utf8(buf).map_err(|_| HttpParsingError::MalformedStatusLine)?;
     let parts: Vec<&str> = line.split_whitespace().collect();
-    if !(2..=3).contains(&parts.len()) {
+
+    if parts.len() != 3 {
+        return Err(HttpParsingError::MalformedStatusLine);
+    }
+
+    if !parts[2].starts_with("HTTP/") {
         return Err(HttpParsingError::MalformedStatusLine);
     }
 
     let method = parts[0].into();
     let uri = parts[1].to_string();
-    Ok(HttpRequestStatusLine { method, uri })
+    let version = parts[2].to_string();
+    Ok(HttpRequestStatusLine {
+        method,
+        uri,
+        version,
+    })
 }
 
 pub fn parse_headers<R: BufRead>(

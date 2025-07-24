@@ -224,6 +224,7 @@ pub struct HttpRequestContext<'c, 'r> {
     pub scheme: Option<&'r str>,
     pub absolute_form_authority: Option<&'r str>,
     pub uri: &'r str,
+    pub http_version: &'r str,
     pub conn: &'c ConnectionMeta,
     body: BodyReader<TcpStream>,
 }
@@ -315,6 +316,7 @@ where
             scheme,
             absolute_form_authority,
             uri,
+            http_version: &parts.http_version,
             conn: &conn_meta,
             route_params: params,
             body,
