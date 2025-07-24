@@ -187,10 +187,7 @@ impl ResponseHandle<'_> {
         headers: HttpHeaders,
         body: impl Read,
     ) -> io::Result<()> {
-        let should_close = headers
-            .get(HttpHeaders::CONNECTION)
-            .map(|v| v.eq_ignore_ascii_case("close"))
-            .unwrap_or(false);
+        let should_close = headers.is_connection_close();
 
         {
             let mut p = HttpPrinter::new(&mut self.stream);
@@ -312,8 +309,14 @@ where
             route_params: params,
             body,
         };
+        let connection_close = ctx.headers.is_connection_close();
 
         (handler)(ctx, &mut response);
+
+        if connection_close {
+            let _ = stream.shutdown(Shutdown::Both);
+            break;
+        }
     }
 }
 

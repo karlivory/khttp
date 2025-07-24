@@ -125,6 +125,13 @@ impl HttpHeaders {
             None => false,
         }
     }
+
+    pub fn is_connection_close(&self) -> bool {
+        match self.get(Self::CONNECTION) {
+            Some(te) => te.eq_ignore_ascii_case("close"),
+            None => false,
+        }
+    }
 }
 
 pub struct TransferEncoding {}
