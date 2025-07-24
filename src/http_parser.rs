@@ -112,7 +112,7 @@ pub fn parse_response_status_line<R: BufRead>(
     }
     let reason = parts[2].to_string();
 
-    Ok(HttpStatus::new(code, reason))
+    Ok(HttpStatus::owned(code, reason))
 }
 
 pub fn parse_request_status_line<R: BufRead>(

@@ -1,5 +1,6 @@
 // src/common.rs
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::fmt::{self};
@@ -191,98 +192,140 @@ impl Display for HttpMethod {
 // HttpStatus
 // ---------------------------------------------------------------------
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HttpStatus {
     pub code: u16,
-    pub reason: String,
+    pub reason: Cow<'static, str>,
 }
 
 impl HttpStatus {
-    pub fn new(code: u16, reason: String) -> Self {
-        Self { code, reason }
-    }
-    pub fn of(code: u16) -> Self {
+    pub const fn borrowed(code: u16, reason: &'static str) -> Self {
         Self {
             code,
-            reason: get_status_code_reason(code).unwrap_or("").to_string(),
+            reason: Cow::Borrowed(reason),
         }
+    }
+    pub fn owned(code: u16, reason: String) -> Self {
+        Self {
+            code,
+            reason: Cow::Owned(reason),
+        }
+    }
+    pub fn with_reason<S: Into<String>>(mut self, s: S) -> Self {
+        self.reason = Cow::Owned(s.into());
+        self
+    }
+    pub fn set_reason<S: Into<String>>(&mut self, s: S) {
+        self.reason = Cow::Owned(s.into());
     }
 }
 
-pub fn get_status_code_reason(code: u16) -> Option<&'static str> {
-    Some(match code {
-        // 1xx: Informational
-        100 => "CONTINUE",
-        101 => "SWITCHING PROTOCOLS",
-        102 => "PROCESSING",
-        103 => "EARLY HINTS",
+impl fmt::Display for HttpStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {}", self.code, self.reason)
+    }
+}
 
-        // 2xx: Success
-        200 => "OK",
-        201 => "CREATED",
-        202 => "ACCEPTED",
-        203 => "NON-AUTHORITATIVE INFORMATION",
-        204 => "NO CONTENT",
-        205 => "RESET CONTENT",
-        206 => "PARTIAL CONTENT",
-        207 => "MULTI-STATUS",
-        208 => "ALREADY REPORTED",
-        226 => "IM USED",
+impl From<u16> for HttpStatus {
+    fn from(code: u16) -> Self {
+        Self::of(code)
+    }
+}
+impl PartialEq<u16> for HttpStatus {
+    fn eq(&self, other: &u16) -> bool {
+        self.code == *other
+    }
+}
 
-        // 3xx: Redirection
-        300 => "MULTIPLE CHOICES",
-        301 => "MOVED PERMANENTLY",
-        302 => "FOUND",
-        303 => "SEE OTHER",
-        304 => "NOT MODIFIED",
-        305 => "USE PROXY",
-        307 => "TEMPORARY REDIRECT",
-        308 => "PERMANENT REDIRECT",
+macro_rules! define_statuses {
+    ($( $code:literal => $ident:ident, $reason:expr );* $(;)?) => {
+        impl HttpStatus {
+            $(
+                pub const $ident: HttpStatus = HttpStatus::borrowed($code, $reason);
+            )*
 
-        // 4xx: Client Error
-        400 => "BAD REQUEST",
-        401 => "UNAUTHORIZED",
-        402 => "PAYMENT REQUIRED",
-        403 => "FORBIDDEN",
-        404 => "NOT FOUND",
-        405 => "METHOD NOT ALLOWED",
-        406 => "NOT ACCEPTABLE",
-        407 => "PROXY AUTHENTICATION REQUIRED",
-        408 => "REQUEST TIMEOUT",
-        409 => "CONFLICT",
-        410 => "GONE",
-        411 => "LENGTH REQUIRED",
-        412 => "PRECONDITION FAILED",
-        413 => "PAYLOAD TOO LARGE",
-        414 => "URI TOO LONG",
-        415 => "UNSUPPORTED MEDIA TYPE",
-        416 => "RANGE NOT SATISFIABLE",
-        417 => "EXPECTATION FAILED",
-        418 => "I'M A TEAPOT",
-        421 => "MISDIRECTED REQUEST",
-        422 => "UNPROCESSABLE ENTITY",
-        423 => "LOCKED",
-        424 => "FAILED DEPENDENCY",
-        425 => "TOO EARLY",
-        426 => "UPGRADE REQUIRED",
-        428 => "PRECONDITION REQUIRED",
-        429 => "TOO MANY REQUESTS",
-        431 => "REQUEST HEADER FIELDS TOO LARGE",
-        451 => "UNAVAILABLE FOR LEGAL REASONS",
+            pub const fn of(code: u16) -> Self {
+                match code {
+                    $(
+                        $code => HttpStatus::$ident,
+                    )*
+                    _ => HttpStatus::borrowed(code, ""),
+                }
+            }
+        }
+    };
+}
 
-        // 5xx: Server Error
-        500 => "INTERNAL SERVER ERROR",
-        501 => "NOT IMPLEMENTED",
-        502 => "BAD GATEWAY",
-        503 => "SERVICE UNAVAILABLE",
-        504 => "GATEWAY TIMEOUT",
-        505 => "HTTP VERSION NOT SUPPORTED",
-        506 => "VARIANT ALSO NEGOTIATES",
-        507 => "INSUFFICIENT STORAGE",
-        508 => "LOOP DETECTED",
-        510 => "NOT EXTENDED",
-        511 => "NETWORK AUTHENTICATION REQUIRED",
+define_statuses! {
+    // 1xx
+    100 => CONTINUE, "CONTINUE";
+    101 => SWITCHING_PROTOCOLS, "SWITCHING PROTOCOLS";
+    102 => PROCESSING, "PROCESSING";
+    103 => EARLY_HINTS, "EARLY HINTS";
 
-        _ => return None,
-    })
+    // 2xx
+    200 => OK, "OK";
+    201 => CREATED, "CREATED";
+    202 => ACCEPTED, "ACCEPTED";
+    203 => NON_AUTHORITATIVE_INFORMATION, "NON-AUTHORITATIVE INFORMATION";
+    204 => NO_CONTENT, "NO CONTENT";
+    205 => RESET_CONTENT, "RESET CONTENT";
+    206 => PARTIAL_CONTENT, "PARTIAL CONTENT";
+    207 => MULTI_STATUS, "MULTI-STATUS";
+    208 => ALREADY_REPORTED, "ALREADY REPORTED";
+    226 => IM_USED, "IM USED";
+
+    // 3xx
+    300 => MULTIPLE_CHOICES, "MULTIPLE CHOICES";
+    301 => MOVED_PERMANENTLY, "MOVED PERMANENTLY";
+    302 => FOUND, "FOUND";
+    303 => SEE_OTHER, "SEE OTHER";
+    304 => NOT_MODIFIED, "NOT MODIFIED";
+    305 => USE_PROXY, "USE PROXY";
+    307 => TEMPORARY_REDIRECT, "TEMPORARY REDIRECT";
+    308 => PERMANENT_REDIRECT, "PERMANENT REDIRECT";
+
+    // 4xx
+    400 => BAD_REQUEST, "BAD REQUEST";
+    401 => UNAUTHORIZED, "UNAUTHORIZED";
+    402 => PAYMENT_REQUIRED, "PAYMENT REQUIRED";
+    403 => FORBIDDEN, "FORBIDDEN";
+    404 => NOT_FOUND, "NOT FOUND";
+    405 => METHOD_NOT_ALLOWED, "METHOD NOT ALLOWED";
+    406 => NOT_ACCEPTABLE, "NOT ACCEPTABLE";
+    407 => PROXY_AUTHENTICATION_REQUIRED, "PROXY AUTHENTICATION REQUIRED";
+    408 => REQUEST_TIMEOUT, "REQUEST TIMEOUT";
+    409 => CONFLICT, "CONFLICT";
+    410 => GONE, "GONE";
+    411 => LENGTH_REQUIRED, "LENGTH REQUIRED";
+    412 => PRECONDITION_FAILED, "PRECONDITION FAILED";
+    413 => PAYLOAD_TOO_LARGE, "PAYLOAD TOO LARGE";
+    414 => URI_TOO_LONG, "URI TOO LONG";
+    415 => UNSUPPORTED_MEDIA_TYPE, "UNSUPPORTED MEDIA TYPE";
+    416 => RANGE_NOT_SATISFIABLE, "RANGE NOT SATISFIABLE";
+    417 => EXPECTATION_FAILED, "EXPECTATION FAILED";
+    418 => IM_A_TEAPOT, "I'M A TEAPOT";
+    421 => MISDIRECTED_REQUEST, "MISDIRECTED REQUEST";
+    422 => UNPROCESSABLE_ENTITY, "UNPROCESSABLE ENTITY";
+    423 => LOCKED, "LOCKED";
+    424 => FAILED_DEPENDENCY, "FAILED DEPENDENCY";
+    425 => TOO_EARLY, "TOO EARLY";
+    426 => UPGRADE_REQUIRED, "UPGRADE REQUIRED";
+    428 => PRECONDITION_REQUIRED, "PRECONDITION REQUIRED";
+    429 => TOO_MANY_REQUESTS, "TOO MANY REQUESTS";
+    431 => REQUEST_HEADER_FIELDS_TOO_LARGE, "REQUEST HEADER FIELDS TOO LARGE";
+    451 => UNAVAILABLE_FOR_LEGAL_REASONS, "UNAVAILABLE FOR LEGAL REASONS";
+
+    // 5xx
+    500 => INTERNAL_SERVER_ERROR, "INTERNAL SERVER ERROR";
+    501 => NOT_IMPLEMENTED, "NOT IMPLEMENTED";
+    502 => BAD_GATEWAY, "BAD GATEWAY";
+    503 => SERVICE_UNAVAILABLE, "SERVICE UNAVAILABLE";
+    504 => GATEWAY_TIMEOUT, "GATEWAY TIMEOUT";
+    505 => HTTP_VERSION_NOT_SUPPORTED, "HTTP VERSION NOT SUPPORTED";
+    506 => VARIANT_ALSO_NEGOTIATES, "VARIANT ALSO NEGOTIATES";
+    507 => INSUFFICIENT_STORAGE, "INSUFFICIENT STORAGE";
+    508 => LOOP_DETECTED, "LOOP DETECTED";
+    510 => NOT_EXTENDED, "NOT EXTENDED";
+    511 => NETWORK_AUTHENTICATION_REQUIRED, "NETWORK AUTHENTICATION REQUIRED";
 }
