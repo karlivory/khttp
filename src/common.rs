@@ -119,6 +119,15 @@ impl HttpHeaders {
     pub fn set_transfer_encoding_chunked(&mut self) {
         self.add(Self::TRANSFER_ENCODING, TransferEncoding::CHUNKED);
     }
+
+    pub fn is_transfer_encoding_chunked(&self) -> bool {
+        match self.get(Self::TRANSFER_ENCODING) {
+            Some(te) => te
+                .split(',')
+                .any(|t| t.trim().eq_ignore_ascii_case(TransferEncoding::CHUNKED)),
+            None => false,
+        }
+    }
 }
 
 pub struct TransferEncoding {}

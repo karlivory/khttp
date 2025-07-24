@@ -11,7 +11,7 @@
 
 use criterion::{BenchmarkId, Criterion};
 use khttp::{
-    common::{HttpHeaders, HttpMethod},
+    common::{HttpHeaders, HttpMethod, HttpStatus},
     http_parser::HttpRequestParser,
     router::DefaultRouter,
     server::{HttpServer, RouteFn},
@@ -338,8 +338,7 @@ fn make_khttp_server(port: u16) -> KhttpServer {
 
 fn respond_hello(res: &mut khttp::server::ResponseHandle) {
     let msg = "Hello, World!";
-    let headers = HttpHeaders::new();
-    res.ok(headers, msg.as_bytes());
+    res.ok(HttpHeaders::new(), msg.as_bytes());
 }
 
 use std::sync::OnceLock;
@@ -356,14 +355,12 @@ fn respond_heavy(res: &mut khttp::server::ResponseHandle) {
     let msg = heavy_body();
     let mut headers = HttpHeaders::new();
     headers.set_content_length(msg.len());
-    res.ok(headers, msg);
+    res.ok(HttpHeaders::new(), msg);
 }
 
 fn respond_chunked(res: &mut khttp::server::ResponseHandle) {
     let msg = heavy_body();
-    let mut headers = HttpHeaders::new();
-    headers.set_transfer_encoding_chunked();
-    res.ok(headers, msg);
+    res.send_chunked(&HttpStatus::of(200), HttpHeaders::new(), msg);
 }
 
 fn ensure_rewrk() {

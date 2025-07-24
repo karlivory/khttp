@@ -1,5 +1,5 @@
 // src/body_reader.rs
-use crate::common::{HttpHeaders, TransferEncoding};
+use crate::common::HttpHeaders;
 use std::io::{self, BufRead, BufReader, Read};
 
 pub enum BodyReader<R: Read> {
@@ -36,11 +36,9 @@ impl<R: Read> Read for BodyReader<R> {
 
 impl<R: Read> BodyReader<R> {
     pub fn from(headers: &HttpHeaders, reader: BufReader<R>) -> Self {
-        if let Some(te) = headers.get(HttpHeaders::TRANSFER_ENCODING) {
-            if has_chunked(te) {
-                return BodyReader::Chunked(ChunkedReader::new(reader));
-            }
-            // ignore/err other encodings
+        if headers.is_transfer_encoding_chunked() {
+            return BodyReader::Chunked(ChunkedReader::new(reader));
+            // TODO: document: other transfer-encodings are ignored
         }
         if let Some(cl) = headers.get_content_length() {
             if cl == 0 {
@@ -73,11 +71,6 @@ impl<R: Read> BodyReader<R> {
             BodyReader::Empty(br) => br,
         }
     }
-}
-
-fn has_chunked(v: &str) -> bool {
-    v.split(',')
-        .any(|t| t.trim().eq_ignore_ascii_case(TransferEncoding::CHUNKED))
 }
 
 pub struct ChunkedReader<R: BufRead> {

@@ -1,5 +1,5 @@
 // src/http_printer.rs
-use crate::common::{HttpHeaders, HttpMethod, HttpStatus, TransferEncoding};
+use crate::common::{HttpHeaders, HttpMethod, HttpStatus};
 use std::io::{self, BufWriter, Read, Write};
 
 const HTTP_VERSION: &[u8] = b"HTTP/1.1";
@@ -27,14 +27,11 @@ impl<W: Write> HttpPrinter<W> {
         mut headers: HttpHeaders,
         mut body: impl Read,
     ) -> io::Result<()> {
-        if let Some(te) = headers.get(HttpHeaders::TRANSFER_ENCODING) {
-            if te.eq_ignore_ascii_case(TransferEncoding::CHUNKED) {
-                // Transfer-Encoding: chunked
-                return self.write_response_chunked(status, headers, &[], body);
-            } else {
-                // NB! document this: only "chunked" encoding is supported
-                headers.remove(HttpHeaders::TRANSFER_ENCODING);
-            }
+        if headers.is_transfer_encoding_chunked() {
+            // remove CL, force "transfer-encoding" value to be exactly "chunked"
+            headers.remove(HttpHeaders::CONTENT_LENGTH);
+            headers.set_transfer_encoding_chunked();
+            return self.write_response_chunked(status, &headers, &[], body);
         }
 
         if let Some(cl) = headers.get_content_length() {
@@ -60,21 +57,19 @@ impl<W: Write> HttpPrinter<W> {
             self.write_response_fast(status, &headers, &prefix)
         } else {
             // Larger than probe -> chunked
-            self.write_response_chunked(status, headers, &prefix, body)
+            headers.set_transfer_encoding_chunked();
+            self.write_response_chunked(status, &headers, &prefix, body)
         }
     }
 
     fn write_response_chunked(
         &mut self,
         status: &HttpStatus,
-        mut headers: HttpHeaders,
+        headers: &HttpHeaders,
         prefix: &[u8],
         mut body: impl Read,
     ) -> io::Result<()> {
-        headers.remove(HttpHeaders::CONTENT_LENGTH);
-        headers.set_transfer_encoding_chunked();
-
-        let head = build_response_head(status, &headers);
+        let head = build_response_head(status, headers);
         self.writer.write_all(&head)?;
 
         if !prefix.is_empty() {

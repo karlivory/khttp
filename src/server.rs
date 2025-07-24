@@ -131,6 +131,21 @@ impl ResponseHandle<'_> {
         let _ = self.try_send(status, headers, body);
     }
 
+    pub fn send_chunked(&mut self, status: &HttpStatus, headers: HttpHeaders, body: impl Read) {
+        let _ = self.try_send_chunked(status, headers, body);
+    }
+
+    pub fn try_send_chunked(
+        &mut self,
+        status: &HttpStatus,
+        mut headers: HttpHeaders,
+        body: impl Read,
+    ) -> io::Result<()> {
+        headers.remove(HttpHeaders::CONTENT_LENGTH);
+        headers.set_transfer_encoding_chunked();
+        self.try_send(status, headers, body)
+    }
+
     pub fn try_send(
         &mut self,
         status: &HttpStatus,
