@@ -22,7 +22,7 @@ mod tests {
             app.map_route(HttpMethod::Get, "/hello", move |_, res| {
                 let hello = "Hello, World!".to_string();
                 let mut headers = HttpHeaders::new();
-                headers.set_content_length(hello.len());
+                headers.set_content_length(hello.len() as u64);
                 res.send(&HttpStatus::of(200), headers, Cursor::new(hello));
             });
 

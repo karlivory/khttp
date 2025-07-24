@@ -153,7 +153,7 @@ impl ResponseHandle<'_> {
         body: impl Read,
     ) -> io::Result<()> {
         let should_close = headers
-            .get("connection")
+            .get(HttpHeaders::CONNECTION)
             .map(|v| v.eq_ignore_ascii_case("close"))
             .unwrap_or(false);
 

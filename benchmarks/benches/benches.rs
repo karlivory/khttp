@@ -354,7 +354,7 @@ fn heavy_body() -> &'static [u8] {
 fn respond_heavy(res: &mut khttp::server::ResponseHandle) {
     let msg = heavy_body();
     let mut headers = HttpHeaders::new();
-    headers.set_content_length(msg.len());
+    headers.set_content_length(msg.len() as u64);
     res.ok(HttpHeaders::new(), msg);
 }
 

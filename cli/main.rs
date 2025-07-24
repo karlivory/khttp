@@ -43,7 +43,7 @@ fn handle_client_op(op: ClientOp) {
             ClientOpArg::Verbose => verbose = true,
         };
     }
-    headers.set_content_length(body.len());
+    headers.set_content_length(body.len() as u64);
     let response = client.exchange(&op.method, &op.uri, headers, Cursor::new(body));
     if let Err(e) = response {
         handle_client_error(e);
@@ -53,8 +53,10 @@ fn handle_client_op(op: ClientOp) {
     let response_body = response.read_body_to_string();
     if verbose {
         println!("{} {}", response.status.code, response.status.reason);
-        for (h, v) in response.headers.get_map() {
-            println!("{}: {}", h, v);
+        for (h, values) in response.headers.get_map() {
+            for v in values {
+                println!("{}: {}", h, v);
+            }
         }
         println!();
     }

@@ -118,11 +118,13 @@ fn decide_body_strategy<R: Read>(
 
     // Caller provided CL
     if let Some(cl) = headers.get_content_length() {
-        if cl <= PROBE_MAX {
-            let mut buf = Vec::with_capacity(cl);
-            let mut limited = body.by_ref().take(cl as u64);
+        const FAST_LIMIT: u64 = PROBE_MAX as u64;
+        if cl <= FAST_LIMIT {
+            let cap = usize::try_from(cl).unwrap(); // no panic: cl <= FAST_LIMIT
+            let mut buf = Vec::with_capacity(cap);
+            let mut limited = body.by_ref().take(cl);
             limited.read_to_end(&mut buf)?;
-            headers.set_content_length(buf.len());
+            headers.set_content_length(buf.len() as u64);
             return Ok(BodyStrategy::Fast(buf));
         } else {
             return Ok(BodyStrategy::Streaming(body));
@@ -132,7 +134,7 @@ fn decide_body_strategy<R: Read>(
     // No CL, no TE -> probe
     let (prefix, complete) = probe_body(&mut body, PROBE_MAX)?;
     if complete {
-        headers.set_content_length(prefix.len());
+        headers.set_content_length(prefix.len() as u64);
         Ok(BodyStrategy::Fast(prefix))
     } else {
         headers.set_transfer_encoding_chunked();
@@ -190,11 +192,13 @@ fn build_request_head(method: &HttpMethod, uri: &str, headers: &HttpHeaders) -> 
 }
 
 fn add_headers(buf: &mut Vec<u8>, headers: &HttpHeaders) {
-    for (k, v) in headers.get_map() {
-        buf.extend_from_slice(k.as_bytes());
-        buf.extend_from_slice(b": ");
-        buf.extend_from_slice(v.as_bytes());
-        buf.extend_from_slice(CRLF);
+    for (k, values) in headers.get_map() {
+        for v in values {
+            buf.extend_from_slice(k.as_bytes());
+            buf.extend_from_slice(b": ");
+            buf.extend_from_slice(v.as_bytes());
+            buf.extend_from_slice(CRLF);
+        }
     }
 }
 

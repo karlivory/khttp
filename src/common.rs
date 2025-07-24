@@ -1,46 +1,16 @@
 // src/common.rs
+
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::fmt::{self};
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
-pub enum HttpMethod {
-    Get,
-    Post,
-    Head,
-    Put,
-    Patch,
-    Delete,
-    Options,
-    Trace,
-    Custom(String),
-}
-
-impl From<&str> for HttpMethod {
-    fn from(value: &str) -> Self {
-        match value.to_uppercase().as_str() {
-            "POST" => HttpMethod::Post,
-            "GET" => HttpMethod::Get,
-            "PUT" => HttpMethod::Put,
-            "HEAD" => HttpMethod::Head,
-            "PATCH" => HttpMethod::Patch,
-            "DELETE" => HttpMethod::Delete,
-            "OPTIONS" => HttpMethod::Options,
-            "TRACE" => HttpMethod::Trace,
-            x => HttpMethod::Custom(x.to_string()),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct HttpStatus {
-    pub code: u16,
-    pub reason: String,
-}
+// ---------------------------------------------------------------------
+// HttpHeaders
+// ---------------------------------------------------------------------
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct HttpHeaders {
-    headers: HashMap<String, String>,
+    headers: HashMap<String, Vec<String>>,
 }
 
 impl From<HashMap<&str, &str>> for HttpHeaders {
@@ -78,7 +48,7 @@ impl HttpHeaders {
         Default::default()
     }
 
-    pub fn get_map(&self) -> &HashMap<String, String> {
+    pub fn get_map(&self) -> &HashMap<String, Vec<String>> {
         &self.headers
     }
 
@@ -86,38 +56,59 @@ impl HttpHeaders {
         self.headers.len()
     }
 
-    pub fn get(&self, name: &str) -> Option<&String> {
-        self.headers.get(name.to_lowercase().as_str())
-    }
-
     pub fn add(&mut self, name: &str, value: &str) {
-        self.headers.insert(name.to_lowercase(), value.to_string());
+        self.headers
+            .entry(name.to_lowercase())
+            .or_default()
+            .push(value.to_string());
     }
 
-    pub fn remove(&mut self, name: &str) -> Option<String> {
-        self.headers.remove(name)
+    pub fn get(&self, name: &str) -> Option<&str> {
+        self.headers
+            .get(&name.to_lowercase())?
+            .last()
+            .map(|s| s.as_str())
+    }
+
+    pub fn get_all<'a>(&'a self, name: &str) -> impl Iterator<Item = &'a str> {
+        self.headers
+            .get(&name.to_lowercase())
+            .into_iter()
+            .flat_map(|v| v.iter().map(|s| s.as_str()))
+    }
+
+    pub fn set(&mut self, name: &str, value: &str) {
+        self.headers
+            .insert(name.to_lowercase(), vec![value.to_string()]);
+    }
+
+    pub fn remove(&mut self, name: &str) -> Option<Vec<String>> {
+        self.headers.remove(&name.to_lowercase())
     }
 
     pub fn contains(&self, name: &str) -> bool {
-        self.headers.contains_key(name)
+        self.headers.contains_key(&name.to_lowercase())
     }
 
     pub const CONTENT_LENGTH: &str = "content-length";
     pub const CONTENT_TYPE: &str = "content-type";
     pub const TRANSFER_ENCODING: &str = "transfer-encoding";
+    pub const CONNECTION: &str = "connection";
 
-    pub fn get_content_length(&self) -> Option<usize> {
-        let value = self.headers.get(Self::CONTENT_LENGTH)?;
-        let content_len = value.parse::<usize>();
-        content_len.ok()
+    pub fn get_content_length(&self) -> Option<u64> {
+        let cl = self.get(Self::CONTENT_LENGTH)?;
+        if let Ok(n) = cl.trim().parse::<u64>() {
+            return Some(n);
+        }
+        None
     }
-    pub fn set_content_length(&mut self, len: usize) {
-        self.headers
-            .insert(Self::CONTENT_LENGTH.into(), len.to_string());
+
+    pub fn set_content_length(&mut self, len: u64) {
+        self.set(Self::CONTENT_LENGTH, &len.to_string());
     }
 
     pub fn set_transfer_encoding_chunked(&mut self) {
-        self.add(Self::TRANSFER_ENCODING, TransferEncoding::CHUNKED);
+        self.set(Self::TRANSFER_ENCODING, TransferEncoding::CHUNKED);
     }
 
     pub fn is_transfer_encoding_chunked(&self) -> bool {
@@ -136,6 +127,50 @@ impl TransferEncoding {
     pub const CHUNKED: &str = "chunked";
 }
 
+impl std::fmt::Display for HttpHeaders {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (k, vs) in &self.headers {
+            for v in vs {
+                writeln!(f, "{}: {}", k, v)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------
+// HttpMethod
+// ---------------------------------------------------------------------
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+pub enum HttpMethod {
+    Get,
+    Post,
+    Head,
+    Put,
+    Patch,
+    Delete,
+    Options,
+    Trace,
+    Custom(String),
+}
+
+impl From<&str> for HttpMethod {
+    fn from(value: &str) -> Self {
+        match value.to_uppercase().as_str() {
+            "POST" => HttpMethod::Post,
+            "GET" => HttpMethod::Get,
+            "PUT" => HttpMethod::Put,
+            "HEAD" => HttpMethod::Head,
+            "PATCH" => HttpMethod::Patch,
+            "DELETE" => HttpMethod::Delete,
+            "OPTIONS" => HttpMethod::Options,
+            "TRACE" => HttpMethod::Trace,
+            x => HttpMethod::Custom(x.to_string()),
+        }
+    }
+}
+
 impl Display for HttpMethod {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -152,6 +187,16 @@ impl Display for HttpMethod {
     }
 }
 
+// ---------------------------------------------------------------------
+// HttpStatus
+// ---------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct HttpStatus {
+    pub code: u16,
+    pub reason: String,
+}
+
 impl HttpStatus {
     pub fn new(code: u16, reason: String) -> Self {
         Self { code, reason }
@@ -164,7 +209,7 @@ impl HttpStatus {
     }
 }
 
-fn get_status_code_reason(code: u16) -> Option<&'static str> {
+pub fn get_status_code_reason(code: u16) -> Option<&'static str> {
     Some(match code {
         // 1xx: Informational
         100 => "CONTINUE",
