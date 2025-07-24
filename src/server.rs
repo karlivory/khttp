@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::io::{self, Read};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::{Arc, LazyLock, mpsc};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 pub struct App {}
 
@@ -20,14 +20,12 @@ impl App {
     pub fn new(bind_address: &str, port: u16) -> HttpServer<DefaultRouter<Box<RouteFn>>> {
         HttpServer {
             bind_address: bind_address.to_string(),
-            tcp_nodelay: false,
-            tcp_read_timeout: None,
-            tcp_write_timeout: None,
             port,
             thread_count: DEFAULT_THREAD_COUNT,
             router: DefaultRouter::<Box<RouteFn>>::new(),
             fallback_route: Arc::new(Box::new(default_404_handler)),
             shutdown_signal: None,
+            stream_setup_fn: None,
         }
     }
 }
@@ -36,14 +34,12 @@ pub type RouteFn = dyn Fn(HttpRequestContext, &mut ResponseHandle) + Send + Sync
 
 pub struct HttpServer<R> {
     bind_address: String,
-    tcp_nodelay: bool,
-    tcp_read_timeout: Option<Duration>,
-    tcp_write_timeout: Option<Duration>,
     port: u16,
     thread_count: usize,
     router: R,
     fallback_route: Arc<Box<RouteFn>>,
     shutdown_signal: Option<mpsc::Receiver<()>>,
+    stream_setup_fn: Option<Arc<dyn Fn(TcpStream) -> io::Result<TcpStream> + Send + Sync>>,
 }
 
 impl<R> HttpServer<R>
@@ -61,16 +57,11 @@ where
         self.thread_count = thread_count;
     }
 
-    pub fn set_tcp_nodelay(&mut self, tcp_nodelay: bool) {
-        self.tcp_nodelay = tcp_nodelay;
-    }
-
-    pub fn set_tcp_read_timeout(&mut self, duration: Option<Duration>) {
-        self.tcp_read_timeout = duration;
-    }
-
-    pub fn set_tcp_write_timeout(&mut self, duration: Option<Duration>) {
-        self.tcp_write_timeout = duration;
+    pub fn set_stream_setup_fn<F>(&mut self, f: F)
+    where
+        F: Fn(TcpStream) -> io::Result<TcpStream> + Send + Sync + 'static,
+    {
+        self.stream_setup_fn = Some(Arc::new(f));
     }
 
     pub fn set_shutdown_signal(&mut self, signal: Option<mpsc::Receiver<()>>) {
@@ -116,7 +107,7 @@ where
                 }
             }
 
-            let stream = match stream {
+            let mut stream = match stream {
                 Ok(s) => s,
                 Err(e) => {
                     eprintln!("Connection failed: {}", e);
@@ -124,17 +115,14 @@ where
                 }
             };
 
-            if self.tcp_nodelay {
-                if let Err(e) = stream.set_nodelay(true) {
-                    eprintln!("Failed to set TCP_NODELAY: {}", e);
+            if let Some(ref s) = self.stream_setup_fn {
+                stream = match (s)(stream) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("stream_setup_fn failed: {}", e);
+                        continue;
+                    }
                 }
-            }
-
-            if let Err(e) = stream.set_read_timeout(self.tcp_read_timeout) {
-                eprintln!("Failed to set TCP read timeout: {}", e);
-            }
-            if let Err(e) = stream.set_write_timeout(self.tcp_write_timeout) {
-                eprintln!("Failed to set TCP read timeout: {}", e);
             }
 
             let router = router.clone();
@@ -142,8 +130,8 @@ where
 
             pool.execute(move || handle_connection(stream, &router, &handler_404));
 
-            i += 1;
             if let Some(max) = limit {
+                i += 1;
                 if i >= max {
                     break;
                 }
