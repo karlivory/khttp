@@ -1,67 +1,11 @@
-// tests/router.rs
-
 use khttp::{
     common::HttpMethod,
     router::{AppRouter, DefaultRouter},
 };
 
-// ------------------------------- types & utils -------------------------------
-
-type RouteTy = (usize, &'static str);
-
-type Router = DefaultRouter<RouteTy>;
-
-fn new_router() -> Router {
-    DefaultRouter::new()
-}
-
-fn add_routes(router: &mut Router, method: &HttpMethod, routes: &[(&'static str, usize)]) {
-    for (pat, id) in routes {
-        router.add_route(method, pat, (*id, *pat));
-    }
-}
-
-/// Assert that `uri` matches and the route index equals `expected_idx`.
-fn assert_match(router: &Router, method: &HttpMethod, uri: &str, expected_idx: usize) {
-    let m = router
-        .match_route(method, uri)
-        .unwrap_or_else(|| panic!("expected match for URI {}", uri));
-    assert_eq!(m.route.0, expected_idx, "URI: {}", uri);
-}
-
-/// Assert that `uri` matches, the route index equals `expected_idx`,
-/// and that all expected params are present and equal.
-fn assert_match_params(
-    router: &Router,
-    method: &HttpMethod,
-    uri: &str,
-    expected_idx: usize,
-    expected_params: &[(&str, &str)],
-) {
-    let m = router
-        .match_route(method, uri)
-        .unwrap_or_else(|| panic!("expected match for URI {}", uri));
-    assert_eq!(m.route.0, expected_idx, "URI: {}", uri);
-    for (k, v) in expected_params {
-        assert_eq!(
-            m.params.get(*k).unwrap(),
-            v,
-            "param '{}' mismatch for {}",
-            k,
-            uri
-        );
-    }
-}
-
-fn assert_404(router: &Router, method: &HttpMethod, uri: &str) {
-    assert!(
-        router.match_route(method, uri).is_none(),
-        "expected 404 for URI {}",
-        uri
-    );
-}
-
-// ------------------------------- tests --------------------------------------
+// ---------------------------------------------------------------------
+// TESTS
+// ---------------------------------------------------------------------
 
 #[test]
 fn nested_routes() {
@@ -325,4 +269,57 @@ fn test_asterisk_form() {
     assert_404(&r, &HttpMethod::Get, "*");
     assert_404(&r, &HttpMethod::Options, "/route");
     assert_404(&r, &HttpMethod::Options, "hello");
+}
+
+// ---------------------------------------------------------------------
+// UTILS
+// ---------------------------------------------------------------------
+
+type Router = DefaultRouter<(usize, &'static str)>;
+
+fn new_router() -> Router {
+    DefaultRouter::new()
+}
+
+fn add_routes(router: &mut Router, method: &HttpMethod, routes: &[(&'static str, usize)]) {
+    for (pat, id) in routes {
+        router.add_route(method, pat, (*id, *pat));
+    }
+}
+
+fn assert_match(router: &Router, method: &HttpMethod, uri: &str, expected_idx: usize) {
+    let m = router
+        .match_route(method, uri)
+        .unwrap_or_else(|| panic!("expected match for URI {}", uri));
+    assert_eq!(m.route.0, expected_idx, "URI: {}", uri);
+}
+
+fn assert_match_params(
+    router: &Router,
+    method: &HttpMethod,
+    uri: &str,
+    expected_idx: usize,
+    expected_params: &[(&str, &str)],
+) {
+    let m = router
+        .match_route(method, uri)
+        .unwrap_or_else(|| panic!("expected match for URI {}", uri));
+    assert_eq!(m.route.0, expected_idx, "URI: {}", uri);
+    for (k, v) in expected_params {
+        assert_eq!(
+            m.params.get(*k).unwrap(),
+            v,
+            "param '{}' mismatch for {}",
+            k,
+            uri
+        );
+    }
+}
+
+fn assert_404(router: &Router, method: &HttpMethod, uri: &str) {
+    assert!(
+        router.match_route(method, uri).is_none(),
+        "expected 404 for URI {}",
+        uri
+    );
 }
