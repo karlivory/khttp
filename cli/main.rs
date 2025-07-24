@@ -1,14 +1,15 @@
 // cli/main.rs
 
 use std::io::Cursor;
+use std::panic::UnwindSafe;
 use std::time::Duration;
 use std::{env, thread};
 
 use args_parser::{ArgsParser, ClientOp, ClientOpArg, MainOp, ServerOpArg};
 use khttp::client::{Client, HttpClientError};
-use khttp::common::{HttpHeaders, HttpMethod};
+use khttp::common::{HttpHeaders, HttpMethod, HttpStatus};
 use khttp::router::DefaultRouter;
-use khttp::server::{App, HttpServer, RouteFn};
+use khttp::server::{App, HttpRequestContext, HttpServer, ResponseHandle, RouteFn};
 
 pub mod args_parser;
 
@@ -96,17 +97,51 @@ fn get_app(args: Vec<ServerOpArg>) -> HttpServer<DefaultRouter<Box<RouteFn>>> {
 
 fn run_echo_server(args: Vec<ServerOpArg>) {
     let mut app = get_app(args);
-    app.map_route(HttpMethod::Post, "/**", |mut ctx, res| {
-        res.ok(ctx.headers.clone(), ctx.get_body_reader());
-    });
+    app.map_route(
+        HttpMethod::Post,
+        "/**",
+        recover(|mut ctx, res| {
+            res.ok(ctx.headers.clone(), ctx.get_body_reader());
+        }),
+    );
     app.serve().unwrap();
+}
+
+fn recover<F>(f: F) -> impl Fn(HttpRequestContext, &mut ResponseHandle)
+where
+    F: Fn(HttpRequestContext, &mut ResponseHandle) + UnwindSafe,
+{
+    move |ctx, res| {
+        if let Err(panic_info) =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(ctx, res)))
+        {
+            let panic_reason = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                s
+            } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                s
+            } else {
+                ""
+            };
+
+            eprintln!("handler panicked: {:?}", panic_reason);
+            res.send(
+                &HttpStatus::of(500),
+                HttpHeaders::new(),
+                "Internal Server Error".as_bytes(),
+            );
+        }
+    }
 }
 
 fn run_sleep_server(args: Vec<ServerOpArg>) {
     let mut app = get_app(args);
-    app.map_route(HttpMethod::Get, "/sleep", |ctx, res| {
-        thread::sleep(Duration::from_secs(3));
-        res.ok(ctx.headers, &[][..]);
-    });
+    app.map_route(
+        HttpMethod::Get,
+        "/sleep",
+        recover(|ctx, res| {
+            thread::sleep(Duration::from_secs(3));
+            res.ok(ctx.headers, &[][..]);
+        }),
+    );
     app.serve().unwrap();
 }
