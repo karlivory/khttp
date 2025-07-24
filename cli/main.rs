@@ -99,7 +99,7 @@ fn run_echo_server(args: Vec<ServerOpArg>) {
     app.map_route(HttpMethod::Post, "/**", |mut ctx, res| {
         res.ok(ctx.headers.clone(), ctx.get_body_reader());
     });
-    app.serve();
+    app.serve().unwrap();
 }
 
 fn run_sleep_server(args: Vec<ServerOpArg>) {
@@ -108,5 +108,5 @@ fn run_sleep_server(args: Vec<ServerOpArg>) {
         thread::sleep(Duration::from_secs(3));
         res.ok(ctx.headers, &[][..]);
     });
-    app.serve();
+    app.serve().unwrap();
 }

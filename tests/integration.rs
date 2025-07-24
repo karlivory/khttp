@@ -35,7 +35,7 @@ mod tests {
                 res.send(&HttpStatus::of(201), headers, Cursor::new(b));
             });
 
-            app.serve_n(3);
+            app.serve_n(3).ok();
         });
         // wait for server to be active
         thread::sleep(Duration::from_millis(10));

@@ -74,46 +74,49 @@ where
         self.router.remove_route(&method, path)
     }
 
-    pub fn serve_n(self, n: u64) {
+    pub fn serve_n(self, n: u64) -> io::Result<()> {
         if n == 0 {
-            return;
+            return Ok(());
         }
+        self.serve_loop(Some(n))
+    }
 
-        let listener = TcpListener::bind((self.bind_address.as_str(), self.port)).unwrap();
+    pub fn serve(self) -> io::Result<()> {
+        self.serve_loop(None)
+    }
+
+    fn serve_loop(self, limit: Option<u64>) -> io::Result<()> {
+        let listener = TcpListener::bind((self.bind_address.as_str(), self.port))?;
         let pool = ThreadPool::new(self.thread_count);
         let router = Arc::new(self.router);
 
         let mut i = 0;
         for stream in listener.incoming() {
-            let stream = stream.unwrap();
+            let stream = match stream {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("Connection failed: {}", e);
+                    continue;
+                }
+            };
             if self.tcp_nodelay {
-                stream.set_nodelay(true).unwrap();
+                if let Err(e) = stream.set_nodelay(true) {
+                    eprintln!("Failed to set TCP_NODELAY: {}", e);
+                }
             }
+
             let router = router.clone();
             let handler_404 = self.fallback_route.clone();
             pool.execute(move || handle_connection(stream, &router, &handler_404));
 
             i += 1;
-            if i == n {
-                break;
+            if let Some(max) = limit {
+                if i >= max {
+                    break;
+                }
             }
         }
-    }
-
-    pub fn serve(self) {
-        let listener = TcpListener::bind((self.bind_address.as_str(), self.port)).unwrap();
-        let pool = ThreadPool::new(self.thread_count);
-        let router = Arc::new(self.router);
-
-        for stream in listener.incoming() {
-            let stream = stream.unwrap();
-            if self.tcp_nodelay {
-                stream.set_nodelay(true).unwrap();
-            }
-            let router = router.clone();
-            let handler_404 = self.fallback_route.clone();
-            pool.execute(move || handle_connection(stream, &router, &handler_404));
-        }
+        Ok(())
     }
 }
 
