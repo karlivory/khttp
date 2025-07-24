@@ -70,16 +70,16 @@ impl<T> AppRouter for DefaultRouter<T> {
             });
         };
 
-        // (lml, precedence_tag, &pattern_segments, &route, params)
+        #[allow(clippy::type_complexity)]
         let mut matched: Vec<(
-            u16,
-            Precedence,
-            &Vec<RouteSegment>,
-            &Arc<T>,
-            HashMap<&str, &str>,
+            u16,                 // lml
+            Precedence,          // precedence_tag
+            &Vec<RouteSegment>,  // &pattern_segments
+            &Arc<T>,             // &route
+            HashMap<&str, &str>, // params
         )> = Vec::new();
-        let mut max_lml = 0u16;
 
+        let mut max_lml = 0u16;
         for (pattern, route) in routes.iter() {
             let pattern = match pattern {
                 RouteEntry::Standard(p) => p,

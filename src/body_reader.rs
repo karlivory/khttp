@@ -46,7 +46,7 @@ impl<R: Read> BodyReader<R> {
             } else {
                 BodyReader::Fixed {
                     inner: reader,
-                    remaining: cl as u64,
+                    remaining: cl,
                 }
             }
         } else {
