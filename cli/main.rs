@@ -1,147 +1,65 @@
-// cli/main.rs
+mod args_parser;
+mod client_main;
+mod server_main;
 
-use std::io::Cursor;
-use std::panic::UnwindSafe;
-use std::time::Duration;
-use std::{env, thread};
-
-use args_parser::{ArgsParser, ClientOp, ClientOpArg, MainOp, ServerOpArg};
-use khttp::client::{Client, HttpClientError};
-use khttp::common::{HttpHeaders, HttpMethod, HttpStatus};
-use khttp::router::DefaultRouter;
-use khttp::server::{App, HttpRequestContext, HttpServer, ResponseHandle, RouteFn};
-
-pub mod args_parser;
+use args_parser::{ArgsError, ArgsParser, MainOp};
+use std::env;
 
 fn main() {
-    let args = ArgsParser::parse(env::args());
-    match args {
-        Err(_) => print_help(),
-        Ok(op) => handle_op(op),
-    }
-}
+    let args = env::args();
 
-fn handle_op(op: MainOp) {
-    match op {
-        MainOp::Server(op) => match op {
-            args_parser::ServerOp::Echo(args) => run_echo_server(args),
-            args_parser::ServerOp::Sleep(args) => run_sleep_server(args),
-        },
-        MainOp::Client(op) => handle_client_op(op),
-    }
-}
-
-fn handle_client_op(op: ClientOp) {
-    let address = format!("{}:{}", op.host, op.port);
-    let client = Client::new(&address);
-    let mut headers = HttpHeaders::new();
-    let mut body = String::new();
-    let mut verbose = false;
-    for opt_arg in op.opt_args {
-        match opt_arg {
-            ClientOpArg::Header((h, v)) => headers.add(&h, &v),
-            ClientOpArg::Body(b) => body = b,
-            ClientOpArg::Verbose => verbose = true,
-        };
-    }
-    headers.set_content_length(body.len() as u64);
-    let response = client.exchange(&op.method, &op.uri, headers, Cursor::new(body));
-    if let Err(e) = response {
-        handle_client_error(e);
+    if env::args().any(|x| x == "-h" || x == "--help") {
+        print_help();
         return;
     }
-    let mut response = response.unwrap();
-    let response_body = response.read_body_to_string();
-    if verbose {
-        println!("{} {}", response.status.code, response.status.reason);
-        for (h, values) in response.headers.get_map() {
-            for v in values {
-                println!("{}: {}", h, v);
-            }
-        }
-        println!();
+
+    if env::args().len() < 2 {
+        print_help();
+        return;
     }
-    print!("{}", response_body.unwrap_or("".to_string()));
+
+    match ArgsParser::parse(args) {
+        Err(args_err) => {
+            match args_err {
+                ArgsError::InvalidArgs(msg) => {
+                    eprintln!("err: {}", msg);
+                }
+            }
+            print_usage();
+        }
+        Ok(MainOp::Server(op)) => server_main::run(op),
+        Ok(MainOp::Client(op)) => client_main::run(op),
+    }
 }
 
-fn handle_client_error(err: HttpClientError) {
-    println!("ERROR! {}", err);
+fn print_usage() {
+    println!("try 'khttp --help' for more information");
 }
 
 fn print_help() {
-    println!("-- khttp client");
+    println!("khttp - minimal synchronous HTTP/1.1 server + client");
     println!();
-    println!("HELP: how to use and stuff");
-    println!("example: khttp get foo");
-}
-
-fn get_app(args: Vec<ServerOpArg>) -> HttpServer<DefaultRouter<Box<RouteFn>>> {
-    let mut address = "127.0.0.1".to_string();
-    let mut port = 8080;
-    let mut thread_count = None;
-    let mut _verbose = false;
-    for opt_arg in args {
-        match opt_arg {
-            ServerOpArg::Port(p) => port = p,
-            ServerOpArg::BindAddress(a) => address = a.clone(),
-            ServerOpArg::ThreadCount(x) => thread_count = Some(x),
-            ServerOpArg::Verbose => _verbose = true,
-        };
-    }
-    let mut app = App::new(address.as_str(), port);
-    if let Some(thread_count) = thread_count {
-        app.set_thread_count(thread_count);
-    }
-    app
-}
-
-fn run_echo_server(args: Vec<ServerOpArg>) {
-    let mut app = get_app(args);
-    app.map_route(
-        HttpMethod::Post,
-        "/**",
-        recover(|mut ctx, res| {
-            res.ok(ctx.headers.clone(), ctx.get_body_reader());
-        }),
-    );
-    app.serve().unwrap();
-}
-
-fn recover<F>(f: F) -> impl Fn(HttpRequestContext, &mut ResponseHandle)
-where
-    F: Fn(HttpRequestContext, &mut ResponseHandle) + UnwindSafe,
-{
-    move |ctx, res| {
-        if let Err(panic_info) =
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(ctx, res)))
-        {
-            let panic_reason = if let Some(s) = panic_info.downcast_ref::<&str>() {
-                s
-            } else if let Some(s) = panic_info.downcast_ref::<String>() {
-                s
-            } else {
-                ""
-            };
-
-            eprintln!("handler panicked: {:?}", panic_reason);
-            res.send(
-                &HttpStatus::of(500),
-                HttpHeaders::new(),
-                "Internal Server Error".as_bytes(),
-            );
-        }
-    }
-}
-
-fn run_sleep_server(args: Vec<ServerOpArg>) {
-    let mut app = get_app(args);
-    app.map_route(
-        HttpMethod::Get,
-        "/sleep",
-        recover(|ctx, res| {
-            thread::sleep(Duration::from_secs(3));
-            res.ok(ctx.headers, &[][..]);
-        }),
-    );
-    app.serve().unwrap();
+    println!("USAGE:");
+    println!("  khttp [METHOD] <host[:port][/uri]> [options]");
+    println!("  khttp server <subcommand> [options]");
+    println!();
+    println!("METHOD:");
+    println!("  GET | POST | PUT | DELETE | ...");
+    println!();
+    println!("CLIENT OPTIONS:");
+    println!("  -H, --header <key: value>     Add custom header");
+    println!("  -d, --data <string>           Set request body");
+    println!("  -v, --verbose                 Print response headers");
+    println!("  -h, --help                    Show this help");
+    println!();
+    println!("SERVER SUBCOMMANDS:");
+    println!("  echo                          Echoes back POST body");
+    println!("  sleep                         Delays response 3s");
+    println!();
+    println!("SERVER OPTIONS:");
+    println!("  -b, --bind <address>          Default: 127.0.0.1");
+    println!("  -p, --port <number>           Default: 8080");
+    println!("  -t, --thread-count <N>        Number of worker threads");
+    println!("  -v, --verbose                 Verbose output");
+    println!("  -h, --help                    Show this help");
 }

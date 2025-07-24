@@ -1,159 +1,5 @@
-// cli/args_parser.rs
-
-use std::env::Args;
-
 use khttp::common::HttpMethod;
-
-pub struct ArgsParser {}
-
-impl ArgsParser {
-    pub fn parse(mut args: Args) -> Result<MainOp, ArgsError> {
-        // skip first arg
-        args.next();
-        parse_main_op(args)
-    }
-}
-
-fn parse_main_op(mut args: Args) -> Result<MainOp, ArgsError> {
-    let op = get_required_arg(&mut args)?;
-
-    match op.as_str() {
-        "server" => Ok(MainOp::Server(parse_server_op(args)?)),
-        x => Ok(MainOp::Client(parse_client_op(x, args)?)),
-    }
-}
-
-fn parse_server_op(mut args: Args) -> Result<ServerOp, ArgsError> {
-    let arg = get_required_arg(&mut args)?;
-    match arg.as_str() {
-        "echo" => Ok(ServerOp::Echo(parse_server_opt_args(&mut args)?)),
-        "sleep" => Ok(ServerOp::Sleep(parse_server_opt_args(&mut args)?)),
-        _ => Err(ArgsError::InvalidArgs("unknown command".to_string())),
-    }
-}
-
-fn parse_client_op(method: &str, mut args: Args) -> Result<ClientOp, ArgsError> {
-    let method = HttpMethod::from(method.to_uppercase().as_str());
-    if let HttpMethod::Custom(_) = method {
-        return Err(ArgsError::InvalidArgs("invalid method".to_string()));
-    }
-
-    let address = get_required_arg(&mut args)?;
-    let (host, port, uri) = parse_address(address)?;
-    let opt_args = parse_client_opt_args(&mut args)?;
-
-    Ok(ClientOp {
-        method,
-        host,
-        port,
-        uri,
-        opt_args,
-    })
-}
-
-fn get_required_arg(args: &mut Args) -> Result<String, ArgsError> {
-    let arg = args.next();
-    if arg.is_none() {
-        return Err(ArgsError::InvalidArgs("foo".to_string()));
-    }
-    Ok(arg.unwrap())
-}
-
-fn parse_server_opt_args(args: &mut Args) -> Result<Vec<ServerOpArg>, ArgsError> {
-    let mut opt_args = Vec::<ServerOpArg>::new();
-    loop {
-        let arg = args.next();
-        if arg.is_none() {
-            return Ok(opt_args);
-        }
-        let arg = arg.unwrap();
-
-        if arg == "-v" || arg == "--verbose" {
-            opt_args.push(ServerOpArg::Verbose);
-            continue;
-        }
-
-        if arg == "-p" || arg == "--port" {
-            let port = get_required_arg(args)?;
-            let port = port
-                .parse()
-                .map_err(|_| ArgsError::InvalidArgs("invalid port".to_string()))?;
-            opt_args.push(ServerOpArg::Port(port));
-            continue;
-        }
-
-        if arg == "-b" || arg == "--bind" {
-            let address = get_required_arg(args)?;
-            opt_args.push(ServerOpArg::BindAddress(address));
-            continue;
-        }
-
-        if arg == "-t" || arg == "--thread-count" {
-            let thread_count = get_required_arg(args)?;
-            let thread_count = thread_count
-                .parse()
-                .map_err(|_| ArgsError::InvalidArgs("invalid thread count".to_string()))?;
-            opt_args.push(ServerOpArg::ThreadCount(thread_count));
-            continue;
-        }
-    }
-}
-
-fn parse_client_opt_args(args: &mut Args) -> Result<Vec<ClientOpArg>, ArgsError> {
-    let mut opt_args = Vec::<ClientOpArg>::new();
-    loop {
-        let arg = args.next();
-        if arg.is_none() {
-            return Ok(opt_args);
-        }
-        let arg = arg.unwrap();
-
-        if arg == "-v" || arg == "--verbose" {
-            opt_args.push(ClientOpArg::Verbose);
-            continue;
-        }
-
-        if arg == "-d" || arg == "--data" {
-            // next arg is body
-            let body = get_required_arg(args)?;
-            opt_args.push(ClientOpArg::Body(body));
-            continue;
-        }
-
-        if arg == "-H" || arg == "--header" {
-            // next arg is header
-            let header = get_required_arg(args)?;
-            let h: Vec<&str> = header.splitn(2, ":").collect();
-            opt_args.push(ClientOpArg::Header((h[0].to_string(), h[1].to_string())));
-            continue;
-        }
-    }
-}
-
-fn parse_address(address: String) -> Result<(String, u16, String), ArgsError> {
-    // return address, port, uri
-    let mut port: u16 = 80;
-    let mut uri: String = String::from("/");
-
-    let parts: Vec<&str> = address.splitn(2, "/").collect();
-    if parts.len() > 1 {
-        uri = parts[1].to_string();
-    }
-
-    let host_parts: Vec<&str> = parts[0].splitn(2, ":").collect();
-    if host_parts.len() > 2 {
-        return Err(ArgsError::InvalidArgs(String::from(
-            "invalid address: too many :",
-        )));
-    }
-    if host_parts.len() == 2 {
-        port = host_parts[1]
-            .parse()
-            .map_err(|_| ArgsError::InvalidArgs("invalid port".to_string()))?;
-    }
-
-    Ok((host_parts[0].to_string(), port, uri))
-}
+use std::env::Args;
 
 #[derive(Debug)]
 pub enum ArgsError {
@@ -168,16 +14,16 @@ pub enum MainOp {
 
 #[derive(Debug)]
 pub enum ServerOp {
-    Echo(Vec<ServerOpArg>),
-    Sleep(Vec<ServerOpArg>),
+    Echo(ServerConfig),
+    Sleep(ServerConfig),
 }
 
 #[derive(Debug)]
-pub enum ServerOpArg {
-    Port(u16),
-    BindAddress(String),
-    ThreadCount(usize),
-    Verbose,
+pub struct ServerConfig {
+    pub port: u16,
+    pub bind: String,
+    pub thread_count: Option<usize>,
+    pub verbose: bool,
 }
 
 #[derive(Debug)]
@@ -186,12 +32,115 @@ pub struct ClientOp {
     pub host: String,
     pub port: u16,
     pub uri: String,
-    pub opt_args: Vec<ClientOpArg>,
+    pub headers: Vec<(String, String)>,
+    pub body: Option<String>,
+    pub verbose: bool,
 }
 
-#[derive(Debug)]
-pub enum ClientOpArg {
-    Header((String, String)), // -H or --header
-    Body(String),             // -d or --data
-    Verbose,                  // -v or --verbose
+pub struct ArgsParser;
+
+impl ArgsParser {
+    pub fn parse(mut args: Args) -> Result<MainOp, ArgsError> {
+        args.next(); // skip binary name
+        let op = get_required(&mut args)?;
+        match op.as_str() {
+            "server" => Self::parse_server(args),
+            method => Self::parse_client(method, args),
+        }
+    }
+
+    fn parse_server(mut args: Args) -> Result<MainOp, ArgsError> {
+        let sub = get_required(&mut args)?;
+        let mut config = ServerConfig {
+            port: 8080,
+            bind: "127.0.0.1".to_string(),
+            thread_count: None,
+            verbose: false,
+        };
+        while let Some(arg) = args.next() {
+            match arg.as_str() {
+                "-p" | "--port" => config.port = parse_u16(&mut args, "port")?,
+                "-b" | "--bind" => config.bind = get_required(&mut args)?,
+                "-t" | "--thread-count" => {
+                    config.thread_count = Some(parse_usize(&mut args, "thread count")?)
+                }
+                "-v" | "--verbose" => config.verbose = true,
+                _ => return Err(ArgsError::InvalidArgs(format!("Unknown flag: {arg}"))),
+            }
+        }
+        match sub.as_str() {
+            "echo" => Ok(MainOp::Server(ServerOp::Echo(config))),
+            "sleep" => Ok(MainOp::Server(ServerOp::Sleep(config))),
+            _ => Err(ArgsError::InvalidArgs("Unknown server command".to_string())),
+        }
+    }
+
+    fn parse_client(method: &str, mut args: Args) -> Result<MainOp, ArgsError> {
+        let method = HttpMethod::from(method.to_uppercase().as_str());
+        if let HttpMethod::Custom(_) = method {
+            return Err(ArgsError::InvalidArgs("Invalid HTTP method".to_string()));
+        }
+        let addr = get_required(&mut args)?;
+        let (host, port, uri) = parse_address(addr)?;
+        let mut headers = vec![];
+        let mut body = None;
+        let mut verbose = false;
+        while let Some(arg) = args.next() {
+            match arg.as_str() {
+                "-H" | "--header" => {
+                    let header = get_required(&mut args)?;
+                    let parts: Vec<&str> = header.splitn(2, ":").collect();
+                    if parts.len() != 2 {
+                        return Err(ArgsError::InvalidArgs("Malformed header".to_string()));
+                    }
+                    headers.push((parts[0].trim().to_string(), parts[1].trim().to_string()));
+                }
+                "-d" | "--data" => body = Some(get_required(&mut args)?),
+                "-v" | "--verbose" => verbose = true,
+                _ => return Err(ArgsError::InvalidArgs(format!("Unknown flag: {arg}"))),
+            }
+        }
+        Ok(MainOp::Client(ClientOp {
+            method,
+            host,
+            port,
+            uri,
+            headers,
+            body,
+            verbose,
+        }))
+    }
+}
+
+fn get_required(args: &mut Args) -> Result<String, ArgsError> {
+    args.next()
+        .ok_or_else(|| ArgsError::InvalidArgs("missing argument".into()))
+}
+
+fn parse_u16(args: &mut Args, label: &str) -> Result<u16, ArgsError> {
+    get_required(args)?
+        .parse()
+        .map_err(|_| ArgsError::InvalidArgs(format!("invalid {label}")))
+}
+
+fn parse_usize(args: &mut Args, label: &str) -> Result<usize, ArgsError> {
+    get_required(args)?
+        .parse()
+        .map_err(|_| ArgsError::InvalidArgs(format!("invalid {label}")))
+}
+
+fn parse_address(address: String) -> Result<(String, u16, String), ArgsError> {
+    let mut port = 80;
+    let mut uri = "/".to_string();
+    let parts: Vec<&str> = address.splitn(2, '/').collect();
+    if parts.len() > 1 {
+        uri = format!("/{}", parts[1]);
+    }
+    let host_parts: Vec<&str> = parts[0].splitn(2, ':').collect();
+    if host_parts.len() == 2 {
+        port = host_parts[1]
+            .parse()
+            .map_err(|_| ArgsError::InvalidArgs("invalid port".to_string()))?;
+    }
+    Ok((host_parts[0].to_string(), port, uri))
 }
