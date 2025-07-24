@@ -4,6 +4,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::fmt::{self};
+use std::str::FromStr;
 
 // ---------------------------------------------------------------------
 // HttpHeaders
@@ -158,33 +159,73 @@ pub enum HttpMethod {
 
 impl From<&str> for HttpMethod {
     fn from(value: &str) -> Self {
-        match value.to_uppercase().as_str() {
-            "POST" => HttpMethod::Post,
-            "GET" => HttpMethod::Get,
-            "PUT" => HttpMethod::Put,
-            "HEAD" => HttpMethod::Head,
-            "PATCH" => HttpMethod::Patch,
-            "DELETE" => HttpMethod::Delete,
-            "OPTIONS" => HttpMethod::Options,
-            "TRACE" => HttpMethod::Trace,
-            x => HttpMethod::Custom(x.to_string()),
+        // compare ignoring ASCII case without allocating
+        if value.eq_ignore_ascii_case("GET") {
+            HttpMethod::Get
+        } else if value.eq_ignore_ascii_case("POST") {
+            HttpMethod::Post
+        } else if value.eq_ignore_ascii_case("HEAD") {
+            HttpMethod::Head
+        } else if value.eq_ignore_ascii_case("PUT") {
+            HttpMethod::Put
+        } else if value.eq_ignore_ascii_case("PATCH") {
+            HttpMethod::Patch
+        } else if value.eq_ignore_ascii_case("DELETE") {
+            HttpMethod::Delete
+        } else if value.eq_ignore_ascii_case("OPTIONS") {
+            HttpMethod::Options
+        } else if value.eq_ignore_ascii_case("TRACE") {
+            HttpMethod::Trace
+        } else {
+            HttpMethod::Custom(value.to_string())
+        }
+    }
+}
+
+impl HttpMethod {
+    pub fn as_str(&self) -> &str {
+        match self {
+            HttpMethod::Get => "GET",
+            HttpMethod::Post => "POST",
+            HttpMethod::Head => "HEAD",
+            HttpMethod::Put => "PUT",
+            HttpMethod::Patch => "PATCH",
+            HttpMethod::Delete => "DELETE",
+            HttpMethod::Options => "OPTIONS",
+            HttpMethod::Trace => "TRACE",
+            HttpMethod::Custom(s) => s.as_str(),
         }
     }
 }
 
 impl Display for HttpMethod {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            HttpMethod::Get => write!(f, "GET"),
-            HttpMethod::Post => write!(f, "POST"),
-            HttpMethod::Head => write!(f, "HEAD"),
-            HttpMethod::Put => write!(f, "PUT"),
-            HttpMethod::Patch => write!(f, "PATCH"),
-            HttpMethod::Delete => write!(f, "DELETE"),
-            HttpMethod::Options => write!(f, "OPTIONS"),
-            HttpMethod::Trace => write!(f, "TRACE"),
-            HttpMethod::Custom(str) => write!(f, "{}", str),
-        }
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for HttpMethod {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(HttpMethod::from(s))
+    }
+}
+
+impl AsRef<str> for HttpMethod {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl PartialEq<&str> for HttpMethod {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str().eq_ignore_ascii_case(other)
+    }
+}
+
+impl PartialEq<String> for HttpMethod {
+    fn eq(&self, other: &String) -> bool {
+        self.as_str().eq_ignore_ascii_case(other)
     }
 }
 
