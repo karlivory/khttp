@@ -1,8 +1,9 @@
 #[cfg(test)]
 mod tests {
     use khttp::{
+        body_reader::BodyReader,
         common::{HttpHeaders, HttpMethod},
-        http_parser::{HttpParsingError, HttpRequestParser, HttpResponseParser},
+        http_parser::{HttpParsingError, HttpRequestParser, HttpResponseParser, HttpResponseParts},
     };
     use std::io::Read;
 
@@ -221,29 +222,134 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------
+    // CHUNKED ENCODING
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn test_chunked_response_parsing() {
+        let raw = b"\
+HTTP/1.1 200 OK\r\n\
+Transfer-Encoding: chunked\r\n\
+\r\n\
+5\r\n\
+Hello\r\n\
+6\r\n\
+, worl\r\n\
+1\r\n\
+d\r\n\
+0\r\n\
+\r\n";
+
+        let parsed = must_parse_response(raw);
+        assert_eq!(parsed.status.code, 200);
+        assert_eq!(parsed.status.reason, "OK");
+        assert!(parsed.headers.is_transfer_encoding_chunked());
+
+        let mut body_reader = BodyReader::from(&parsed.headers, parsed.reader);
+        let mut buf = String::new();
+        body_reader.read_to_string(&mut buf).unwrap();
+
+        assert_eq!(buf, "Hello, world");
+    }
+
+    #[test]
+    fn test_chunked_response_invalid_chunk_size() {
+        let raw = b"\
+HTTP/1.1 200 OK\r\n\
+Transfer-Encoding: chunked\r\n\
+\r\n\
+ZZ\r\n\
+Hello\r\n\
+0\r\n\
+\r\n";
+
+        let parsed = must_parse_response(raw);
+        let mut body = BodyReader::from(&parsed.headers, parsed.reader);
+        let mut out = String::new();
+
+        let err = body.read_to_string(&mut out).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn test_transfer_encoding_overrides_content_length() {
+        let raw = b"\
+HTTP/1.1 200 OK\r\n\
+Content-Length: 100\r\n\
+Transfer-Encoding: chunked\r\n\
+\r\n\
+3\r\n\
+Hel\r\n\
+2\r\n\
+lo\r\n\
+0\r\n\
+\r\n";
+
+        let parsed = must_parse_response(raw);
+        assert!(parsed.headers.is_transfer_encoding_chunked());
+        assert_eq!(parsed.headers.get("content-length"), Some("100"));
+
+        let mut body = BodyReader::from(&parsed.headers, parsed.reader);
+        let mut buf = String::new();
+        body.read_to_string(&mut buf).unwrap();
+
+        assert_eq!(buf, "Hello");
+    }
+
+    #[test]
+    fn test_chunked_response_with_trailers() {
+        let raw = b"\
+HTTP/1.1 200 OK\r\n\
+Transfer-Encoding: chunked\r\n\
+\r\n\
+5\r\n\
+Hello\r\n\
+7\r\n\
+, World\r\n\
+0\r\n\
+X-Foo: trailer\r\n\
+X-Bar: more\r\n\
+\r\n";
+
+        let parsed = must_parse_response(raw);
+        let mut body = BodyReader::from(&parsed.headers, parsed.reader);
+        let mut buf = String::new();
+        body.read_to_string(&mut buf).unwrap();
+
+        assert_eq!(buf, "Hello, World");
+    }
+
+    // ---------------------------------------------------------------------
     // UTILS
     // ---------------------------------------------------------------------
 
     #[derive(Debug, PartialEq)]
-    struct MockReader {
-        pub body: String,
+    struct MockReader<'a> {
+        pub body: &'a [u8],
         read: bool,
     }
 
-    impl Read for MockReader {
+    impl Read for MockReader<'_> {
         fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
             if self.read {
                 return Ok(0);
             }
 
-            let bytes = self.body.bytes();
-            let n = bytes.len();
-            for (i, byte) in bytes.enumerate() {
-                buf[i] = byte;
+            let n = self.body.len();
+            for (i, byte) in self.body.iter().enumerate() {
+                buf[i] = *byte;
             }
             self.read = true;
             Ok(n)
         }
+    }
+
+    fn must_parse_response(body: &[u8]) -> HttpResponseParts<MockReader> {
+        let test_reader = MockReader { body, read: false };
+
+        HttpResponseParser::new(test_reader)
+            .parse()
+            .expect("parse headers")
     }
 
     fn assert_parse_request_ok(
@@ -254,7 +360,7 @@ mod tests {
         body: &str,
     ) {
         let reader = MockReader {
-            body: input.to_string(),
+            body: input.as_bytes(),
             read: false,
         };
         let mut parsed = HttpRequestParser::new(reader)
@@ -272,7 +378,7 @@ mod tests {
 
     fn assert_parse_request_err(input: &str, expected: HttpParsingError) {
         let reader = MockReader {
-            body: input.to_string(),
+            body: input.as_bytes(),
             read: false,
         };
         let parsed = HttpRequestParser::new(reader).parse();
@@ -287,7 +393,7 @@ mod tests {
         body: &str,
     ) {
         let reader = MockReader {
-            body: input.to_string(),
+            body: input.as_bytes(),
             read: false,
         };
         let mut parsed = HttpResponseParser::new(reader)
@@ -305,7 +411,7 @@ mod tests {
 
     fn assert_parse_response_err(input: &str, expected: HttpParsingError) {
         let reader = MockReader {
-            body: input.to_string(),
+            body: input.as_bytes(),
             read: false,
         };
         let parsed = HttpResponseParser::new(reader).parse();
