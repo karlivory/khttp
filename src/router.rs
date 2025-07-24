@@ -20,7 +20,6 @@ pub trait AppRouter {
     ) -> Option<Match<'a, 'r, Self::Route>>;
     fn add_route(&mut self, method: &HttpMethod, path: &str, route: Self::Route);
     fn remove_route(&mut self, method: &HttpMethod, path: &str) -> Option<Arc<Self::Route>>;
-    fn clone(&self) -> Self;
 }
 
 pub struct DefaultRouter<T> {
@@ -54,12 +53,6 @@ impl<T> AppRouter for DefaultRouter<T> {
         self.routes
             .get_mut(method)
             .and_then(|m| m.remove(&parse_route(path)))
-    }
-
-    fn clone(&self) -> Self {
-        Self {
-            routes: self.routes.clone(),
-        }
     }
 
     fn match_route<'a, 'r>(

@@ -31,10 +31,7 @@ impl App {
 
 pub type RouteFn = dyn Fn(HttpRequestContext, &mut ResponseHandle) + Send + Sync + 'static;
 
-pub struct HttpServer<R>
-where
-    R: AppRouter<Route = Box<RouteFn>>,
-{
+pub struct HttpServer<R> {
     bind_address: String,
     tcp_nodelay: bool,
     port: u16,
@@ -45,7 +42,7 @@ where
 
 impl<R> HttpServer<R>
 where
-    R: AppRouter<Route = Box<RouteFn>> + Send + 'static,
+    R: AppRouter<Route = Box<RouteFn>> + Send + Sync + 'static,
 {
     pub fn map_route<F>(&mut self, method: HttpMethod, path: &str, route_fn: F)
     where
@@ -77,13 +74,14 @@ where
         self.router.remove_route(&method, path)
     }
 
-    pub fn serve_n(&self, n: u64) {
+    pub fn serve_n(self, n: u64) {
         if n == 0 {
             return;
         }
 
         let listener = TcpListener::bind((self.bind_address.as_str(), self.port)).unwrap();
         let pool = ThreadPool::new(self.thread_count);
+        let router = Arc::new(self.router);
 
         let mut i = 0;
         for stream in listener.incoming() {
@@ -91,7 +89,7 @@ where
             if self.tcp_nodelay {
                 stream.set_nodelay(true).unwrap();
             }
-            let router = self.router.clone(); // TODO: this seems inefficient...
+            let router = router.clone();
             let handler_404 = self.fallback_route.clone();
             pool.execute(move || handle_connection(stream, &router, &handler_404));
 
@@ -102,16 +100,17 @@ where
         }
     }
 
-    pub fn serve(&self) {
+    pub fn serve(self) {
         let listener = TcpListener::bind((self.bind_address.as_str(), self.port)).unwrap();
         let pool = ThreadPool::new(self.thread_count);
+        let router = Arc::new(self.router);
 
         for stream in listener.incoming() {
             let stream = stream.unwrap();
             if self.tcp_nodelay {
                 stream.set_nodelay(true).unwrap();
             }
-            let router = self.router.clone();
+            let router = router.clone();
             let handler_404 = self.fallback_route.clone();
             pool.execute(move || handle_connection(stream, &router, &handler_404));
         }
@@ -220,7 +219,7 @@ impl HttpRequestContext<'_, '_> {
 
 static EMPTY_PARAMS: LazyLock<HashMap<&str, &str>> = LazyLock::new(HashMap::new);
 
-fn handle_connection<R>(mut stream: TcpStream, router: &R, handler_404: &Arc<Box<RouteFn>>)
+fn handle_connection<R>(mut stream: TcpStream, router: &Arc<R>, handler_404: &Arc<Box<RouteFn>>)
 where
     R: AppRouter<Route = Box<RouteFn>>,
 {
