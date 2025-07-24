@@ -8,7 +8,7 @@ use crate::threadpool::ThreadPool;
 use std::collections::HashMap;
 use std::io::{self, Read};
 use std::net::{Shutdown, TcpListener, TcpStream};
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, mpsc};
 use std::time::{Duration, Instant};
 
 pub struct App {}
@@ -27,6 +27,7 @@ impl App {
             thread_count: DEFAULT_THREAD_COUNT,
             router: DefaultRouter::<Box<RouteFn>>::new(),
             fallback_route: Arc::new(Box::new(default_404_handler)),
+            shutdown_signal: None,
         }
     }
 }
@@ -42,6 +43,7 @@ pub struct HttpServer<R> {
     thread_count: usize,
     router: R,
     fallback_route: Arc<Box<RouteFn>>,
+    shutdown_signal: Option<mpsc::Receiver<()>>,
 }
 
 impl<R> HttpServer<R>
@@ -69,6 +71,10 @@ where
 
     pub fn set_tcp_write_timeout(&mut self, duration: Option<Duration>) {
         self.tcp_write_timeout = duration;
+    }
+
+    pub fn set_shutdown_signal(&mut self, signal: Option<mpsc::Receiver<()>>) {
+        self.shutdown_signal = signal;
     }
 
     pub fn set_fallback_route<F>(&mut self, f: F)
@@ -104,6 +110,12 @@ where
 
         let mut i = 0;
         for stream in listener.incoming() {
+            if let Some(ref x) = self.shutdown_signal {
+                if x.try_recv().is_ok() {
+                    break;
+                }
+            }
+
             let stream = match stream {
                 Ok(s) => s,
                 Err(e) => {
