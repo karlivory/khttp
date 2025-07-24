@@ -314,3 +314,15 @@ fn overlap_param_and_double_wildcard() {
     // deeper path -> ** wins
     assert_match(&r, &HttpMethod::Get, "/blog/2024/10/interesting", 1);
 }
+
+#[test]
+fn test_asterisk_form() {
+    let mut r = new_router();
+    assert_404(&r, &HttpMethod::Options, "*");
+
+    add_routes(&mut r, &HttpMethod::Options, &[("*", 0)]);
+    assert_match(&r, &HttpMethod::Options, "*", 0);
+    assert_404(&r, &HttpMethod::Get, "*");
+    assert_404(&r, &HttpMethod::Options, "/route");
+    assert_404(&r, &HttpMethod::Options, "hello");
+}

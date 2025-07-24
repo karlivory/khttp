@@ -23,7 +23,7 @@ pub trait AppRouter {
 }
 
 pub struct DefaultRouter<T> {
-    routes: HashMap<HttpMethod, HashMap<Vec<RouteSegment>, Arc<T>>>,
+    routes: HashMap<HttpMethod, HashMap<RouteEntry, Arc<T>>>,
 }
 
 impl<T> Default for DefaultRouter<T> {
@@ -42,11 +42,11 @@ impl<T> AppRouter for DefaultRouter<T> {
     }
 
     fn add_route(&mut self, method: &HttpMethod, path: &str, route: T) {
-        let segments = parse_route(path);
+        let route_entry = parse_route(path);
         self.routes
             .entry(method.clone())
             .or_default()
-            .insert(segments, Arc::new(route));
+            .insert(route_entry, Arc::new(route));
     }
 
     fn remove_route(&mut self, method: &HttpMethod, path: &str) -> Option<Arc<T>> {
@@ -63,6 +63,13 @@ impl<T> AppRouter for DefaultRouter<T> {
         let uri_parts = split_uri_into_parts(uri);
         let routes = self.routes.get(method)?;
 
+        if uri_parts.len() == 1 && uri_parts[0] == "*" {
+            return routes.get(&RouteEntry::AsteriskForm).map(|route| Match {
+                route,
+                params: HashMap::new(),
+            });
+        };
+
         // (lml, precedence_tag, &pattern_segments, &route, params)
         let mut matched: Vec<(
             u16,
@@ -74,8 +81,13 @@ impl<T> AppRouter for DefaultRouter<T> {
         let mut max_lml = 0u16;
 
         for (pattern, route) in routes.iter() {
-            let n = usize::max(uri_parts.len(), pattern.len());
+            let pattern = match pattern {
+                RouteEntry::Standard(p) => p,
+                RouteEntry::AsteriskForm => continue,
+            };
+
             let mut params = HashMap::new();
+            let n = usize::max(uri_parts.len(), pattern.len());
             let mut ok = true; // whether the route is matching
             let mut lml = 0u16; // longest matching literal
             let mut counting_prefix = true; // whether we are still in prefix (all literals so far)
@@ -155,6 +167,12 @@ pub struct Match<'a, 'r, T> {
     pub params: HashMap<&'a str, &'r str>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum RouteEntry {
+    AsteriskForm,
+    Standard(Vec<RouteSegment>),
+}
+
 #[derive(Debug, Clone, Eq)]
 pub enum RouteSegment {
     Literal(String),
@@ -199,12 +217,17 @@ fn parse_route_segment(s: &str) -> RouteSegment {
     }
 }
 
-pub fn parse_route(route_str: &str) -> Vec<RouteSegment> {
-    route_str
-        .split('/')
-        .filter(|x| !x.is_empty())
-        .map(parse_route_segment)
-        .collect()
+pub fn parse_route(route_str: &str) -> RouteEntry {
+    if route_str == "*" {
+        RouteEntry::AsteriskForm
+    } else {
+        let segments = route_str
+            .split('/')
+            .filter(|x| !x.is_empty())
+            .map(parse_route_segment)
+            .collect();
+        RouteEntry::Standard(segments)
+    }
 }
 
 fn split_uri_into_parts(uri: &str) -> Vec<&str> {
