@@ -22,6 +22,28 @@ impl Client {
         self.exchange(&HttpMethod::Get, uri, headers, &[][..])
     }
 
+    pub fn head(&self, uri: &str, headers: HttpHeaders) -> Result<HttpResponse, HttpClientError> {
+        self.exchange(&HttpMethod::Head, uri, headers, &[][..])
+    }
+
+    pub fn put(
+        &self,
+        uri: &str,
+        headers: HttpHeaders,
+        body: impl Read,
+    ) -> Result<HttpResponse, HttpClientError> {
+        self.exchange(&HttpMethod::Put, uri, headers, body)
+    }
+
+    pub fn patch(
+        &self,
+        uri: &str,
+        headers: HttpHeaders,
+        body: impl Read,
+    ) -> Result<HttpResponse, HttpClientError> {
+        self.exchange(&HttpMethod::Patch, uri, headers, body)
+    }
+
     pub fn post(
         &self,
         uri: &str,
@@ -29,6 +51,33 @@ impl Client {
         body: impl Read,
     ) -> Result<HttpResponse, HttpClientError> {
         self.exchange(&HttpMethod::Post, uri, headers, body)
+    }
+
+    pub fn delete(
+        &self,
+        uri: &str,
+        headers: HttpHeaders,
+        body: impl Read,
+    ) -> Result<HttpResponse, HttpClientError> {
+        self.exchange(&HttpMethod::Delete, uri, headers, body)
+    }
+
+    pub fn options(
+        &self,
+        uri: &str,
+        headers: HttpHeaders,
+        body: impl Read,
+    ) -> Result<HttpResponse, HttpClientError> {
+        self.exchange(&HttpMethod::Options, uri, headers, body)
+    }
+
+    pub fn trace(
+        &self,
+        uri: &str,
+        headers: HttpHeaders,
+        body: impl Read,
+    ) -> Result<HttpResponse, HttpClientError> {
+        self.exchange(&HttpMethod::Trace, uri, headers, body)
     }
 
     pub fn exchange(
