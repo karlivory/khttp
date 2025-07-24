@@ -287,6 +287,10 @@ where
             }
         };
 
+        if parts.headers.is_100_continue() {
+            let _ = HttpPrinter::new(&mut stream).write_100_continue();
+        }
+
         conn_meta.req_index = conn_meta.req_index.wrapping_add(1);
         conn_meta.last_activity = Instant::now();
 

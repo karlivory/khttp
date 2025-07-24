@@ -132,6 +132,13 @@ impl HttpHeaders {
             None => false,
         }
     }
+
+    pub fn is_100_continue(&self) -> bool {
+        match self.get("expect") {
+            Some(te) => te.eq_ignore_ascii_case("100-continue"),
+            None => false,
+        }
+    }
 }
 
 pub struct TransferEncoding {}

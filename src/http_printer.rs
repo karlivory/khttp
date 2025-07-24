@@ -5,6 +5,7 @@ use std::io::{self, BufWriter, Read, Write};
 const HTTP_VERSION: &[u8] = b"HTTP/1.1";
 const CRLF: &[u8] = b"\r\n";
 const PROBE_MAX: usize = 8 * 1024;
+const RESPONSE_100_CONTINUE: &[u8] = b"HTTP/1.1 100 Continue\r\n\r\n";
 
 pub struct HttpPrinter<W: Write> {
     writer: BufWriter<W>,
@@ -42,6 +43,11 @@ impl<W: Write> HttpPrinter<W> {
         let strat = decide_body_strategy(&mut headers, body)?;
         let head = build_request_head(method, uri, &headers);
         self.dispatch(head, strat)
+    }
+
+    pub fn write_100_continue(&mut self) -> io::Result<()> {
+        self.writer.write_all(RESPONSE_100_CONTINUE)?;
+        self.writer.flush()
     }
 
     // ---------------------------------------------------------------------
