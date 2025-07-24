@@ -50,6 +50,7 @@ fn print_help() {
     println!("  -H, --header <key: value>     Add custom header");
     println!("  -d, --data <string>           Set request body");
     println!("  -v, --verbose                 Print response headers");
+    println!("  --stall <ms>                  Stall writing after first byte");
     println!("  -h, --help                    Show this help");
     println!();
     println!("SERVER SUBCOMMANDS:");
@@ -59,7 +60,10 @@ fn print_help() {
     println!("SERVER OPTIONS:");
     println!("  -b, --bind <address>          Default: 127.0.0.1");
     println!("  -p, --port <number>           Default: 8080");
-    println!("  -t, --thread-count <N>        Number of worker threads");
+    println!("  -t, --thread-count <ms>       Number of worker threads");
+    println!("  --tcp-read-timeout <ms>       TCP socket read timeout");
+    println!("  --tcp-write-timeout <ms>      TCP socket write timeout");
+    println!("  --tcp-nodelay                 Enable TCP_NODELAY");
     println!("  -v, --verbose                 Verbose output");
     println!("  -h, --help                    Show this help");
 }

@@ -1,6 +1,7 @@
+use std::net::TcpStream;
 use std::panic::UnwindSafe;
-use std::thread;
 use std::time::Duration;
+use std::{io, thread};
 
 use crate::args_parser::{ServerConfig, ServerOp};
 use khttp::common::{HttpHeaders, HttpMethod, HttpStatus};
@@ -16,6 +17,7 @@ pub fn run(op: ServerOp) {
 
 fn run_echo_server(config: ServerConfig) {
     let mut app = get_app(config);
+
     app.map_route(
         HttpMethod::Post,
         "/**",
@@ -28,6 +30,7 @@ fn run_echo_server(config: ServerConfig) {
 
 fn run_sleep_server(config: ServerConfig) {
     let mut app = get_app(config);
+
     app.map_route(
         HttpMethod::Get,
         "/sleep",
@@ -39,11 +42,29 @@ fn run_sleep_server(config: ServerConfig) {
     app.serve().unwrap();
 }
 
+fn get_stream_setup_fn(config: ServerConfig) -> impl Fn(TcpStream) -> io::Result<TcpStream> {
+    let read_timeout = config.tcp_read_timeout;
+    let write_timeout = config.tcp_write_timeout;
+    let tcp_nodelay = config.tcp_nodelay;
+
+    move |s| {
+        if let Some(timeout) = read_timeout {
+            s.set_read_timeout(Some(Duration::from_millis(timeout)))?;
+        }
+        if let Some(timeout) = write_timeout {
+            s.set_write_timeout(Some(Duration::from_millis(timeout)))?;
+        }
+        s.set_nodelay(tcp_nodelay)?;
+        Ok(s)
+    }
+}
+
 fn get_app(config: ServerConfig) -> HttpServer<DefaultRouter<Box<RouteFn>>> {
     let mut app = App::new(&config.bind, config.port);
     if let Some(n) = config.thread_count {
         app.set_thread_count(n);
     }
+    app.set_stream_setup_fn(get_stream_setup_fn(config));
     app
 }
 
