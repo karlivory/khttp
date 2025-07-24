@@ -19,7 +19,7 @@ pub struct HttpRequestStatusLine {
 pub struct HttpRequestParts<R: Read> {
     pub headers: HttpHeaders,
     pub method: HttpMethod,
-    pub uri: String,
+    pub full_uri: String,
     pub reader: BufReader<R>,
 }
 
@@ -37,7 +37,7 @@ impl<R: Read> HttpRequestParser<R> {
 
         Ok(HttpRequestParts {
             method: status_line.method,
-            uri: status_line.uri,
+            full_uri: status_line.uri,
             headers,
             reader: self.reader,
         })
@@ -130,21 +130,7 @@ pub fn parse_request_status_line<R: BufRead>(
     }
 
     let method = parts[0].into();
-    let raw_uri = parts[1];
-
-    // Normalize absolute-form to origin-form path (ignore authority/scheme)
-    let uri = if raw_uri.starts_with("http://") || raw_uri.starts_with("https://") {
-        let pos = raw_uri.find("://").unwrap();
-        let after_scheme = &raw_uri[pos + 3..];
-        match after_scheme.find('/') {
-            Some(path_start) => &after_scheme[path_start..],
-            None => "/",
-        }
-        .to_string()
-    } else {
-        raw_uri.to_string()
-    };
-
+    let uri = parts[1].to_string();
     Ok(HttpRequestStatusLine { method, uri })
 }
 

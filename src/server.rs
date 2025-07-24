@@ -221,7 +221,9 @@ pub struct HttpRequestContext<'c, 'r> {
     pub headers: HttpHeaders,
     pub method: HttpMethod,
     pub route_params: &'r HashMap<&'r str, &'r str>,
-    pub uri: &'r String,
+    pub scheme: Option<&'r str>,
+    pub absolute_form_authority: Option<&'r str>,
+    pub uri: &'r str,
     pub conn: &'c ConnectionMeta,
     body: BodyReader<TcpStream>,
 }
@@ -294,7 +296,9 @@ where
         conn_meta.req_index = conn_meta.req_index.wrapping_add(1);
         conn_meta.last_activity = Instant::now();
 
-        let matched = router.match_route(&parts.method, &parts.uri);
+        let (scheme, absolute_form_authority, uri) = split_uri(&parts.full_uri);
+
+        let matched = router.match_route(&parts.method, uri);
         let (handler, params) = match &matched {
             Some(r) => (r.route, &r.params),
             None => (handler_404, &*EMPTY_PARAMS),
@@ -308,7 +312,9 @@ where
         let ctx = HttpRequestContext {
             method: parts.method,
             headers: parts.headers,
-            uri: &parts.uri,
+            scheme,
+            absolute_form_authority,
+            uri,
             conn: &conn_meta,
             route_params: params,
             body,
@@ -321,6 +327,24 @@ where
             let _ = stream.shutdown(Shutdown::Both);
             break;
         }
+    }
+}
+
+pub fn split_uri(full_uri: &str) -> (Option<&str>, Option<&str>, &str) {
+    if let Some(scheme_end) = full_uri.find("://") {
+        let scheme = &full_uri[..scheme_end];
+        let after_scheme = &full_uri[scheme_end + 3..];
+
+        match after_scheme.find('/') {
+            Some(path_start) => {
+                let authority = &after_scheme[..path_start];
+                let path = &after_scheme[path_start..];
+                (Some(scheme), Some(authority), path)
+            }
+            None => (Some(scheme), Some(after_scheme), "/"),
+        }
+    } else {
+        (None, None, full_uri)
     }
 }
 

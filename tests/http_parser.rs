@@ -59,7 +59,7 @@ mod tests {
                 str: "GET /hello HTTP/1.1\r\nheader1: foo\r\nheader2: bar\r\ncontent-length: 3\r\n\r\n",
                 expected: Ok(HttpRequestParts {
                     method: HttpMethod::Get,
-                    uri: "/hello".to_string(),
+                    full_uri: "/hello".to_string(),
                     headers: HttpHeaders::from(HashMap::from([
                         ("header1", "foo"),
                         ("header2", "bar"),
@@ -72,7 +72,7 @@ mod tests {
                 str: "POST /foo?fizz=buzz HTTP/1.1\r\nheader1: foo\r\nheader2: bar\r\ncontent-length: 3\r\n\r\nabc",
                 expected: Ok(HttpRequestParts {
                     method: HttpMethod::Post,
-                    uri: "/foo?fizz=buzz".to_string(),
+                    full_uri: "/foo?fizz=buzz".to_string(),
                     headers: HttpHeaders::from(HashMap::from([
                         ("header1", "foo"),
                         ("header2", "bar"),
@@ -209,7 +209,7 @@ mod tests {
         req2: &mut HttpRequestParts<MockReader>,
     ) -> (String, String) {
         assert_eq!(req1.method, req2.method);
-        assert_eq!(req1.uri, req2.uri);
+        assert_eq!(req1.full_uri, req2.full_uri);
         assert_eq!(req1.headers, req2.headers);
 
         let mut body1_buf = String::new();
