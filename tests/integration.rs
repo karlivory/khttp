@@ -50,17 +50,17 @@ fn start_server(n: u64) -> std::thread::JoinHandle<()> {
     thread::spawn(move || {
         let mut app = App::new("127.0.0.1", TEST_PORT);
 
-        app.map_route(HttpMethod::Get, "/hello", |_, res| {
+        app.route(HttpMethod::Get, "/hello", |_, res| {
             res.ok(HttpHeaders::new(), &b"Hello, World!"[..])
         });
 
-        app.map_route(HttpMethod::Post, "/api/uppercase", |mut ctx, res| {
+        app.route(HttpMethod::Post, "/api/uppercase", |mut ctx, res| {
             let mut body = ctx.read_body().unwrap();
             body.make_ascii_uppercase();
             res.send(&HttpStatus::of(201), HttpHeaders::new(), &body[..])
         });
 
-        app.map_route(HttpMethod::Delete, "/user/:id", |ctx, res| {
+        app.route(HttpMethod::Delete, "/user/:id", |ctx, res| {
             let body = format!("no user: {}", ctx.route_params.get("id").unwrap());
             res.send(&HttpStatus::of(400), HttpHeaders::new(), body.as_bytes())
         });

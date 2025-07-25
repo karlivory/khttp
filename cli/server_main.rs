@@ -20,7 +20,7 @@ pub fn run(op: ServerOp) {
 fn run_echo_server(config: ServerConfig) {
     let mut app = get_app(config);
 
-    app.map_route(
+    app.route(
         HttpMethod::Post,
         "/**",
         recover(|mut ctx, res| res.ok(ctx.headers.clone(), ctx.get_body_reader())),
@@ -31,7 +31,7 @@ fn run_echo_server(config: ServerConfig) {
 fn run_sleep_server(config: ServerConfig) {
     let mut app = get_app(config);
 
-    app.map_route(
+    app.route(
         HttpMethod::Get,
         "/sleep",
         recover(|ctx, res| {

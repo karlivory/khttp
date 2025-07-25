@@ -149,9 +149,8 @@ impl Middlewares {
     fn panic_unwind() -> impl Fn(Box<Handler>) -> Box<Handler> + Send + Sync {
         |next| {
             Box::new(move |ctx, res| {
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    next(ctx, res);
-                }));
+                let result =
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| next(ctx, res)));
 
                 if let Err(panic_info) = result {
                     let msg = if let Some(s) = panic_info.downcast_ref::<&str>() {

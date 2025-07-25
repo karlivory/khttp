@@ -60,7 +60,7 @@ impl<R> HttpServerBuilder<R>
 where
     R: AppRouter<Route = Box<RouteFn>> + Send + Sync + 'static,
 {
-    pub fn map_route<F>(&mut self, method: HttpMethod, path: &str, route_fn: F)
+    pub fn route<F>(&mut self, method: HttpMethod, path: &str, route_fn: F)
     where
         F: Fn(HttpRequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync + 'static,
     {
@@ -89,7 +89,7 @@ where
         &self.port
     }
 
-    pub fn unmap_route(&mut self, method: HttpMethod, path: &str) -> Option<Arc<R::Route>> {
+    pub fn remove_route(&mut self, method: HttpMethod, path: &str) -> Option<Arc<R::Route>> {
         self.router.remove_route(&method, path)
     }
 

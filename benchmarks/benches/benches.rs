@@ -56,7 +56,7 @@ fn main() {
         path: "/",
         kind: ServerKind::Khttp(Box::new(|| {
             let mut app = get_khttp_app();
-            app.map_route(HttpMethod::Get, "/", |_c, r| respond_hello(r));
+            app.route(HttpMethod::Get, "/", |_c, r| respond_hello(r));
             app.build()
         })),
     });
@@ -66,7 +66,7 @@ fn main() {
         path: "/a/b/c",
         kind: ServerKind::Khttp(Box::new(|| {
             let mut app = get_khttp_app();
-            app.map_route(HttpMethod::Get, "/a/b/c", |_c, r| respond_heavy(r));
+            app.route(HttpMethod::Get, "/a/b/c", |_c, r| respond_heavy(r));
             app.build()
         })),
     });
@@ -80,13 +80,13 @@ fn main() {
                 for b in 0..10 {
                     for c in 0..10 {
                         let p = format!("/foo-{a}/bar-{b}/baz-{c}");
-                        app.map_route(HttpMethod::Get, &p, |_c, r| {
+                        app.route(HttpMethod::Get, &p, |_c, r| {
                             r.ok(HttpHeaders::new(), &[][..])
                         });
                     }
                 }
             }
-            app.map_route(HttpMethod::Get, "/foo/bar/baz", |_c, r| {
+            app.route(HttpMethod::Get, "/foo/bar/baz", |_c, r| {
                 r.ok(HttpHeaders::new(), &[][..])
             });
             app.build()
@@ -134,7 +134,7 @@ fn main() {
         path: "/chunked",
         kind: ServerKind::Khttp(Box::new(|| {
             let mut app = get_khttp_app();
-            app.map_route(HttpMethod::Get, "/chunked", |_c, r| respond_chunked(r));
+            app.route(HttpMethod::Get, "/chunked", |_c, r| respond_chunked(r));
             app.build()
         })),
     });

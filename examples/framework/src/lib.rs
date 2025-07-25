@@ -167,7 +167,7 @@ impl RouteBuilderWithMeta<'_> {
     {
         self.app
             .server
-            .map_route(self.method, self.path, self.builder.handle(handler));
+            .route(self.method, self.path, self.builder.handle(handler));
     }
 }
 
