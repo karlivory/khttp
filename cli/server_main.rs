@@ -1,12 +1,14 @@
 use std::net::TcpStream;
 use std::panic::UnwindSafe;
+use std::thread;
 use std::time::Duration;
-use std::{io, thread};
 
 use crate::args_parser::{ServerConfig, ServerOp};
 use khttp::common::{HttpHeaders, HttpMethod, HttpStatus};
 use khttp::router::DefaultRouter;
-use khttp::server::{App, HttpRequestContext, HttpServer, ResponseHandle, RouteFn};
+use khttp::server::{
+    App, HttpRequestContext, HttpServerBuilder, ResponseHandle, RouteFn, StreamSetupAction,
+};
 
 pub fn run(op: ServerOp) {
     match op {
@@ -25,7 +27,7 @@ fn run_echo_server(config: ServerConfig) {
             res.ok(ctx.headers.clone(), ctx.get_body_reader());
         }),
     );
-    app.serve().unwrap();
+    app.build().serve().unwrap();
 }
 
 fn run_sleep_server(config: ServerConfig) {
@@ -39,27 +41,36 @@ fn run_sleep_server(config: ServerConfig) {
             res.ok(ctx.headers, &[][..]);
         }),
     );
-    app.serve().unwrap();
+    app.build().serve().unwrap();
 }
 
-fn get_stream_setup_fn(config: ServerConfig) -> impl Fn(TcpStream) -> io::Result<TcpStream> {
+fn get_stream_setup_fn(config: ServerConfig) -> impl Fn(TcpStream) -> StreamSetupAction {
     let read_timeout = config.tcp_read_timeout;
     let write_timeout = config.tcp_write_timeout;
     let tcp_nodelay = config.tcp_nodelay;
 
     move |s| {
         if let Some(timeout) = read_timeout {
-            s.set_read_timeout(Some(Duration::from_millis(timeout)))?;
+            match s.set_read_timeout(Some(Duration::from_millis(timeout))) {
+                Ok(_) => (),
+                Err(_) => return StreamSetupAction::Skip,
+            };
         }
         if let Some(timeout) = write_timeout {
-            s.set_write_timeout(Some(Duration::from_millis(timeout)))?;
+            match s.set_write_timeout(Some(Duration::from_millis(timeout))) {
+                Ok(_) => (),
+                Err(_) => return StreamSetupAction::Skip,
+            }
         }
-        s.set_nodelay(tcp_nodelay)?;
-        Ok(s)
+        match s.set_nodelay(tcp_nodelay) {
+            Ok(_) => (),
+            Err(_) => return StreamSetupAction::Skip,
+        }
+        StreamSetupAction::Accept(s)
     }
 }
 
-fn get_app(config: ServerConfig) -> HttpServer<DefaultRouter<Box<RouteFn>>> {
+fn get_app(config: ServerConfig) -> HttpServerBuilder<DefaultRouter<Box<RouteFn>>> {
     let mut app = App::new(&config.bind, config.port);
     if let Some(n) = config.thread_count {
         app.set_thread_count(n);

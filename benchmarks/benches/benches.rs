@@ -14,7 +14,7 @@ use khttp::{
     common::{HttpHeaders, HttpMethod, HttpStatus},
     http_parser::HttpRequestParser,
     router::DefaultRouter,
-    server::{HttpServer, RouteFn},
+    server::{App, HttpServer, HttpServerBuilder, RouteFn},
 };
 use std::{
     env,
@@ -55,9 +55,9 @@ fn main() {
         full: "server:minimal",
         path: "/",
         kind: ServerKind::Khttp(Box::new(|| {
-            let mut app = make_khttp_server(0);
+            let mut app = get_khttp_app();
             app.map_route(HttpMethod::Get, "/", |_c, r| respond_hello(r));
-            app
+            app.build()
         })),
     });
 
@@ -65,9 +65,9 @@ fn main() {
         full: "server:heavy",
         path: "/a/b/c",
         kind: ServerKind::Khttp(Box::new(|| {
-            let mut app = make_khttp_server(0);
+            let mut app = get_khttp_app();
             app.map_route(HttpMethod::Get, "/a/b/c", |_c, r| respond_heavy(r));
-            app
+            app.build()
         })),
     });
 
@@ -75,7 +75,7 @@ fn main() {
         full: "server:routing",
         path: "/foo/bar/baz",
         kind: ServerKind::Khttp(Box::new(|| {
-            let mut app = make_khttp_server(0);
+            let mut app = get_khttp_app();
             for a in 0..10 {
                 for b in 0..10 {
                     for c in 0..10 {
@@ -89,7 +89,7 @@ fn main() {
             app.map_route(HttpMethod::Get, "/foo/bar/baz", |_c, r| {
                 r.ok(HttpHeaders::new(), &[][..]);
             });
-            app
+            app.build()
         })),
     });
 
@@ -133,9 +133,9 @@ fn main() {
         full: "server:chunked",
         path: "/chunked",
         kind: ServerKind::Khttp(Box::new(|| {
-            let mut app = make_khttp_server(0);
+            let mut app = get_khttp_app();
             app.map_route(HttpMethod::Get, "/chunked", |_c, r| respond_chunked(r));
-            app
+            app.build()
         })),
     });
 
@@ -324,16 +324,15 @@ fn match_token(token: &str, group: &str, name: &str) -> bool {
     }
 }
 
-fn make_khttp_server(port: u16) -> KhttpServer {
-    let port = if port == 0 {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
-        let p = listener.local_addr().unwrap().port();
-        drop(listener);
-        p
-    } else {
-        port
-    };
-    khttp::server::App::new("127.0.0.1", port)
+fn get_free_port() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let p = listener.local_addr().unwrap().port();
+    drop(listener);
+    p
+}
+
+fn get_khttp_app() -> HttpServerBuilder<DefaultRouter<Box<RouteFn>>> {
+    App::new("127.0.0.1", get_free_port())
 }
 
 fn respond_hello(res: &mut khttp::server::ResponseHandle) {

@@ -128,7 +128,7 @@ impl Middlewares {
 
     fn logger() -> Middleware {
         Box::new(|next| {
-            Box::new(move |mut ctx, res| {
+            Box::new(move |ctx, res| {
                 let ip = ctx
                     .request
                     .get_stream()

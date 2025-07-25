@@ -1,4 +1,3 @@
-// src/server.rs
 use crate::body_reader::BodyReader;
 use crate::common::{HttpHeaders, HttpMethod, HttpStatus};
 use crate::http_parser::{HttpParsingError, HttpRequestParser};
@@ -8,7 +7,7 @@ use crate::threadpool::ThreadPool;
 use std::collections::HashMap;
 use std::io::{self, Read};
 use std::net::{Shutdown, TcpListener, TcpStream};
-use std::sync::{Arc, LazyLock, mpsc};
+use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
 pub struct App {}
@@ -17,32 +16,46 @@ const DEFAULT_THREAD_COUNT: usize = 20;
 
 impl App {
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(bind_address: &str, port: u16) -> HttpServer<DefaultRouter<Box<RouteFn>>> {
-        HttpServer {
+    pub fn new(bind_address: &str, port: u16) -> HttpServerBuilder<DefaultRouter<Box<RouteFn>>> {
+        HttpServerBuilder {
             bind_address: bind_address.to_string(),
             port,
             thread_count: DEFAULT_THREAD_COUNT,
             router: DefaultRouter::<Box<RouteFn>>::new(),
             fallback_route: Arc::new(Box::new(default_404_handler)),
-            shutdown_signal: None,
             stream_setup_fn: None,
         }
     }
 }
 
 pub type RouteFn = dyn Fn(HttpRequestContext, &mut ResponseHandle) + Send + Sync + 'static;
+pub type StreamSetupFn = dyn Fn(TcpStream) -> StreamSetupAction + Send + Sync + 'static;
 
 pub struct HttpServer<R> {
+    bind_address: String,
+    thread_count: usize,
+    port: u16,
+    router: Arc<R>,
+    fallback_route: Arc<Box<RouteFn>>,
+    stream_setup_fn: Option<Arc<StreamSetupFn>>,
+}
+
+pub enum StreamSetupAction {
+    Accept(TcpStream),
+    Skip,
+    StopAccepting,
+}
+
+pub struct HttpServerBuilder<R> {
     bind_address: String,
     port: u16,
     thread_count: usize,
     router: R,
     fallback_route: Arc<Box<RouteFn>>,
-    shutdown_signal: Option<mpsc::Receiver<()>>,
-    stream_setup_fn: Option<Arc<dyn Fn(TcpStream) -> io::Result<TcpStream> + Send + Sync>>,
+    stream_setup_fn: Option<Arc<StreamSetupFn>>,
 }
 
-impl<R> HttpServer<R>
+impl<R> HttpServerBuilder<R>
 where
     R: AppRouter<Route = Box<RouteFn>> + Send + Sync + 'static,
 {
@@ -50,7 +63,7 @@ where
     where
         F: Fn(HttpRequestContext, &mut ResponseHandle) + Send + Sync + 'static,
     {
-        self.router.add_route(&method, path, Box::new(route_fn))
+        self.router.add_route(&method, path, Box::new(route_fn));
     }
 
     pub fn set_thread_count(&mut self, thread_count: usize) {
@@ -59,13 +72,9 @@ where
 
     pub fn set_stream_setup_fn<F>(&mut self, f: F)
     where
-        F: Fn(TcpStream) -> io::Result<TcpStream> + Send + Sync + 'static,
+        F: Fn(TcpStream) -> StreamSetupAction + Send + Sync + 'static,
     {
         self.stream_setup_fn = Some(Arc::new(f));
-    }
-
-    pub fn set_shutdown_signal(&mut self, signal: Option<mpsc::Receiver<()>>) {
-        self.shutdown_signal = signal;
     }
 
     pub fn set_fallback_route<F>(&mut self, f: F)
@@ -83,6 +92,26 @@ where
         self.router.remove_route(&method, path)
     }
 
+    pub fn build(self) -> HttpServer<R> {
+        HttpServer {
+            bind_address: self.bind_address,
+            thread_count: self.thread_count,
+            port: self.port,
+            router: Arc::new(self.router),
+            fallback_route: self.fallback_route,
+            stream_setup_fn: self.stream_setup_fn,
+        }
+    }
+}
+
+impl<R> HttpServer<R>
+where
+    R: AppRouter<Route = Box<RouteFn>> + Send + Sync + 'static,
+{
+    pub fn port(&self) -> &u16 {
+        &self.port
+    }
+
     pub fn serve_n(self, n: u64) -> io::Result<()> {
         if n == 0 {
             return Ok(());
@@ -97,38 +126,31 @@ where
     fn serve_loop(self, limit: Option<u64>) -> io::Result<()> {
         let listener = TcpListener::bind((self.bind_address.as_str(), self.port))?;
         let pool = ThreadPool::new(self.thread_count);
-        let router = Arc::new(self.router);
 
         let mut i = 0;
         for stream in listener.incoming() {
-            if let Some(ref x) = self.shutdown_signal {
-                if x.try_recv().is_ok() {
-                    break;
-                }
-            }
-
-            let mut stream = match stream {
+            let stream = match stream {
                 Ok(s) => s,
-                Err(e) => {
-                    eprintln!("Connection failed: {}", e);
+                Err(_) => {
                     continue;
                 }
             };
 
-            if let Some(ref s) = self.stream_setup_fn {
-                stream = match (s)(stream) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("stream_setup_fn failed: {}", e);
-                        continue;
-                    }
-                }
-            }
+            let stream = match &self.stream_setup_fn {
+                Some(setup_fn) => match (setup_fn)(stream) {
+                    StreamSetupAction::Accept(s) => s,
+                    StreamSetupAction::Skip => continue,
+                    StreamSetupAction::StopAccepting => break,
+                },
+                None => stream,
+            };
 
-            let router = router.clone();
+            let router = self.router.clone();
             let handler_404 = self.fallback_route.clone();
 
-            pool.execute(move || handle_connection(stream, &router, &handler_404));
+            pool.execute(move || {
+                let _ = handle_connection(stream, &router, &handler_404);
+            });
 
             if let Some(max) = limit {
                 i += 1;
@@ -138,6 +160,10 @@ where
             }
         }
         Ok(())
+    }
+
+    pub fn handle(&self, stream: TcpStream) -> io::Result<()> {
+        handle_connection(stream, &self.router, &self.fallback_route)
     }
 }
 
@@ -232,7 +258,7 @@ impl HttpRequestContext<'_, '_> {
         self.body.read_to_string(&mut buf).map(|_| buf)
     }
 
-    pub fn get_stream(&mut self) -> &TcpStream {
+    pub fn get_stream(&self) -> &TcpStream {
         self.body.inner().get_ref()
     }
 
@@ -243,7 +269,11 @@ impl HttpRequestContext<'_, '_> {
 
 static EMPTY_PARAMS: LazyLock<HashMap<&str, &str>> = LazyLock::new(HashMap::new);
 
-fn handle_connection<R>(mut stream: TcpStream, router: &Arc<R>, handler_404: &Arc<Box<RouteFn>>)
+pub fn handle_connection<R>(
+    mut stream: TcpStream,
+    router: &Arc<R>,
+    handler_404: &Arc<Box<RouteFn>>,
+) -> io::Result<()>
 where
     R: AppRouter<Route = Box<RouteFn>>,
 {
@@ -257,15 +287,15 @@ where
         let read_stream = match stream.try_clone() {
             Ok(s) => s,
             Err(_) => {
-                let _ = stream.shutdown(Shutdown::Both);
-                break;
+                stream.shutdown(Shutdown::Both)?;
+                return Ok(());
             }
         };
         let parts = match HttpRequestParser::new(read_stream).parse() {
             Ok(p) => p,
             Err(HttpParsingError::IOError) => {
-                let _ = stream.shutdown(Shutdown::Both);
-                break;
+                stream.shutdown(Shutdown::Both)?;
+                return Ok(());
             }
             Err(_) => {
                 let _ = HttpPrinter::new(&mut stream).write_response(
@@ -273,8 +303,8 @@ where
                     HttpHeaders::new(),
                     &[][..],
                 );
-                let _ = stream.shutdown(Shutdown::Both);
-                break;
+                stream.shutdown(Shutdown::Both)?;
+                return Ok(());
             }
         };
 
@@ -314,8 +344,8 @@ where
         (handler)(ctx, &mut response);
 
         if connection_close {
-            let _ = stream.shutdown(Shutdown::Both);
-            break;
+            stream.shutdown(Shutdown::Both)?;
+            return Ok(());
         }
     }
 }

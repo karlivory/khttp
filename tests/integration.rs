@@ -65,7 +65,7 @@ fn start_server(n: u64) -> std::thread::JoinHandle<()> {
             res.send(&HttpStatus::of(400), HttpHeaders::new(), body.as_bytes());
         });
 
-        app.serve_n(n).ok();
+        app.build().serve_n(n).ok();
     })
 }
 

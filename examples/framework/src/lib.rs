@@ -6,7 +6,9 @@ use std::time::Duration;
 
 use khttp::common::HttpMethod;
 use khttp::router::DefaultRouter;
-use khttp::server::{App, HttpRequestContext, HttpServer, ResponseHandle, RouteFn};
+use khttp::server::{
+    App, HttpRequestContext, HttpServerBuilder, ResponseHandle, RouteFn, StreamSetupAction,
+};
 
 pub struct ServerConfig {
     pub port: u16,
@@ -18,27 +20,34 @@ pub struct ServerConfig {
     pub tcp_nodelay: bool,
 }
 
-fn get_stream_setup_fn(
-    config: &ServerConfig,
-) -> impl Fn(TcpStream) -> io::Result<TcpStream> + use<> {
+fn get_stream_setup_fn(config: &ServerConfig) -> impl Fn(TcpStream) -> StreamSetupAction + use<> {
     let read_timeout = config.tcp_read_timeout;
     let write_timeout = config.tcp_write_timeout;
     let tcp_nodelay = config.tcp_nodelay;
 
     move |s| {
         if let Some(timeout) = read_timeout {
-            s.set_read_timeout(Some(Duration::from_millis(timeout)))?;
+            match s.set_read_timeout(Some(Duration::from_millis(timeout))) {
+                Ok(_) => (),
+                Err(_) => return StreamSetupAction::Skip,
+            };
         }
         if let Some(timeout) = write_timeout {
-            s.set_write_timeout(Some(Duration::from_millis(timeout)))?;
+            match s.set_write_timeout(Some(Duration::from_millis(timeout))) {
+                Ok(_) => (),
+                Err(_) => return StreamSetupAction::Skip,
+            }
         }
-        s.set_nodelay(tcp_nodelay)?;
-        Ok(s)
+        match s.set_nodelay(tcp_nodelay) {
+            Ok(_) => (),
+            Err(_) => return StreamSetupAction::Skip,
+        }
+        StreamSetupAction::Accept(s)
     }
 }
 
 pub struct FrameworkApp {
-    server: HttpServer<DefaultRouter<Box<RouteFn>>>,
+    server: HttpServerBuilder<DefaultRouter<Box<RouteFn>>>,
     config: ServerConfig,
 }
 
@@ -52,7 +61,7 @@ impl FrameworkApp {
 
     pub fn serve(self) -> io::Result<()> {
         print_startup_banner(&self.config);
-        self.server.serve()
+        self.server.build().serve()
     }
 
     pub fn get(&mut self, path: &'static str) -> RouteBuilderWithMeta<'_> {
