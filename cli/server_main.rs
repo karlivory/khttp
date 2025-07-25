@@ -1,7 +1,7 @@
 use std::net::TcpStream;
 use std::panic::UnwindSafe;
-use std::thread;
 use std::time::Duration;
+use std::{io, thread};
 
 use crate::args_parser::{ServerConfig, ServerOp};
 use khttp::common::{HttpHeaders, HttpMethod, HttpStatus};
@@ -23,9 +23,7 @@ fn run_echo_server(config: ServerConfig) {
     app.map_route(
         HttpMethod::Post,
         "/**",
-        recover(|mut ctx, res| {
-            res.ok(ctx.headers.clone(), ctx.get_body_reader());
-        }),
+        recover(|mut ctx, res| res.ok(ctx.headers.clone(), ctx.get_body_reader())),
     );
     app.build().serve().unwrap();
 }
@@ -38,7 +36,7 @@ fn run_sleep_server(config: ServerConfig) {
         "/sleep",
         recover(|ctx, res| {
             thread::sleep(Duration::from_secs(3));
-            res.ok(ctx.headers, &[][..]);
+            res.ok(ctx.headers, &[][..])
         }),
     );
     app.build().serve().unwrap();
@@ -79,9 +77,9 @@ fn get_app(config: ServerConfig) -> HttpServerBuilder<DefaultRouter<Box<RouteFn>
     app
 }
 
-fn recover<F>(f: F) -> impl Fn(HttpRequestContext, &mut ResponseHandle)
+fn recover<F>(f: F) -> impl Fn(HttpRequestContext, &mut ResponseHandle) -> io::Result<()>
 where
-    F: Fn(HttpRequestContext, &mut ResponseHandle) + UnwindSafe,
+    F: Fn(HttpRequestContext, &mut ResponseHandle) -> io::Result<()> + UnwindSafe,
 {
     move |ctx, res| {
         if let Err(panic_info) =
@@ -99,7 +97,9 @@ where
                 &HttpStatus::of(500),
                 HttpHeaders::new(),
                 &b"Internal Server Error"[..],
-            );
+            )
+        } else {
+            Ok(())
         }
     }
 }

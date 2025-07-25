@@ -123,7 +123,7 @@ impl HandlerContext<'_> {
     }
 }
 
-pub type Handler = dyn Fn(HandlerContext, &mut ResponseHandle) + Send + Sync;
+pub type Handler = dyn Fn(HandlerContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync;
 
 pub type Middleware = Box<dyn Fn(Box<Handler>) -> Box<Handler> + Send + Sync>;
 
@@ -154,7 +154,7 @@ impl RouteBuilderWithMeta<'_> {
 
     pub fn handle<F>(self, handler: F)
     where
-        F: Fn(HandlerContext, &mut ResponseHandle) + Send + Sync + 'static,
+        F: Fn(HandlerContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync + 'static,
     {
         self.app
             .server
@@ -166,9 +166,9 @@ impl RouteBuilder {
     pub fn handle<F>(
         self,
         handler: F,
-    ) -> impl Fn(HttpRequestContext, &mut ResponseHandle) + Send + Sync
+    ) -> impl Fn(HttpRequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync
     where
-        F: Fn(HandlerContext, &mut ResponseHandle) + Send + Sync + 'static,
+        F: Fn(HandlerContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync + 'static,
     {
         let mut next: Box<Handler> = Box::new(handler);
         for mw in self.middleware.into_iter().rev() {
@@ -180,7 +180,7 @@ impl RouteBuilder {
                 request: ctx,
                 extensions: HashMap::new(),
             };
-            next(ctx, res);
+            next(ctx, res)
         }
     }
 }
@@ -194,7 +194,7 @@ where
             let val = val.clone();
             move |mut ctx, res| {
                 ctx.insert(val.clone());
-                next(ctx, res);
+                next(ctx, res)
             }
         })
     })

@@ -37,7 +37,7 @@ fn add_routes(app: &mut FrameworkApp) {
             res.ok(
                 HttpHeaders::new(),
                 format!("db = {}\n", db.connection_string).as_bytes(),
-            );
+            )
         });
 
     app.get("/api/user/:id")
@@ -57,12 +57,11 @@ fn add_routes(app: &mut FrameworkApp) {
                 Some(id) => id,
                 None => {
                     log.warn("Invalid or missing user id");
-                    res.send(
+                    return res.send(
                         &HttpStatus::BAD_REQUEST,
                         HttpHeaders::new(),
                         "invalid user id".as_bytes(),
                     );
-                    return;
                 }
             };
 
@@ -71,7 +70,7 @@ fn add_routes(app: &mut FrameworkApp) {
                 panic!();
             }
 
-            res.ok(HttpHeaders::new(), format!("user: {}", user_id).as_bytes());
+            res.ok(HttpHeaders::new(), format!("user: {}", user_id).as_bytes())
         });
 }
 
@@ -114,13 +113,13 @@ impl Middlewares {
         Box::new(|next| {
             Box::new(move |ctx, res| {
                 if ctx.request.headers.get("authorization") == Some("secret") {
-                    next(ctx, res);
+                    next(ctx, res)
                 } else {
                     res.send(
                         &HttpStatus::of(401),
                         HttpHeaders::new(),
                         &b"Unauthorized"[..],
-                    );
+                    )
                 }
             })
         })
@@ -141,7 +140,7 @@ impl Middlewares {
                     "[ip: {}] {} {}",
                     ip, ctx.request.method, ctx.request.uri
                 ));
-                next(ctx, res);
+                next(ctx, res)
             })
         })
     }
@@ -167,7 +166,9 @@ impl Middlewares {
                         &HttpStatus::of(500),
                         HttpHeaders::new(),
                         &b"Internal Server Error"[..],
-                    );
+                    )
+                } else {
+                    Ok(())
                 }
             })
         })

@@ -18,7 +18,7 @@ use khttp::{
 };
 use std::{
     env,
-    io::{BufRead, BufReader},
+    io::{self, BufRead, BufReader},
     net::TcpListener,
     process::{Command, Stdio},
     thread,
@@ -81,13 +81,13 @@ fn main() {
                     for c in 0..10 {
                         let p = format!("/foo-{a}/bar-{b}/baz-{c}");
                         app.map_route(HttpMethod::Get, &p, |_c, r| {
-                            r.ok(HttpHeaders::new(), &[][..]);
+                            r.ok(HttpHeaders::new(), &[][..])
                         });
                     }
                 }
             }
             app.map_route(HttpMethod::Get, "/foo/bar/baz", |_c, r| {
-                r.ok(HttpHeaders::new(), &[][..]);
+                r.ok(HttpHeaders::new(), &[][..])
             });
             app.build()
         })),
@@ -335,9 +335,9 @@ fn get_khttp_app() -> HttpServerBuilder<DefaultRouter<Box<RouteFn>>> {
     App::new("127.0.0.1", get_free_port())
 }
 
-fn respond_hello(res: &mut khttp::server::ResponseHandle) {
+fn respond_hello(res: &mut khttp::server::ResponseHandle) -> io::Result<()> {
     let msg = "Hello, World!";
-    res.ok(HttpHeaders::new(), msg.as_bytes());
+    res.ok(HttpHeaders::new(), msg.as_bytes())
 }
 
 use std::sync::OnceLock;
@@ -350,16 +350,16 @@ fn heavy_body() -> &'static [u8] {
         .as_slice()
 }
 
-fn respond_heavy(res: &mut khttp::server::ResponseHandle) {
+fn respond_heavy(res: &mut khttp::server::ResponseHandle) -> io::Result<()> {
     let msg = heavy_body();
     let mut headers = HttpHeaders::new();
     headers.set_content_length(msg.len() as u64);
-    res.ok(HttpHeaders::new(), msg);
+    res.ok(HttpHeaders::new(), msg)
 }
 
-fn respond_chunked(res: &mut khttp::server::ResponseHandle) {
+fn respond_chunked(res: &mut khttp::server::ResponseHandle) -> io::Result<()> {
     let msg = heavy_body();
-    res.send_chunked(&HttpStatus::of(200), HttpHeaders::new(), msg);
+    res.send_chunked(&HttpStatus::of(200), HttpHeaders::new(), msg)
 }
 
 fn ensure_rewrk() {

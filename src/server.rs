@@ -28,7 +28,8 @@ impl App {
     }
 }
 
-pub type RouteFn = dyn Fn(HttpRequestContext, &mut ResponseHandle) + Send + Sync + 'static;
+pub type RouteFn =
+    dyn Fn(HttpRequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync + 'static;
 pub type StreamSetupFn = dyn Fn(TcpStream) -> StreamSetupAction + Send + Sync + 'static;
 
 pub struct HttpServer<R> {
@@ -61,7 +62,7 @@ where
 {
     pub fn map_route<F>(&mut self, method: HttpMethod, path: &str, route_fn: F)
     where
-        F: Fn(HttpRequestContext, &mut ResponseHandle) + Send + Sync + 'static,
+        F: Fn(HttpRequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync + 'static,
     {
         self.router.add_route(&method, path, Box::new(route_fn));
     }
@@ -79,7 +80,7 @@ where
 
     pub fn set_fallback_route<F>(&mut self, f: F)
     where
-        F: Fn(HttpRequestContext, &mut ResponseHandle) + Send + Sync + 'static,
+        F: Fn(HttpRequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync + 'static,
     {
         self.fallback_route = Arc::new(Box::new(f));
     }
@@ -172,19 +173,11 @@ pub struct ResponseHandle<'a> {
 }
 
 impl ResponseHandle<'_> {
-    pub fn ok(&mut self, headers: HttpHeaders, body: impl Read) {
-        self.send(&HttpStatus::of(200), headers, body);
+    pub fn ok(&mut self, headers: HttpHeaders, body: impl Read) -> io::Result<()> {
+        self.send(&HttpStatus::of(200), headers, body)
     }
 
-    pub fn send(&mut self, status: &HttpStatus, headers: HttpHeaders, body: impl Read) {
-        let _ = self.try_send(status, headers, body);
-    }
-
-    pub fn send_chunked(&mut self, status: &HttpStatus, headers: HttpHeaders, body: impl Read) {
-        let _ = self.try_send_chunked(status, headers, body);
-    }
-
-    pub fn try_send_chunked(
+    pub fn send_chunked(
         &mut self,
         status: &HttpStatus,
         mut headers: HttpHeaders,
@@ -192,10 +185,10 @@ impl ResponseHandle<'_> {
     ) -> io::Result<()> {
         headers.remove(HttpHeaders::CONTENT_LENGTH);
         headers.set_transfer_encoding_chunked();
-        self.try_send(status, headers, body)
+        self.send(status, headers, body)
     }
 
-    pub fn try_send(
+    pub fn send(
         &mut self,
         status: &HttpStatus,
         headers: HttpHeaders,
@@ -284,32 +277,23 @@ where
     };
 
     loop {
-        let read_stream = match stream.try_clone() {
-            Ok(s) => s,
-            Err(_) => {
-                stream.shutdown(Shutdown::Both)?;
-                return Ok(());
-            }
-        };
+        let read_stream = stream.try_clone()?;
         let parts = match HttpRequestParser::new(read_stream).parse() {
             Ok(p) => p,
             Err(HttpParsingError::IOError) => {
-                stream.shutdown(Shutdown::Both)?;
                 return Ok(());
             }
             Err(_) => {
-                let _ = HttpPrinter::new(&mut stream).write_response(
+                return HttpPrinter::new(&mut stream).write_response(
                     &HttpStatus::of(400),
                     HttpHeaders::new(),
                     &[][..],
                 );
-                stream.shutdown(Shutdown::Both)?;
-                return Ok(());
             }
         };
 
         if parts.headers.is_100_continue() {
-            let _ = HttpPrinter::new(&mut stream).write_100_continue();
+            HttpPrinter::new(&mut stream).write_100_continue()?;
         }
 
         conn_meta.req_index = conn_meta.req_index.wrapping_add(1);
@@ -341,10 +325,8 @@ where
         };
         let connection_close = ctx.headers.is_connection_close();
 
-        (handler)(ctx, &mut response);
-
+        (handler)(ctx, &mut response)?;
         if connection_close {
-            stream.shutdown(Shutdown::Both)?;
             return Ok(());
         }
     }
@@ -368,7 +350,7 @@ pub fn split_uri(full_uri: &str) -> (Option<&str>, Option<&str>, &str) {
     }
 }
 
-fn default_404_handler(_ctx: HttpRequestContext, response: &mut ResponseHandle) {
+fn default_404_handler(_ctx: HttpRequestContext, response: &mut ResponseHandle) -> io::Result<()> {
     let headers = HttpHeaders::new();
-    response.send(&HttpStatus::of(404), headers, &[][..]);
+    response.send(&HttpStatus::of(404), headers, &[][..])
 }
