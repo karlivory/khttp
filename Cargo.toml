@@ -26,4 +26,4 @@ path = "cli/main.rs"
 required-features = ["cli"]
 
 [workspace]
-members = [".", "benchmarks"]
+members = [".", "benchmarks", "examples/framework"]

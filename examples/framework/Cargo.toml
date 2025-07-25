@@ -1,0 +1,9 @@
+[package]
+name = "khttp-framework"
+description = "Example HTTP framework built on khttp"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+khttp = { path = "../.." }
