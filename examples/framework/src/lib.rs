@@ -20,12 +20,18 @@ pub struct ServerConfig {
     pub tcp_nodelay: bool,
 }
 
-fn get_stream_setup_fn(config: &ServerConfig) -> impl Fn(TcpStream) -> StreamSetupAction + use<> {
+fn get_stream_setup_fn(
+    config: &ServerConfig,
+) -> impl Fn(io::Result<TcpStream>) -> StreamSetupAction + use<> {
     let read_timeout = config.tcp_read_timeout;
     let write_timeout = config.tcp_write_timeout;
     let tcp_nodelay = config.tcp_nodelay;
 
     move |s| {
+        let s = match s {
+            Ok(s) => s,
+            Err(_) => return StreamSetupAction::Skip,
+        };
         if let Some(timeout) = read_timeout {
             match s.set_read_timeout(Some(Duration::from_millis(timeout))) {
                 Ok(_) => (),
@@ -125,10 +131,10 @@ impl HandlerContext<'_> {
 
 pub type Handler = dyn Fn(HandlerContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync;
 
-pub type Middleware = Box<dyn Fn(Box<Handler>) -> Box<Handler> + Send + Sync>;
+pub type MiddlewareFn = dyn Fn(Box<Handler>) -> Box<Handler> + Send + Sync;
 
 pub struct RouteBuilder {
-    middleware: Vec<Middleware>,
+    middleware: Vec<Box<MiddlewareFn>>,
 }
 
 pub struct RouteBuilderWithMeta<'a> {
@@ -139,8 +145,11 @@ pub struct RouteBuilderWithMeta<'a> {
 }
 
 impl RouteBuilderWithMeta<'_> {
-    pub fn middleware(mut self, mw: Middleware) -> Self {
-        self.builder.middleware.push(mw);
+    pub fn middleware<F>(mut self, mw: F) -> Self
+    where
+        F: Fn(Box<Handler>) -> Box<Handler> + Send + Sync + 'static,
+    {
+        self.builder.middleware.push(Box::new(mw));
         self
     }
 
@@ -148,7 +157,7 @@ impl RouteBuilderWithMeta<'_> {
     where
         T: 'static + Send + Sync + Clone,
     {
-        self.builder.middleware.push(inject(val));
+        self.builder.middleware.push(Box::new(inject(val)));
         self
     }
 
@@ -185,11 +194,11 @@ impl RouteBuilder {
     }
 }
 
-pub fn inject<T>(val: T) -> Middleware
+pub fn inject<T>(val: T) -> impl Fn(Box<Handler>) -> Box<Handler> + Send + Sync
 where
     T: 'static + Send + Sync + Clone,
 {
-    Box::new(move |next| {
+    move |next| {
         Box::new({
             let val = val.clone();
             move |mut ctx, res| {
@@ -197,5 +206,5 @@ where
                 next(ctx, res)
             }
         })
-    })
+    }
 }

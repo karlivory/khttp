@@ -1,5 +1,5 @@
 use khttp::common::{HttpHeaders, HttpStatus};
-use khttp_framework::{FrameworkApp, Middleware, ServerConfig};
+use khttp_framework::{FrameworkApp, Handler, ServerConfig};
 use std::sync::Arc;
 
 fn main() {
@@ -29,7 +29,7 @@ fn add_routes(app: &mut FrameworkApp) {
         .inject(logger.clone())
         .middleware(Middlewares::logger())
         .inject(db_creds.clone())
-        .middleware(Middlewares::auth())
+        .middleware(Middlewares::auth("secret".to_string()))
         .handle(|ctx, res| {
             let db = ctx.get::<Arc<DbCredentials>>().unwrap();
             let log = ctx.get::<Arc<Logger>>().unwrap();
@@ -109,10 +109,11 @@ impl Logger {
 struct Middlewares {}
 
 impl Middlewares {
-    fn auth() -> Middleware {
-        Box::new(|next| {
+    fn auth(secret: String) -> impl Fn(Box<Handler>) -> Box<Handler> + Send + Sync {
+        move |next| {
+            let secret = secret.clone();
             Box::new(move |ctx, res| {
-                if ctx.request.headers.get("authorization") == Some("secret") {
+                if ctx.request.headers.get("authorization") == Some(&secret) {
                     next(ctx, res)
                 } else {
                     res.send(
@@ -122,11 +123,11 @@ impl Middlewares {
                     )
                 }
             })
-        })
+        }
     }
 
-    fn logger() -> Middleware {
-        Box::new(|next| {
+    fn logger() -> impl Fn(Box<Handler>) -> Box<Handler> + Send + Sync {
+        |next| {
             Box::new(move |ctx, res| {
                 let ip = ctx
                     .request
@@ -142,11 +143,11 @@ impl Middlewares {
                 ));
                 next(ctx, res)
             })
-        })
+        }
     }
 
-    fn panic_unwind() -> Middleware {
-        Box::new(|next| {
+    fn panic_unwind() -> impl Fn(Box<Handler>) -> Box<Handler> + Send + Sync {
+        |next| {
             Box::new(move |ctx, res| {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     next(ctx, res);
@@ -171,6 +172,6 @@ impl Middlewares {
                     Ok(())
                 }
             })
-        })
+        }
     }
 }
