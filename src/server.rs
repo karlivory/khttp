@@ -30,7 +30,7 @@ impl App {
 
 pub type RouteFn =
     dyn Fn(HttpRequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync + 'static;
-pub type StreamSetupFn = dyn Fn(TcpStream) -> StreamSetupAction + Send + Sync + 'static;
+pub type StreamSetupFn = dyn Fn(io::Result<TcpStream>) -> StreamSetupAction + Send + Sync + 'static;
 
 pub struct HttpServer<R> {
     bind_address: String,
@@ -73,7 +73,7 @@ where
 
     pub fn set_stream_setup_fn<F>(&mut self, f: F)
     where
-        F: Fn(TcpStream) -> StreamSetupAction + Send + Sync + 'static,
+        F: Fn(io::Result<TcpStream>) -> StreamSetupAction + Send + Sync + 'static,
     {
         self.stream_setup_fn = Some(Arc::new(f));
     }
@@ -130,20 +130,16 @@ where
 
         let mut i = 0;
         for stream in listener.incoming() {
-            let stream = match stream {
-                Ok(s) => s,
-                Err(_) => {
-                    continue;
-                }
-            };
-
             let stream = match &self.stream_setup_fn {
                 Some(setup_fn) => match (setup_fn)(stream) {
                     StreamSetupAction::Accept(s) => s,
                     StreamSetupAction::Skip => continue,
                     StreamSetupAction::StopAccepting => break,
                 },
-                None => stream,
+                None => match stream {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                },
             };
 
             let router = self.router.clone();

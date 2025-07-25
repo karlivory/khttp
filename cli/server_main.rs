@@ -42,12 +42,18 @@ fn run_sleep_server(config: ServerConfig) {
     app.build().serve().unwrap();
 }
 
-fn get_stream_setup_fn(config: ServerConfig) -> impl Fn(TcpStream) -> StreamSetupAction {
+fn get_stream_setup_fn(
+    config: ServerConfig,
+) -> impl Fn(io::Result<TcpStream>) -> StreamSetupAction {
     let read_timeout = config.tcp_read_timeout;
     let write_timeout = config.tcp_write_timeout;
     let tcp_nodelay = config.tcp_nodelay;
 
     move |s| {
+        let s = match s {
+            Ok(s) => s,
+            Err(_) => return StreamSetupAction::Skip,
+        };
         if let Some(timeout) = read_timeout {
             match s.set_read_timeout(Some(Duration::from_millis(timeout))) {
                 Ok(_) => (),
