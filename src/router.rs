@@ -139,6 +139,14 @@ impl<T> AppRouter for DefaultRouter<T> {
             }
 
             if ok {
+                if lml as usize == pattern.len()
+                    && pattern
+                        .iter()
+                        .all(|s| matches!(s, RouteSegment::Literal(_)))
+                {
+                    // perfect match: no need to keep iterating
+                    return Some(Match { route, params });
+                }
                 max_lml = max(max_lml, lml);
                 let prec = precedence_of(pattern.last());
                 matched.push((lml, prec, pattern, route, params));
