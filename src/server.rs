@@ -301,8 +301,8 @@ where
         let read_stream = stream.try_clone()?;
         let mut parts = match HttpRequestParser::new(read_stream).parse() {
             Ok(p) => p,
-            Err(HttpParsingError::IOError) => {
-                return Ok(());
+            Err(HttpParsingError::IOError(e)) => {
+                return Err(e);
             }
             Err(_) => {
                 return HttpPrinter::new(&mut stream).write_response(

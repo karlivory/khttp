@@ -169,18 +169,27 @@ pub fn parse_headers<R: BufRead>(
             Ok(false) => {
                 return Err(HttpParsingError::UnexpectedEof);
             }
-            Err(_) => return Err(HttpParsingError::IOError),
+            Err(e) => return Err(HttpParsingError::IOError(e)),
         }
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum HttpParsingError {
     MalformedStatusLine,
     MalformedHeader,
     UnexpectedEof,
-    IOError,
+    IOError(io::Error),
+}
+
+impl PartialEq for HttpParsingError {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::IOError(_), Self::IOError(_)) => true,
+            _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+        }
+    }
 }
 
 impl Error for HttpParsingError {}
@@ -192,14 +201,14 @@ impl Display for HttpParsingError {
             MalformedStatusLine => write!(f, "Malformed status line!"),
             MalformedHeader => write!(f, "Malformed header!"),
             UnexpectedEof => write!(f, "Unexpected end of stream!"),
-            IOError => write!(f, "IO error!"),
+            IOError(e) => write!(f, "io error: {}", e),
         }
     }
 }
 
 impl From<std::io::Error> for HttpParsingError {
-    fn from(_: std::io::Error) -> Self {
-        HttpParsingError::IOError
+    fn from(e: std::io::Error) -> Self {
+        HttpParsingError::IOError(e)
     }
 }
 
