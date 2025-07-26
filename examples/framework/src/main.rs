@@ -1,5 +1,5 @@
 use khttp::common::{HttpHeaders, HttpStatus};
-use khttp_framework::{FrameworkApp, Handler, ServerConfig};
+use khttp_framework::{FrameworkApp, ServerConfig};
 use std::sync::Arc;
 
 fn main() {
@@ -25,11 +25,11 @@ fn add_routes(app: &mut FrameworkApp) {
     let logger = Arc::new(Logger);
 
     app.get("/api/db/call")
-        .middleware(Middlewares::panic_unwind())
+        .middleware(middlewares::panic_unwind())
         .inject(logger.clone())
-        .middleware(Middlewares::logger())
+        .middleware(middlewares::logger())
         .inject(db_creds.clone())
-        .middleware(Middlewares::auth("secret".to_string()))
+        .middleware(middlewares::auth("secret".to_string()))
         .handle(|ctx, res| {
             let db = ctx.get::<Arc<DbCredentials>>().unwrap();
             let log = ctx.get::<Arc<Logger>>().unwrap();
@@ -41,9 +41,9 @@ fn add_routes(app: &mut FrameworkApp) {
         });
 
     app.get("/api/user/:id")
-        .middleware(Middlewares::panic_unwind())
+        .middleware(middlewares::panic_unwind())
         .inject(logger.clone())
-        .middleware(Middlewares::logger())
+        .middleware(middlewares::logger())
         .inject(db_creds.clone())
         .handle(|ctx, res| {
             let log = ctx.get::<Arc<Logger>>().unwrap();
@@ -106,10 +106,13 @@ impl Logger {
 // MIDDLEWARES
 // ---------------------------------------------------------------------
 
-struct Middlewares {}
+mod middlewares {
+    use crate::Logger;
+    use khttp::common::{HttpHeaders, HttpStatus};
+    use khttp_framework::Handler;
+    use std::sync::Arc;
 
-impl Middlewares {
-    fn auth(secret: String) -> impl Fn(Box<Handler>) -> Box<Handler> + Send + Sync {
+    pub fn auth(secret: String) -> impl Fn(Box<Handler>) -> Box<Handler> + Send + Sync {
         move |next| {
             let secret = secret.clone();
             Box::new(move |ctx, res| {
@@ -126,7 +129,7 @@ impl Middlewares {
         }
     }
 
-    fn logger() -> impl Fn(Box<Handler>) -> Box<Handler> + Send + Sync {
+    pub fn logger() -> impl Fn(Box<Handler>) -> Box<Handler> + Send + Sync {
         |next| {
             Box::new(move |ctx, res| {
                 let ip = ctx
@@ -148,7 +151,7 @@ impl Middlewares {
         }
     }
 
-    fn panic_unwind() -> impl Fn(Box<Handler>) -> Box<Handler> + Send + Sync {
+    pub fn panic_unwind() -> impl Fn(Box<Handler>) -> Box<Handler> + Send + Sync {
         |next| {
             Box::new(move |ctx, res| {
                 let result =
