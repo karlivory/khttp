@@ -48,7 +48,7 @@ fn simple_multi_test() {
 
 fn start_server(n: u64) -> std::thread::JoinHandle<()> {
     thread::spawn(move || {
-        let mut app = App::new("127.0.0.1", TEST_PORT);
+        let mut app = App::new(format!("127.0.0.1:{TEST_PORT}")).unwrap();
 
         app.route(HttpMethod::Get, "/hello", |_, res| {
             res.ok(HttpHeaders::new(), &b"Hello, World!"[..])

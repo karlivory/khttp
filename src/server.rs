@@ -6,7 +6,7 @@ use crate::router::{AppRouter, DefaultRouter};
 use crate::threadpool::ThreadPool;
 use std::collections::HashMap;
 use std::io::{self, Read};
-use std::net::{Shutdown, TcpListener, TcpStream};
+use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
@@ -16,16 +16,26 @@ const DEFAULT_THREAD_COUNT: usize = 20;
 
 impl App {
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(bind_address: &str, port: u16) -> HttpServerBuilder<DefaultRouter<Box<RouteFn>>> {
-        HttpServerBuilder {
-            bind_address: bind_address.to_string(),
-            port,
+    pub fn new<A: ToSocketAddrs>(
+        addr: A,
+    ) -> io::Result<HttpServerBuilder<DefaultRouter<Box<RouteFn>>>> {
+        let bind_addrs: Vec<SocketAddr> = addr.to_socket_addrs()?.collect();
+
+        if bind_addrs.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid address",
+            ));
+        }
+
+        Ok(HttpServerBuilder {
+            bind_addrs,
             thread_count: DEFAULT_THREAD_COUNT,
             router: DefaultRouter::<Box<RouteFn>>::new(),
             fallback_route: Arc::new(Box::new(default_404_handler)),
             stream_setup_hook: None,
             pre_routing_hook: None,
-        }
+        })
     }
 }
 
@@ -38,9 +48,8 @@ pub type PreRoutingHookFn = dyn Fn(HttpRequestParts<TcpStream>, &mut ResponseHan
     + 'static;
 
 pub struct HttpServer<R> {
-    bind_address: String,
+    bind_addrs: Vec<SocketAddr>,
     thread_count: usize,
-    port: u16,
     router: Arc<R>,
     fallback_route: Arc<Box<RouteFn>>,
     stream_setup_hook: Option<Arc<StreamSetupFn>>,
@@ -60,8 +69,7 @@ pub enum PreRoutingAction {
 }
 
 pub struct HttpServerBuilder<R> {
-    bind_address: String,
-    port: u16,
+    bind_addrs: Vec<SocketAddr>,
     thread_count: usize,
     router: R,
     fallback_route: Arc<Box<RouteFn>>,
@@ -108,19 +116,14 @@ where
         self.fallback_route = Arc::new(Box::new(f));
     }
 
-    pub fn port(&self) -> &u16 {
-        &self.port
-    }
-
     pub fn remove_route(&mut self, method: HttpMethod, path: &str) -> Option<Arc<R::Route>> {
         self.router.remove_route(&method, path)
     }
 
     pub fn build(self) -> HttpServer<R> {
         HttpServer {
-            bind_address: self.bind_address,
+            bind_addrs: self.bind_addrs,
             thread_count: self.thread_count,
-            port: self.port,
             router: Arc::new(self.router),
             fallback_route: self.fallback_route,
             stream_setup_hook: self.stream_setup_hook,
@@ -133,10 +136,6 @@ impl<R> HttpServer<R>
 where
     R: AppRouter<Route = Box<RouteFn>> + Send + Sync + 'static,
 {
-    pub fn port(&self) -> &u16 {
-        &self.port
-    }
-
     pub fn serve_n(self, n: u64) -> io::Result<()> {
         if n == 0 {
             return Ok(());
@@ -144,12 +143,16 @@ where
         self.serve_loop(Some(n))
     }
 
+    pub fn port(&self) -> Option<u16> {
+        self.bind_addrs.first().map(|a| a.port())
+    }
+
     pub fn serve(self) -> io::Result<()> {
         self.serve_loop(None)
     }
 
     fn serve_loop(self, limit: Option<u64>) -> io::Result<()> {
-        let listener = TcpListener::bind((self.bind_address.as_str(), self.port))?;
+        let listener = TcpListener::bind(&*self.bind_addrs)?;
         let pool = ThreadPool::new(self.thread_count);
 
         let mut i = 0;

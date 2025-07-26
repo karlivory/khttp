@@ -75,11 +75,11 @@ fn get_stream_setup_fn(
 }
 
 fn get_app(config: ServerConfig) -> HttpServerBuilder<DefaultRouter<Box<RouteFn>>> {
-    let mut app = App::new(&config.bind, config.port);
+    let mut app = App::new("0.0.0.0:8080").unwrap();
     if let Some(n) = config.thread_count {
         app.set_thread_count(n);
     }
-    app.set_stream_setup_fn(get_stream_setup_fn(config));
+    app.set_stream_setup_hook(get_stream_setup_fn(config));
     app
 }
 

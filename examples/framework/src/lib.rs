@@ -77,7 +77,9 @@ pub struct FrameworkApp {
 
 impl FrameworkApp {
     pub fn new(config: ServerConfig) -> Self {
-        let mut server = App::new(&config.bind, config.port);
+        let ip = &config.bind;
+        let port = &config.port;
+        let mut server = App::new(format!("{ip}:{port}")).expect("err: invalid addr");
         server.set_pre_routing_hook(trailing_slash_redirect());
         server.set_thread_count(config.thread_count);
         server.set_stream_setup_hook(get_stream_setup_fn(&config));

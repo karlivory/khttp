@@ -349,7 +349,7 @@ fn run_server_bench(sb: ServerBench) {
     let port = match sb.kind {
         ServerKind::Khttp(make_srv) => {
             let srv = make_srv();
-            let port = *srv.port();
+            let port = srv.port().unwrap();
             thread::spawn(move || srv.serve());
             port
         }
@@ -445,7 +445,8 @@ fn get_free_port() -> u16 {
 }
 
 fn get_khttp_app() -> HttpServerBuilder<DefaultRouter<Box<RouteFn>>> {
-    App::new("127.0.0.1", get_free_port())
+    let port = get_free_port();
+    App::new(format!("127.0.0.1:{port}")).unwrap()
 }
 
 fn respond_hello(res: &mut khttp::server::ResponseHandle) -> io::Result<()> {
