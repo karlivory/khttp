@@ -347,7 +347,7 @@ where
 
         (handler)(ctx, &mut response)?;
         if connection_close {
-            return Ok(());
+            return stream.shutdown(Shutdown::Both);
         }
     }
 }
