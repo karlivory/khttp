@@ -1,5 +1,3 @@
-// src/http_parser.rs
-
 use crate::common::{HttpHeaders, HttpMethod, HttpStatus};
 use std::{
     error::Error,
@@ -34,7 +32,7 @@ impl<R: Read> HttpRequestParser<R> {
     }
 
     pub fn parse(mut self) -> Result<HttpRequestParts<R>, HttpParsingError> {
-        let mut line_buf = Vec::with_capacity(128);
+        let mut line_buf = String::with_capacity(256);
         let status_line = parse_request_status_line(&mut self.reader, &mut line_buf)?;
         let headers = parse_headers(&mut self.reader, &mut line_buf)?;
 
@@ -67,7 +65,7 @@ impl<R: Read> HttpResponseParser<R> {
     }
 
     pub fn parse(mut self) -> Result<HttpResponseParts<R>, HttpParsingError> {
-        let mut line_buf = Vec::with_capacity(128);
+        let mut line_buf = String::with_capacity(256);
         let status = parse_response_status_line(&mut self.reader, &mut line_buf)?;
         let headers = parse_headers(&mut self.reader, &mut line_buf)?;
 
@@ -79,112 +77,96 @@ impl<R: Read> HttpResponseParser<R> {
     }
 }
 
-fn read_crlf_line<R: BufRead>(r: &mut R, buf: &mut Vec<u8>) -> io::Result<bool> {
+fn read_crlf_line<R: BufRead>(r: &mut R, buf: &mut String) -> io::Result<bool> {
     buf.clear();
-    let n = r.read_until(b'\n', buf)?;
+    let n = r.read_line(buf)?;
     if n == 0 {
         return Ok(false);
     }
-    if n >= 2 && buf[n - 2] == b'\r' {
-        buf.truncate(n - 2);
-    } else {
-        buf.truncate(n - 1);
+    if buf.ends_with("\r\n") {
+        buf.truncate(buf.len() - 2);
+    } else if buf.ends_with('\n') {
+        buf.pop();
     }
     Ok(true)
 }
 
 pub fn parse_response_status_line<R: BufRead>(
     reader: &mut R,
-    buf: &mut Vec<u8>,
+    buf: &mut String,
 ) -> Result<HttpStatus, HttpParsingError> {
     if !read_crlf_line(reader, buf)? {
         return Err(HttpParsingError::UnexpectedEof);
     }
 
-    let line = std::str::from_utf8(buf).map_err(|_| HttpParsingError::MalformedStatusLine)?;
-    let parts: Vec<&str> = line.splitn(3, ' ').collect();
-    if parts.len() < 3 {
-        return Err(HttpParsingError::MalformedStatusLine);
-    }
-
-    let code = parts[1]
+    let mut parts = buf.splitn(3, ' ');
+    let _http = parts.next().ok_or(HttpParsingError::MalformedStatusLine)?;
+    let code = parts
+        .next()
+        .ok_or(HttpParsingError::MalformedStatusLine)?
         .parse::<u16>()
         .map_err(|_| HttpParsingError::MalformedStatusLine)?;
+    let reason = parts
+        .next()
+        .ok_or(HttpParsingError::MalformedStatusLine)?
+        .to_string();
+
     if !(100..=999).contains(&code) {
-        // RFC: status code has to be a 3-number digit
         return Err(HttpParsingError::MalformedStatusLine);
     }
-    let reason = parts[2].to_string();
 
     Ok(HttpStatus::owned(code, reason))
 }
 
 pub fn parse_request_status_line<R: BufRead>(
     reader: &mut R,
-    buf: &mut Vec<u8>,
+    buf: &mut String,
 ) -> Result<HttpRequestStatusLine, HttpParsingError> {
     if !read_crlf_line(reader, buf)? {
         return Err(HttpParsingError::UnexpectedEof);
     }
 
-    let line = std::str::from_utf8(buf).map_err(|_| HttpParsingError::MalformedStatusLine)?;
-    let parts: Vec<&str> = line.split_whitespace().collect();
+    let mut parts = buf.split_whitespace();
+    let method = parts.next().ok_or(HttpParsingError::MalformedStatusLine)?;
+    let uri = parts.next().ok_or(HttpParsingError::MalformedStatusLine)?;
+    let version = parts.next().ok_or(HttpParsingError::MalformedStatusLine)?;
 
-    if parts.len() != 3 {
+    if !version.starts_with("HTTP/") {
         return Err(HttpParsingError::MalformedStatusLine);
     }
 
-    if !parts[2].starts_with("HTTP/") {
-        return Err(HttpParsingError::MalformedStatusLine);
-    }
-
-    let method = parts[0].into();
-    let uri = parts[1].to_string();
-    let version = parts[2].to_string();
     Ok(HttpRequestStatusLine {
-        method,
-        uri,
-        version,
+        method: method.into(),
+        uri: uri.to_string(),
+        version: version.to_string(),
     })
 }
 
 pub fn parse_headers<R: BufRead>(
     reader: &mut R,
-    buf: &mut Vec<u8>,
+    buf: &mut String,
 ) -> Result<HttpHeaders, HttpParsingError> {
     let mut headers = HttpHeaders::new();
 
     loop {
         match read_crlf_line(reader, buf) {
             Ok(true) => {
-                // Empty line -> end of header section
-                if buf.is_empty() {
+                if buf.trim().is_empty() {
                     return Ok(headers);
                 }
 
-                // Find first ':'
-                let colon = buf
-                    .iter()
-                    .position(|&b| b == b':')
+                let (name, value) = buf
+                    .split_once(':')
                     .ok_or(HttpParsingError::MalformedHeader)?;
 
-                let name_bytes = &buf[..colon];
-                let value_bytes = &buf[colon + 1..];
-
-                let name = std::str::from_utf8(name_bytes)
-                    .map_err(|_| HttpParsingError::MalformedHeader)?;
+                let name = name.trim();
                 validate_field_name(name)?;
 
-                let value_raw = std::str::from_utf8(value_bytes)
-                    .map_err(|_| HttpParsingError::MalformedHeader)?;
-                let value = value_raw
-                    .trim_matches(|c| c == ' ' || c == '\t')
-                    .to_string();
+                let value = value.trim();
 
-                headers.add(name, &value);
+                headers.add(name, value);
             }
             Ok(false) => {
-                // EOF before blank line
                 return Err(HttpParsingError::UnexpectedEof);
             }
             Err(_) => return Err(HttpParsingError::IOError),
