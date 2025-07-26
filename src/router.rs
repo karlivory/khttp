@@ -60,7 +60,7 @@ impl<T> AppRouter for DefaultRouter<T> {
         method: &HttpMethod,
         uri: &'r str,
     ) -> Option<Match<'a, 'r, Self::Route>> {
-        let uri_parts = split_uri_into_parts(uri);
+        let uri_parts = uri.split("/").collect::<Vec<&str>>();
         let routes = self.routes.get(method)?;
 
         if uri_parts.len() == 1 && uri_parts[0] == "*" {
@@ -229,18 +229,9 @@ pub fn parse_route(route_str: &str) -> RouteEntry {
     if route_str == "*" {
         RouteEntry::AsteriskForm
     } else {
-        let segments = route_str
-            .split('/')
-            .filter(|x| !x.is_empty())
-            .map(parse_route_segment)
-            .collect();
+        let segments = route_str.split('/').map(parse_route_segment).collect();
         RouteEntry::Standard(segments)
     }
-}
-
-fn split_uri_into_parts(uri: &str) -> Vec<&str> {
-    let trimmed = uri.split('?').next().unwrap_or(uri);
-    trimmed.split('/').filter(|x| !x.is_empty()).collect()
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]

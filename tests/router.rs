@@ -8,6 +8,13 @@ use khttp::{
 // ---------------------------------------------------------------------
 
 #[test]
+fn empty_route() {
+    let mut r = new_router();
+    add_routes(&mut r, &HttpMethod::Get, &[("/", 0), ("/route", 1)]);
+    assert_match(&r, &HttpMethod::Get, "/", 0);
+}
+
+#[test]
 fn nested_routes() {
     let mut r = new_router();
     add_routes(
@@ -21,21 +28,6 @@ fn nested_routes() {
 }
 
 #[test]
-fn http_parameters_ignored_for_path_match() {
-    let mut r = new_router();
-    add_routes(
-        &mut r,
-        &HttpMethod::Get,
-        &[("/route1", 0), ("/route2", 1), ("/route3/hey", 1)],
-    );
-
-    assert_match(&r, &HttpMethod::Get, "/route1", 0);
-    assert_match(&r, &HttpMethod::Get, "/route1?foo=bar", 0);
-    assert_match(&r, &HttpMethod::Get, "/route2?foo=bar&fizz=buzz", 1);
-    assert_match(&r, &HttpMethod::Get, "/route2?foo=bar&fizz=buzz#header", 1);
-}
-
-#[test]
 fn wildcard() {
     let mut r = new_router();
     add_routes(
@@ -46,8 +38,8 @@ fn wildcard() {
 
     assert_match(&r, &HttpMethod::Get, "/route1/abc/foo", 0);
     assert_match(&r, &HttpMethod::Get, "/route1/d/foo", 0);
-    assert_match(&r, &HttpMethod::Get, "/route2/hello?foo=bar&fizz=buzz", 1);
-    assert_match(&r, &HttpMethod::Get, "/route2/hey?foo=bar&fizz=buzz", 2);
+    assert_match(&r, &HttpMethod::Get, "/route2/hello", 1);
+    assert_match(&r, &HttpMethod::Get, "/route2/hey", 2);
 }
 
 #[test]
@@ -66,15 +58,15 @@ fn double_wildcard() {
 
     assert_match(&r, &HttpMethod::Get, "/route1/abc/def/hjk", 0);
     assert_match(&r, &HttpMethod::Get, "/route1/d/foo", 0);
-    assert_match(&r, &HttpMethod::Get, "/route2/hello?foo=bar&fizz=buzz", 1);
-    assert_match(&r, &HttpMethod::Get, "/route2?foo=bar&fizz=buzz", 2);
+    assert_match(&r, &HttpMethod::Get, "/route2/hello", 1);
+    assert_match(&r, &HttpMethod::Get, "/route2", 2);
     assert_match(&r, &HttpMethod::Get, "/", 3);
     assert_match(&r, &HttpMethod::Get, "/route3", 3);
     assert_match(&r, &HttpMethod::Get, "/fallback/for/any/other/route", 3);
 }
 
 #[test]
-fn precedence_literal_wildcards() {
+fn precedence() {
     let mut r = new_router();
     add_routes(
         &mut r,
@@ -83,12 +75,9 @@ fn precedence_literal_wildcards() {
     );
 
     assert_match(&r, &HttpMethod::Get, "/route/foo", 0);
-    assert_match(&r, &HttpMethod::Get, "/route/foo?fizz=buzz", 0);
-
     assert_match(&r, &HttpMethod::Get, "/route/hello", 1);
     assert_match(&r, &HttpMethod::Get, "/route/foobar", 1);
-
-    assert_match(&r, &HttpMethod::Get, "/route/foo/bar?foo=bar&fizz=buzz", 2);
+    assert_match(&r, &HttpMethod::Get, "/route/foo/bar/index.html", 2);
 }
 
 #[test]
@@ -235,20 +224,6 @@ fn remove_param_route() {
 }
 
 #[test]
-fn query_string_does_not_affect_params() {
-    let mut r = new_router();
-    add_routes(&mut r, &HttpMethod::Get, &[("/search/:term", 0)]);
-
-    assert_match_params(
-        &r,
-        &HttpMethod::Get,
-        "/search/rust?lang=en&sort=asc",
-        0,
-        &[("term", "rust")],
-    );
-}
-
-#[test]
 fn overlap_param_and_double_wildcard() {
     let mut r = new_router();
     add_routes(
@@ -274,6 +249,40 @@ fn test_asterisk_form() {
     assert_404(&r, &HttpMethod::Get, "*");
     assert_404(&r, &HttpMethod::Options, "/route");
     assert_404(&r, &HttpMethod::Options, "hello");
+}
+
+#[test]
+fn test_trailing_slash() {
+    // spec says: separate route
+    let mut r = new_router();
+    add_routes(&mut r, &HttpMethod::Get, &[("/hello", 0)]);
+    add_routes(&mut r, &HttpMethod::Get, &[("/foo/bar", 1)]);
+    add_routes(&mut r, &HttpMethod::Get, &[("/foo/bar/", 2)]);
+    add_routes(&mut r, &HttpMethod::Get, &[("/wild/*", 3)]);
+    add_routes(&mut r, &HttpMethod::Get, &[("/user/:id", 4)]);
+    add_routes(&mut r, &HttpMethod::Get, &[("/any/**", 5)]);
+
+    assert_404(&r, &HttpMethod::Get, "/hello/");
+    assert_match(&r, &HttpMethod::Get, "/foo/bar", 1);
+    assert_match(&r, &HttpMethod::Get, "/foo/bar/", 2);
+    assert_404(&r, &HttpMethod::Get, "/foo/bar//");
+    assert_404(&r, &HttpMethod::Get, "/foo/bar//");
+    assert_404(&r, &HttpMethod::Get, "/wild/abc/");
+    assert_404(&r, &HttpMethod::Get, "/user/123/");
+    assert_match(&r, &HttpMethod::Get, "/any////", 5);
+}
+
+#[test]
+fn test_multiple_slashes() {
+    // spec says: separate route
+    let mut r = new_router();
+    add_routes(&mut r, &HttpMethod::Get, &[("/hello", 0)]);
+    add_routes(&mut r, &HttpMethod::Get, &[("/foo/bar", 1)]);
+
+    assert_404(&r, &HttpMethod::Get, "///hello");
+    assert_404(&r, &HttpMethod::Get, "///hello///");
+    assert_404(&r, &HttpMethod::Get, "/foo//bar");
+    assert_404(&r, &HttpMethod::Get, "//////foo////bar");
 }
 
 // ---------------------------------------------------------------------
