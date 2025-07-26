@@ -139,7 +139,9 @@ impl Middlewares {
                 let log = ctx.get::<Arc<Logger>>().unwrap();
                 log.info(&format!(
                     "[ip: {}] {} {}",
-                    ip, ctx.request.method, ctx.request.uri
+                    ip,
+                    ctx.request.method,
+                    ctx.request.uri.as_str()
                 ));
                 next(ctx, res)
             })

@@ -366,7 +366,7 @@ fn assert_parse_request_ok(
         .expect("should parse");
 
     assert_eq!(parsed.method, method);
-    assert_eq!(parsed.full_uri, uri);
+    assert_eq!(parsed.uri.full(), uri);
     assert_eq!(parsed.headers, HttpHeaders::from(headers));
 
     let mut buf = String::new();

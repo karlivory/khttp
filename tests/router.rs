@@ -23,11 +23,16 @@ fn nested_routes() {
 #[test]
 fn http_parameters_ignored_for_path_match() {
     let mut r = new_router();
-    add_routes(&mut r, &HttpMethod::Get, &[("/route1", 0), ("/route2", 1)]);
+    add_routes(
+        &mut r,
+        &HttpMethod::Get,
+        &[("/route1", 0), ("/route2", 1), ("/route3/hey", 1)],
+    );
 
     assert_match(&r, &HttpMethod::Get, "/route1", 0);
     assert_match(&r, &HttpMethod::Get, "/route1?foo=bar", 0);
     assert_match(&r, &HttpMethod::Get, "/route2?foo=bar&fizz=buzz", 1);
+    assert_match(&r, &HttpMethod::Get, "/route2?foo=bar&fizz=buzz#header", 1);
 }
 
 #[test]

@@ -1,4 +1,4 @@
-use crate::common::{HttpHeaders, HttpMethod, HttpStatus};
+use crate::common::{HttpHeaders, HttpMethod, HttpStatus, RequestUri};
 use std::{
     error::Error,
     fmt::Display,
@@ -19,7 +19,7 @@ pub struct HttpRequestStatusLine {
 pub struct HttpRequestParts<R: Read> {
     pub headers: HttpHeaders,
     pub method: HttpMethod,
-    pub full_uri: String,
+    pub uri: RequestUri,
     pub reader: BufReader<R>,
     pub http_version: String,
 }
@@ -38,7 +38,7 @@ impl<R: Read> HttpRequestParser<R> {
 
         Ok(HttpRequestParts {
             method: status_line.method,
-            full_uri: status_line.uri,
+            uri: RequestUri::new(status_line.uri),
             http_version: status_line.version,
             headers,
             reader: self.reader,
