@@ -2,7 +2,7 @@
 use khttp::{
     client::Client,
     common::{HttpHeaders, HttpMethod, HttpStatus},
-    server::App,
+    server::HttpServer,
 };
 use std::{
     io::Cursor,
@@ -48,7 +48,7 @@ fn simple_multi_test() {
 
 fn start_server(n: u64) -> std::thread::JoinHandle<()> {
     thread::spawn(move || {
-        let mut app = App::new(format!("127.0.0.1:{TEST_PORT}")).unwrap();
+        let mut app = HttpServer::builder(format!("127.0.0.1:{TEST_PORT}")).unwrap();
 
         app.route(HttpMethod::Get, "/hello", |_, res| {
             res.ok(HttpHeaders::new(), &b"Hello, World!"[..])

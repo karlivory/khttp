@@ -10,13 +10,10 @@ use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
-pub struct App {}
-
 const DEFAULT_THREAD_COUNT: usize = 20;
 
-impl App {
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new<A: ToSocketAddrs>(
+impl HttpServer<DefaultRouter<Box<RouteFn>>> {
+    pub fn builder<A: ToSocketAddrs>(
         addr: A,
     ) -> io::Result<HttpServerBuilder<DefaultRouter<Box<RouteFn>>>> {
         let bind_addrs: Vec<SocketAddr> = addr.to_socket_addrs()?.collect();

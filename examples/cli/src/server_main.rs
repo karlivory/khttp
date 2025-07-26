@@ -7,7 +7,7 @@ use crate::args_parser::{ServerConfig, ServerOp};
 use khttp::common::{HttpHeaders, HttpMethod, HttpStatus};
 use khttp::router::DefaultRouter;
 use khttp::server::{
-    App, HttpRequestContext, HttpServerBuilder, ResponseHandle, RouteFn, StreamSetupAction,
+    HttpRequestContext, HttpServer, HttpServerBuilder, ResponseHandle, RouteFn, StreamSetupAction,
 };
 
 pub fn run(op: ServerOp) {
@@ -75,7 +75,7 @@ fn get_stream_setup_fn(
 }
 
 fn get_app(config: ServerConfig) -> HttpServerBuilder<DefaultRouter<Box<RouteFn>>> {
-    let mut app = App::new("0.0.0.0:8080").unwrap();
+    let mut app = HttpServer::builder("0.0.0.0:8080").unwrap();
     if let Some(n) = config.thread_count {
         app.set_thread_count(n);
     }

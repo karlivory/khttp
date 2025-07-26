@@ -8,7 +8,7 @@ use khttp::common::{HttpHeaders, HttpMethod, HttpStatus};
 use khttp::http_parser::HttpRequestParts;
 use khttp::router::DefaultRouter;
 use khttp::server::{
-    App, HttpRequestContext, HttpServerBuilder, PreRoutingAction, ResponseHandle, RouteFn,
+    HttpRequestContext, HttpServer, HttpServerBuilder, PreRoutingAction, ResponseHandle, RouteFn,
     StreamSetupAction,
 };
 
@@ -79,7 +79,7 @@ impl FrameworkApp {
     pub fn new(config: ServerConfig) -> Self {
         let ip = &config.bind;
         let port = &config.port;
-        let mut server = App::new(format!("{ip}:{port}")).expect("err: invalid addr");
+        let mut server = HttpServer::builder(format!("{ip}:{port}")).expect("err: invalid addr");
         server.set_pre_routing_hook(trailing_slash_redirect());
         server.set_thread_count(config.thread_count);
         server.set_stream_setup_hook(get_stream_setup_fn(&config));

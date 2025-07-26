@@ -14,7 +14,7 @@ use khttp::{
     common::{HttpHeaders, HttpMethod, HttpStatus},
     http_parser::HttpRequestParser,
     router::DefaultRouter,
-    server::{App, HttpServer, HttpServerBuilder, RouteFn},
+    server::{HttpServer, HttpServerBuilder, RouteFn},
 };
 use std::{
     env,
@@ -446,7 +446,7 @@ fn get_free_port() -> u16 {
 
 fn get_khttp_app() -> HttpServerBuilder<DefaultRouter<Box<RouteFn>>> {
     let port = get_free_port();
-    App::new(format!("127.0.0.1:{port}")).unwrap()
+    HttpServer::builder(format!("127.0.0.1:{port}")).unwrap()
 }
 
 fn respond_hello(res: &mut khttp::server::ResponseHandle) -> io::Result<()> {
