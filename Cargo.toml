@@ -3,7 +3,7 @@ name = "khttp"
 version = "0.1.0"
 categories = ["network-programming", "web-programming::http-server"]
 keywords = ["http", "web", "server", "client", "minimal"]
-description = "A low-level 0-dependency synchronous HTTP/1.1 client/server library"
+description = "A low-level 0-dependency synchronous HTTP/1.1 server/client library"
 edition = "2024"
 license = "MIT"
 authors = ["karlivory"]
@@ -18,12 +18,6 @@ path = "src/lib.rs"
 [features]
 default = []
 client = []
-cli = ["client"]
-
-[[bin]]
-name = "khttp"
-path = "cli/main.rs"
-required-features = ["cli"]
 
 [workspace]
-members = [".", "benchmarks", "examples/framework"]
+members = [".", "examples/*"]

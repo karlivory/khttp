@@ -1,0 +1,13 @@
+[package]
+name = "khttp-cli"
+description = "cli app"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+khttp = { path = "../..", features = ["client"] }
+
+[[bin]]
+name = "khttp-cli"
+path = "src/main.rs"

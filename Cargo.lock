@@ -480,8 +480,16 @@ dependencies = [
  "bytes",
  "criterion",
  "futures-util",
+ "httparse",
  "khttp",
  "tokio",
+]
+
+[[package]]
+name = "khttp-cli"
+version = "0.1.0"
+dependencies = [
+ "khttp",
 ]
 
 [[package]]
