@@ -113,7 +113,7 @@ fn print_startup_banner(config: &ServerConfig) {
 // Middleware Framework
 
 pub struct HandlerContext<'r> {
-    pub request: HttpRequestContext<'r, 'r>,
+    pub request: HttpRequestContext<'r>,
     pub extensions: HashMap<TypeId, Box<dyn Any + Send>>,
 }
 

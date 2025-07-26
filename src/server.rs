@@ -1,6 +1,6 @@
 use crate::body_reader::BodyReader;
 use crate::common::{HttpHeaders, HttpMethod, HttpStatus, RequestUri};
-use crate::http_parser::{HttpParsingError, HttpRequestParser};
+use crate::http_parser::{HttpParsingError, HttpRequestParser, HttpRequestParts};
 use crate::http_printer::HttpPrinter;
 use crate::router::{AppRouter, DefaultRouter};
 use crate::threadpool::ThreadPool;
@@ -24,6 +24,7 @@ impl App {
             router: DefaultRouter::<Box<RouteFn>>::new(),
             fallback_route: Arc::new(Box::new(default_404_handler)),
             stream_setup_fn: None,
+            pre_routing_hook: None,
         }
     }
 }
@@ -31,6 +32,10 @@ impl App {
 pub type RouteFn =
     dyn Fn(HttpRequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync + 'static;
 pub type StreamSetupFn = dyn Fn(io::Result<TcpStream>) -> StreamSetupAction + Send + Sync + 'static;
+pub type PreRoutingHookFn = dyn Fn(HttpRequestParts<TcpStream>, &mut ResponseHandle) -> PreRoutingAction
+    + Send
+    + Sync
+    + 'static;
 
 pub struct HttpServer<R> {
     bind_address: String,
@@ -39,12 +44,19 @@ pub struct HttpServer<R> {
     router: Arc<R>,
     fallback_route: Arc<Box<RouteFn>>,
     stream_setup_fn: Option<Arc<StreamSetupFn>>,
+    pre_routing_hook: Option<Arc<PreRoutingHookFn>>,
 }
 
 pub enum StreamSetupAction {
     Accept(TcpStream),
     Skip,
     StopAccepting,
+}
+
+pub enum PreRoutingAction {
+    Proceed(HttpRequestParts<TcpStream>),
+    Skip,
+    Disconnect(io::Result<()>),
 }
 
 pub struct HttpServerBuilder<R> {
@@ -54,6 +66,7 @@ pub struct HttpServerBuilder<R> {
     router: R,
     fallback_route: Arc<Box<RouteFn>>,
     stream_setup_fn: Option<Arc<StreamSetupFn>>,
+    pre_routing_hook: Option<Arc<PreRoutingHookFn>>,
 }
 
 impl<R> HttpServerBuilder<R>
@@ -76,6 +89,16 @@ where
         F: Fn(io::Result<TcpStream>) -> StreamSetupAction + Send + Sync + 'static,
     {
         self.stream_setup_fn = Some(Arc::new(f));
+    }
+
+    pub fn set_pre_routing_hook<F>(&mut self, f: F)
+    where
+        F: Fn(HttpRequestParts<TcpStream>, &mut ResponseHandle) -> PreRoutingAction
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.pre_routing_hook = Some(Arc::new(f));
     }
 
     pub fn set_fallback_route<F>(&mut self, f: F)
@@ -101,6 +124,7 @@ where
             router: Arc::new(self.router),
             fallback_route: self.fallback_route,
             stream_setup_fn: self.stream_setup_fn,
+            pre_routing_hook: self.pre_routing_hook,
         }
     }
 }
@@ -144,9 +168,10 @@ where
 
             let router = self.router.clone();
             let handler_404 = self.fallback_route.clone();
+            let pre_routing_hook = self.pre_routing_hook.clone();
 
             pool.execute(move || {
-                let _ = handle_connection(stream, &router, &handler_404);
+                let _ = handle_connection(stream, &router, &handler_404, &pre_routing_hook);
             });
 
             if let Some(max) = limit {
@@ -160,7 +185,12 @@ where
     }
 
     pub fn handle(&self, stream: TcpStream) -> io::Result<()> {
-        handle_connection(stream, &self.router, &self.fallback_route)
+        handle_connection(
+            stream,
+            &self.router,
+            &self.fallback_route,
+            &self.pre_routing_hook,
+        )
     }
 }
 
@@ -220,17 +250,16 @@ pub struct ConnectionMeta {
     pub last_activity: Instant,
 }
 
-pub struct HttpRequestContext<'c, 'r> {
+pub struct HttpRequestContext<'r> {
     pub headers: HttpHeaders,
     pub method: HttpMethod,
     pub route_params: &'r HashMap<&'r str, &'r str>,
     pub uri: &'r RequestUri,
     pub http_version: &'r str,
-    pub conn: &'c ConnectionMeta,
     body: BodyReader<TcpStream>,
 }
 
-impl HttpRequestContext<'_, '_> {
+impl HttpRequestContext<'_> {
     pub fn get_body_reader(&mut self) -> &mut BodyReader<TcpStream> {
         &mut self.body
     }
@@ -260,19 +289,14 @@ pub fn handle_connection<R>(
     mut stream: TcpStream,
     router: &Arc<R>,
     handler_404: &Arc<Box<RouteFn>>,
+    pre_routing_hook: &Option<Arc<PreRoutingHookFn>>,
 ) -> io::Result<()>
 where
     R: AppRouter<Route = Box<RouteFn>>,
 {
-    let mut conn_meta = ConnectionMeta {
-        req_index: 0,
-        last_activity: Instant::now(),
-        started_at: Instant::now(),
-    };
-
     loop {
         let read_stream = stream.try_clone()?;
-        let parts = match HttpRequestParser::new(read_stream).parse() {
+        let mut parts = match HttpRequestParser::new(read_stream).parse() {
             Ok(p) => p,
             Err(HttpParsingError::IOError) => {
                 return Ok(());
@@ -289,9 +313,17 @@ where
         if parts.headers.is_100_continue() {
             HttpPrinter::new(&mut stream).write_100_continue()?;
         }
+        let mut response = ResponseHandle {
+            stream: &mut stream,
+        };
 
-        conn_meta.req_index = conn_meta.req_index.wrapping_add(1);
-        conn_meta.last_activity = Instant::now();
+        if let Some(hook) = pre_routing_hook {
+            parts = match (hook)(parts, &mut response) {
+                PreRoutingAction::Proceed(p) => p,
+                PreRoutingAction::Skip => continue,
+                PreRoutingAction::Disconnect(r) => return r,
+            }
+        }
 
         let matched = router.match_route(&parts.method, parts.uri.path());
         let (handler, params) = match &matched {
@@ -299,17 +331,12 @@ where
             None => (handler_404, &*EMPTY_PARAMS),
         };
 
-        let mut response = ResponseHandle {
-            stream: &mut stream,
-        };
         let body = BodyReader::from(&parts.headers, parts.reader);
-
         let ctx = HttpRequestContext {
             method: parts.method,
             headers: parts.headers,
             uri: &parts.uri,
             http_version: &parts.http_version,
-            conn: &conn_meta,
             route_params: params,
             body,
         };
