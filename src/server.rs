@@ -250,16 +250,16 @@ pub struct ConnectionMeta {
     pub last_activity: Instant,
 }
 
-pub struct HttpRequestContext<'r> {
+pub struct HttpRequestContext<'a, 'r> {
     pub headers: HttpHeaders,
     pub method: HttpMethod,
-    pub route_params: &'r HashMap<&'r str, &'r str>,
+    pub route_params: &'r HashMap<&'a str, &'r str>,
     pub uri: &'r RequestUri,
     pub http_version: &'r str,
     body: BodyReader<TcpStream>,
 }
 
-impl HttpRequestContext<'_> {
+impl HttpRequestContext<'_, '_> {
     pub fn get_body_reader(&mut self) -> &mut BodyReader<TcpStream> {
         &mut self.body
     }

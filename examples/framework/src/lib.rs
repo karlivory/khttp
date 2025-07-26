@@ -112,12 +112,12 @@ fn print_startup_banner(config: &ServerConfig) {
 // ─────────────────────────────────────────────────────────────
 // Middleware Framework
 
-pub struct HandlerContext<'r> {
-    pub request: HttpRequestContext<'r>,
+pub struct HandlerContext<'a, 'r> {
+    pub request: HttpRequestContext<'a, 'r>,
     pub extensions: HashMap<TypeId, Box<dyn Any + Send>>,
 }
 
-impl HandlerContext<'_> {
+impl HandlerContext<'_, '_> {
     pub fn get<T: 'static>(&self) -> Option<&T> {
         self.extensions
             .get(&TypeId::of::<T>())
