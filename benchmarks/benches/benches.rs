@@ -62,6 +62,16 @@ fn main() {
     });
 
     server_benches.push(ServerBench {
+        full: "server:longheader",
+        path: "/",
+        kind: ServerKind::Khttp(Box::new(|| {
+            let mut app = get_khttp_app();
+            app.route(HttpMethod::Get, "/", |_c, r| respond_longheader(r));
+            app.build()
+        })),
+    });
+
+    server_benches.push(ServerBench {
         full: "server:heavy",
         path: "/a/b/c",
         kind: ServerKind::Khttp(Box::new(|| {
@@ -100,6 +110,30 @@ fn main() {
         kind: ServerKind::Axum(Box::new(|router| {
             use axum::routing::get;
             router.route("/", get(|| async { "Hello, World!" }))
+        })),
+    });
+
+    server_benches.push(ServerBench {
+        full: "axum:longheader",
+        path: "/",
+        kind: ServerKind::Axum(Box::new(|router| {
+            use axum::{http::HeaderMap, routing::get};
+
+            router.route(
+                "/",
+                get(|| async {
+                    let mut headers = HeaderMap::new();
+                    for i in 0..50 {
+                        let name = format!("value{}", i);
+                        let value = "hello".repeat(10);
+                        headers.insert(
+                            name.parse::<axum::http::HeaderName>().unwrap(),
+                            value.parse().unwrap(),
+                        );
+                    }
+                    (headers, "hey")
+                }),
+            )
         })),
     });
 
@@ -162,7 +196,7 @@ fn main() {
     });
 
     parser_benches.push(ParserBench {
-        full: "parser:complex",
+        full: "parser:simple",
         bench: Box::new(|group| {
             let raw = b"GET /foo/bar HTTP/1.1\r\nHost: example.com\r\n\r\n";
             group.bench_function(BenchmarkId::new("complex", "GET /foo/bar"), |b| {
@@ -170,6 +204,85 @@ fn main() {
                     let _ = HttpRequestParser::new(std::hint::black_box(&raw[..]))
                         .parse()
                         .unwrap();
+                });
+            });
+        }),
+    });
+
+    fn httparse_make_allocations(req: httparse::Request) {
+        let full_uri = req.path.unwrap().to_string();
+        assert!(!full_uri.is_empty());
+        let http_version = req.version.unwrap().to_string();
+        assert!(!http_version.is_empty());
+        let mut headers = HttpHeaders::new();
+        for header in req.headers {
+            let value = std::str::from_utf8(header.value).unwrap();
+            headers.add(header.name, value);
+        }
+    }
+
+    parser_benches.push(ParserBench {
+        full: "httparse:simple",
+        bench: Box::new(|group| {
+            let raw = b"GET /foo/bar HTTP/1.1\r\nHost: example.com\r\n\r\n";
+            group.bench_function(BenchmarkId::new("httparse", "GET /foo/bar"), |b| {
+                b.iter(|| {
+                    let mut headers = [httparse::EMPTY_HEADER; 25];
+                    let mut req = httparse::Request::new(&mut headers);
+                    let _ = req.parse(std::hint::black_box(&raw[..])).unwrap();
+
+                    // (make the allocations, to keep the parser comparison apples-to-apples)
+                    httparse_make_allocations(req);
+                });
+            });
+        }),
+    });
+
+    fn make_long_request() -> Vec<u8> {
+        let mut buf = b"\
+GET /really/long/path/that/keeps/going/on/and/on HTTP/1.1\r\n\
+Host: example.com\r\n\
+User-Agent: bench\r\n\
+Accept: */*\r\n"
+            .to_vec();
+
+        for i in 1..=20 {
+            let header = format!("X-Custom-Header-{}: value_with_some_length_{}\r\n", i, i);
+            buf.extend_from_slice(header.as_bytes());
+        }
+
+        buf.extend_from_slice(b"\r\n");
+        buf
+    }
+
+    parser_benches.push(ParserBench {
+        full: "parser:long",
+        bench: Box::new(|group| {
+            let raw = make_long_request();
+            group.bench_function(BenchmarkId::new("long", "GET /long"), |b| {
+                b.iter(|| {
+                    let _ = HttpRequestParser::new(std::hint::black_box(&raw[..]))
+                        .parse()
+                        .unwrap();
+                });
+            });
+        }),
+    });
+
+    parser_benches.push(ParserBench {
+        full: "httparse:long",
+        bench: Box::new(|group| {
+            let raw = make_long_request();
+            group.bench_function(BenchmarkId::new("long", "GET /long"), |b| {
+                b.iter(|| {
+                    let mut headers = [httparse::EMPTY_HEADER; 25];
+                    let mut req = httparse::Request::new(&mut headers);
+                    let _ = req.parse(std::hint::black_box(&raw[..])).unwrap();
+                    assert!(req.path.is_some());
+                    assert!(req.version.is_some());
+
+                    // (make the allocations, to keep the parser comparison apples-to-apples)
+                    httparse_make_allocations(req);
                 });
             });
         }),
@@ -338,6 +451,15 @@ fn get_khttp_app() -> HttpServerBuilder<DefaultRouter<Box<RouteFn>>> {
 fn respond_hello(res: &mut khttp::server::ResponseHandle) -> io::Result<()> {
     let msg = "Hello, World!";
     res.ok(HttpHeaders::new(), msg.as_bytes())
+}
+
+fn respond_longheader(res: &mut khttp::server::ResponseHandle) -> io::Result<()> {
+    let msg = "hey";
+    let mut headers = HttpHeaders::new();
+    for i in 0..50 {
+        headers.add(&format!("value{i}"), &"hello".repeat(10));
+    }
+    res.ok(headers, msg.as_bytes())
 }
 
 use std::sync::OnceLock;
