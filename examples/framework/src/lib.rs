@@ -4,10 +4,12 @@ use std::io;
 use std::net::TcpStream;
 use std::time::Duration;
 
-use khttp::common::HttpMethod;
+use khttp::common::{HttpHeaders, HttpMethod, HttpStatus};
+use khttp::http_parser::HttpRequestParts;
 use khttp::router::DefaultRouter;
 use khttp::server::{
-    App, HttpRequestContext, HttpServerBuilder, ResponseHandle, RouteFn, StreamSetupAction,
+    App, HttpRequestContext, HttpServerBuilder, PreRoutingAction, ResponseHandle, RouteFn,
+    StreamSetupAction,
 };
 
 pub struct ServerConfig {
@@ -51,6 +53,22 @@ fn get_stream_setup_fn(
         StreamSetupAction::Accept(s)
     }
 }
+fn trailing_slash_redirect()
+-> impl Fn(HttpRequestParts<TcpStream>, &mut ResponseHandle) -> PreRoutingAction + Send + Sync + 'static
+{
+    move |parts, response| {
+        let original_path = parts.uri.path();
+        if original_path != "/" && original_path.ends_with('/') {
+            let trimmed = original_path.trim_end_matches('/');
+            let mut headers = HttpHeaders::new();
+            headers.set("Location", trimmed);
+            let _ = response.send(&HttpStatus::of(301), headers, &[][..]);
+            return PreRoutingAction::Skip;
+        }
+
+        PreRoutingAction::Proceed(parts)
+    }
+}
 
 pub struct FrameworkApp {
     server: HttpServerBuilder<DefaultRouter<Box<RouteFn>>>,
@@ -60,6 +78,7 @@ pub struct FrameworkApp {
 impl FrameworkApp {
     pub fn new(config: ServerConfig) -> Self {
         let mut server = App::new(&config.bind, config.port);
+        server.set_pre_routing_hook(trailing_slash_redirect());
         server.set_thread_count(config.thread_count);
         server.set_stream_setup_fn(get_stream_setup_fn(&config));
         Self { server, config }
