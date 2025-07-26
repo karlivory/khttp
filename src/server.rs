@@ -23,7 +23,7 @@ impl App {
             thread_count: DEFAULT_THREAD_COUNT,
             router: DefaultRouter::<Box<RouteFn>>::new(),
             fallback_route: Arc::new(Box::new(default_404_handler)),
-            stream_setup_fn: None,
+            stream_setup_hook: None,
             pre_routing_hook: None,
         }
     }
@@ -43,7 +43,7 @@ pub struct HttpServer<R> {
     port: u16,
     router: Arc<R>,
     fallback_route: Arc<Box<RouteFn>>,
-    stream_setup_fn: Option<Arc<StreamSetupFn>>,
+    stream_setup_hook: Option<Arc<StreamSetupFn>>,
     pre_routing_hook: Option<Arc<PreRoutingHookFn>>,
 }
 
@@ -65,7 +65,7 @@ pub struct HttpServerBuilder<R> {
     thread_count: usize,
     router: R,
     fallback_route: Arc<Box<RouteFn>>,
-    stream_setup_fn: Option<Arc<StreamSetupFn>>,
+    stream_setup_hook: Option<Arc<StreamSetupFn>>,
     pre_routing_hook: Option<Arc<PreRoutingHookFn>>,
 }
 
@@ -84,11 +84,11 @@ where
         self.thread_count = thread_count;
     }
 
-    pub fn set_stream_setup_fn<F>(&mut self, f: F)
+    pub fn set_stream_setup_hook<F>(&mut self, f: F)
     where
         F: Fn(io::Result<TcpStream>) -> StreamSetupAction + Send + Sync + 'static,
     {
-        self.stream_setup_fn = Some(Arc::new(f));
+        self.stream_setup_hook = Some(Arc::new(f));
     }
 
     pub fn set_pre_routing_hook<F>(&mut self, f: F)
@@ -123,7 +123,7 @@ where
             port: self.port,
             router: Arc::new(self.router),
             fallback_route: self.fallback_route,
-            stream_setup_fn: self.stream_setup_fn,
+            stream_setup_hook: self.stream_setup_hook,
             pre_routing_hook: self.pre_routing_hook,
         }
     }
@@ -154,8 +154,8 @@ where
 
         let mut i = 0;
         for stream in listener.incoming() {
-            let stream = match &self.stream_setup_fn {
-                Some(setup_fn) => match (setup_fn)(stream) {
+            let stream = match &self.stream_setup_hook {
+                Some(hook) => match (hook)(stream) {
                     StreamSetupAction::Accept(s) => s,
                     StreamSetupAction::Skip => continue,
                     StreamSetupAction::StopAccepting => break,

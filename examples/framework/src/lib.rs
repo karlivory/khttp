@@ -80,7 +80,7 @@ impl FrameworkApp {
         let mut server = App::new(&config.bind, config.port);
         server.set_pre_routing_hook(trailing_slash_redirect());
         server.set_thread_count(config.thread_count);
-        server.set_stream_setup_fn(get_stream_setup_fn(&config));
+        server.set_stream_setup_hook(get_stream_setup_fn(&config));
         Self { server, config }
     }
 
