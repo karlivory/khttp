@@ -36,7 +36,9 @@ impl Server<DefaultRouter<Box<RouteFn>>> {
             bind_addrs,
             thread_count: DEFAULT_THREAD_COUNT,
             router: DefaultRouter::<Box<RouteFn>>::new(),
-            fallback_route: Arc::new(Box::new(default_404_handler)),
+            fallback_route: Arc::new(Box::new(|_, r| {
+                r.send(&Status::NOT_FOUND, Headers::new(), &[][..])
+            })),
             stream_setup_hook: None,
             pre_routing_hook: None,
         })
@@ -214,19 +216,8 @@ impl ResponseHandle<'_> {
     }
 
     pub fn send(&mut self, status: &Status, headers: Headers, body: impl Read) -> io::Result<()> {
-        let should_close = headers.is_connection_close();
-
-        {
-            let mut p = HttpPrinter::new(&mut self.stream);
-            p.write_response(status, headers, body)?;
-            p.flush()?;
-        }
-
-        if should_close {
-            self.stream.shutdown(Shutdown::Both)?;
-        }
-
-        Ok(())
+        let mut p = HttpPrinter::new(&mut self.stream);
+        p.write_response(status, headers, body)
     }
 
     pub fn get_stream(&mut self) -> &TcpStream {
@@ -338,12 +329,9 @@ where
 
         (handler)(ctx, &mut response)?;
         if connection_close {
-            return stream.shutdown(Shutdown::Both);
+            return Ok(());
         }
     }
 }
 
-fn default_404_handler(_ctx: RequestContext, response: &mut ResponseHandle) -> io::Result<()> {
-    let headers = Headers::new();
-    response.send(&Status::of(404), headers, &[][..])
 }
