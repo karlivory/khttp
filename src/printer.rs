@@ -13,7 +13,7 @@ pub struct HttpPrinter<W: Write> {
 impl<W: Write> HttpPrinter<W> {
     pub fn new(stream: W) -> Self {
         Self {
-            writer: BufWriter::with_capacity(128 * 1024, stream),
+            writer: BufWriter::new(stream),
         }
     }
 
@@ -125,8 +125,7 @@ fn decide_body_strategy<R: Read>(
     if let Some(cl) = headers.get_content_length() {
         const FAST_LIMIT: u64 = PROBE_MAX as u64;
         if cl <= FAST_LIMIT {
-            let cap = usize::try_from(cl).unwrap(); // no panic: cl <= FAST_LIMIT
-            let mut buf = Vec::with_capacity(cap);
+            let mut buf = Vec::with_capacity(cl as usize);
             let mut limited = body.by_ref().take(cl);
             limited.read_to_end(&mut buf)?;
             headers.set_content_length(buf.len() as u64);
