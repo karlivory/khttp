@@ -1,6 +1,5 @@
 use crate::args_parser::ClientOp;
-use khttp::client::{Client, HttpClientError};
-use khttp::common::{Headers, RequestUri};
+use khttp::{Client, Headers, HttpClientError};
 use std::io::{self, Cursor, Read};
 use std::time::Duration;
 

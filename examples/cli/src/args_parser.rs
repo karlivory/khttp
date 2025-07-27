@@ -1,4 +1,4 @@
-use khttp::common::Method;
+use khttp::Method;
 use std::{env::Args, str::FromStr};
 
 #[derive(Debug)]

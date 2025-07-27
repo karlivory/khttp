@@ -1,8 +1,4 @@
-use khttp::{
-    body_reader::BodyReader,
-    common::{Headers, Method},
-    parser::{HttpParsingError, RequestParser, ResponseParser, ResponseParts},
-};
+use khttp::{BodyReader, Headers, HttpParsingError, Method, Parser, ResponseParts};
 use std::io::Read;
 
 // ---------------------------------------------------------------------
@@ -345,8 +341,8 @@ impl Read for MockReader<'_> {
 fn must_parse_response(body: &[u8]) -> ResponseParts<MockReader> {
     let test_reader = MockReader { body, read: false };
 
-    ResponseParser::new(test_reader)
-        .parse(&None, &None, &None)
+    Parser::new(test_reader)
+        .parse_response(&None, &None, &None)
         .expect("parse headers")
 }
 
@@ -361,8 +357,8 @@ fn assert_parse_request_ok(
         body: input.as_bytes(),
         read: false,
     };
-    let mut parsed = RequestParser::new(reader)
-        .parse(&None, &None, &None)
+    let mut parsed = Parser::new(reader)
+        .parse_request(&None, &None, &None)
         .expect("should parse");
 
     assert_eq!(parsed.method, method);
@@ -379,7 +375,7 @@ fn assert_parse_request_err(input: &str, expected: HttpParsingError) {
         body: input.as_bytes(),
         read: false,
     };
-    let parsed = RequestParser::new(reader).parse(&None, &None, &None);
+    let parsed = Parser::new(reader).parse_request(&None, &None, &None);
     assert_eq!(parsed.unwrap_err(), expected);
 }
 
@@ -394,8 +390,8 @@ fn assert_parse_response_ok(
         body: input.as_bytes(),
         read: false,
     };
-    let mut parsed = ResponseParser::new(reader)
-        .parse(&None, &None, &None)
+    let mut parsed = Parser::new(reader)
+        .parse_response(&None, &None, &None)
         .expect("should parse");
 
     assert_eq!(parsed.status.code, code);
@@ -412,6 +408,6 @@ fn assert_parse_response_err(input: &str, expected: HttpParsingError) {
         body: input.as_bytes(),
         read: false,
     };
-    let parsed = ResponseParser::new(reader).parse(&None, &None, &None);
+    let parsed = Parser::new(reader).parse_response(&None, &None, &None);
     assert_eq!(parsed.unwrap_err(), expected);
 }

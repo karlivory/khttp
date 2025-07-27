@@ -1,4 +1,4 @@
-use crate::common::Method;
+use crate::Method;
 use std::{
     cmp::max,
     collections::HashMap,
@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
 };
 
-pub trait AppRouter {
+pub trait HttpRouter {
     type Route;
 
     fn new() -> Self;
@@ -19,23 +19,17 @@ pub trait AppRouter {
     fn remove_route(&mut self, method: &Method, path: &str) -> Option<Arc<Self::Route>>;
 }
 
-pub struct DefaultRouter<T> {
+pub struct Router<T> {
     routes: HashMap<Method, HashMap<RouteEntry, Arc<T>>>,
 }
 
-impl<T> Default for DefaultRouter<T> {
-    fn default() -> Self {
-        Self {
-            routes: HashMap::new(),
-        }
-    }
-}
-
-impl<T> AppRouter for DefaultRouter<T> {
+impl<T> HttpRouter for Router<T> {
     type Route = T;
 
     fn new() -> Self {
-        Self::default()
+        Self {
+            routes: HashMap::new(),
+        }
     }
 
     fn add_route(&mut self, method: &Method, path: &str, route: T) {

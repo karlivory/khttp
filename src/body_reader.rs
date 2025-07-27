@@ -1,6 +1,9 @@
-// src/body_reader.rs
-use crate::common::Headers;
+use crate::http::Headers;
 use std::io::{self, BufRead, BufReader, Read};
+
+// -------------------------------------------------------------------------
+// BODY READER
+// -------------------------------------------------------------------------
 
 pub enum BodyReader<R: Read> {
     Fixed { inner: BufReader<R>, remaining: u64 },
@@ -73,10 +76,21 @@ impl<R: Read> BodyReader<R> {
     }
 }
 
+// -------------------------------------------------------------------------
+// CHUNKED READER
+// -------------------------------------------------------------------------
+
 pub struct ChunkedReader<R: BufRead> {
     inner: R,
     state: ChunkState,
     remaining_in_chunk: u64,
+}
+
+enum ChunkState {
+    ReadSize,
+    ReadData,
+    ReadCrlfAfterChunk,
+    Done,
 }
 
 impl<R: BufRead> ChunkedReader<R> {
@@ -168,11 +182,4 @@ impl<R: BufRead> Read for ChunkedReader<R> {
             }
         }
     }
-}
-
-enum ChunkState {
-    ReadSize,
-    ReadData,
-    ReadCrlfAfterChunk,
-    Done,
 }

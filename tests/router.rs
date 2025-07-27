@@ -1,7 +1,4 @@
-use khttp::{
-    common::Method,
-    router::{AppRouter, DefaultRouter},
-};
+use khttp::{HttpRouter, Method, Router};
 
 // ---------------------------------------------------------------------
 // TESTS
@@ -271,19 +268,19 @@ fn test_multiple_slashes() {
 // UTILS
 // ---------------------------------------------------------------------
 
-type Router = DefaultRouter<(usize, &'static str)>;
+type MockRoute = Router<(usize, &'static str)>;
 
-fn new_router() -> Router {
-    DefaultRouter::new()
+fn new_router() -> MockRoute {
+    MockRoute::new()
 }
 
-fn add_routes(router: &mut Router, method: &Method, routes: &[(&'static str, usize)]) {
+fn add_routes(router: &mut MockRoute, method: &Method, routes: &[(&'static str, usize)]) {
     for (pat, id) in routes {
         router.add_route(method, pat, (*id, *pat));
     }
 }
 
-fn assert_match(router: &Router, method: &Method, uri: &str, expected_idx: usize) {
+fn assert_match(router: &MockRoute, method: &Method, uri: &str, expected_idx: usize) {
     let m = router
         .match_route(method, uri)
         .unwrap_or_else(|| panic!("expected match for URI {}", uri));
@@ -291,7 +288,7 @@ fn assert_match(router: &Router, method: &Method, uri: &str, expected_idx: usize
 }
 
 fn assert_match_params(
-    router: &Router,
+    router: &MockRoute,
     method: &Method,
     uri: &str,
     expected_idx: usize,
@@ -312,7 +309,7 @@ fn assert_match_params(
     }
 }
 
-fn assert_404(router: &Router, method: &Method, uri: &str) {
+fn assert_404(router: &MockRoute, method: &Method, uri: &str) {
     assert!(
         router.match_route(method, uri).is_none(),
         "expected 404 for URI {}",

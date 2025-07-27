@@ -1,9 +1,8 @@
-use crate::body_reader::BodyReader;
-use crate::common::{Headers, Method, RequestUri, Status};
-use crate::parser::{HttpParsingError, RequestParser, RequestParts};
-use crate::printer::HttpPrinter;
-use crate::router::{AppRouter, DefaultRouter};
 use crate::threadpool::ThreadPool;
+use crate::{
+    BodyReader, Headers, HttpParsingError, HttpPrinter, HttpRouter, Method, Parser, RequestParts,
+    RequestUri, Router, Status,
+};
 use std::collections::HashMap;
 use std::io::{self, Read};
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
@@ -28,10 +27,8 @@ pub struct RequestPipelineConfig {
     pub max_header_count: Option<usize>,
 }
 
-impl Server<DefaultRouter<Box<RouteFn>>> {
-    pub fn builder<A: ToSocketAddrs>(
-        addr: A,
-    ) -> io::Result<ServerBuilder<DefaultRouter<Box<RouteFn>>>> {
+impl Server<Router<Box<RouteFn>>> {
+    pub fn builder<A: ToSocketAddrs>(addr: A) -> io::Result<ServerBuilder<Router<Box<RouteFn>>>> {
         let bind_addrs: Vec<SocketAddr> = addr.to_socket_addrs()?.collect();
 
         if bind_addrs.is_empty() {
@@ -44,7 +41,7 @@ impl Server<DefaultRouter<Box<RouteFn>>> {
         Ok(ServerBuilder {
             bind_addrs,
             thread_count: DEFAULT_THREAD_COUNT,
-            router: DefaultRouter::<Box<RouteFn>>::new(),
+            router: Router::<Box<RouteFn>>::new(),
             fallback_route: Box::new(|_, r| r.send(&Status::NOT_FOUND, Headers::new(), &[][..])),
             stream_setup_hook: None,
             pre_routing_hook: None,
@@ -89,7 +86,7 @@ pub struct ServerBuilder<R> {
 
 impl<R> ServerBuilder<R>
 where
-    R: AppRouter<Route = Box<RouteFn>> + Send + Sync + 'static,
+    R: HttpRouter<Route = Box<RouteFn>> + Send + Sync + 'static,
 {
     pub fn route<F>(&mut self, method: Method, path: &str, route_fn: F)
     where
@@ -161,7 +158,7 @@ where
 
 impl<R> Server<R>
 where
-    R: AppRouter<Route = Box<RouteFn>> + Send + Sync + 'static,
+    R: HttpRouter<Route = Box<RouteFn>> + Send + Sync + 'static,
 {
     pub fn port(&self) -> Option<u16> {
         self.bind_addrs.first().map(|a| a.port())
@@ -300,13 +297,13 @@ impl ConnectionMeta {
     }
 }
 
-pub fn handle_connection<R>(
+fn handle_connection<R>(
     mut stream: TcpStream,
     router: &Arc<R>,
     pipeline: Arc<RequestPipelineConfig>,
 ) -> io::Result<()>
 where
-    R: AppRouter<Route = Box<RouteFn>>,
+    R: HttpRouter<Route = Box<RouteFn>>,
 {
     let mut connection_meta = ConnectionMeta::new();
     loop {
@@ -326,10 +323,10 @@ fn handle_one_request<R>(
     connection_meta: &ConnectionMeta,
 ) -> io::Result<bool>
 where
-    R: AppRouter<Route = Box<RouteFn>>,
+    R: HttpRouter<Route = Box<RouteFn>>,
 {
     let read_stream = stream.try_clone()?;
-    let mut parts = match RequestParser::new(read_stream).parse(
+    let mut parts = match Parser::new(read_stream).parse_request(
         &pipeline.max_status_line_length,
         &pipeline.max_header_line_length,
         &pipeline.max_header_count,
@@ -387,7 +384,7 @@ where
 #[cfg(feature = "epoll")]
 impl<R> Server<R>
 where
-    R: AppRouter<Route = Box<RouteFn>> + Send + Sync + 'static,
+    R: HttpRouter<Route = Box<RouteFn>> + Send + Sync + 'static,
 {
     pub fn serve_epoll(self) -> io::Result<()> {
         use libc::{

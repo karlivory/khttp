@@ -1,7 +1,4 @@
-use khttp::{
-    common::{Headers, Method, Status},
-    printer::HttpPrinter,
-};
+use khttp::{Headers, HttpPrinter, Method, Status};
 use std::io::{Cursor, Read, Write};
 
 // ---------------------------------------------------------------------

@@ -1,4 +1,4 @@
-use crate::common::{Headers, Method, Status};
+use crate::{Headers, Method, Status};
 use std::io::{self, BufWriter, Read, Write};
 
 const HTTP_VERSION: &[u8] = b"HTTP/1.1";
@@ -48,10 +48,6 @@ impl<W: Write> HttpPrinter<W> {
         self.writer.write_all(RESPONSE_100_CONTINUE)?;
         self.writer.flush()
     }
-
-    // ---------------------------------------------------------------------
-    // INTERNALS
-    // ---------------------------------------------------------------------
 
     fn write_fast(&mut self, head: &[u8], body: &[u8]) -> io::Result<()> {
         self.writer.write_all(head)?;
@@ -207,7 +203,7 @@ fn add_headers(buf: &mut Vec<u8>, headers: &Headers) {
 }
 
 // -------------------------------------------------------------------------
-// UTILITIES
+// UTILS
 // -------------------------------------------------------------------------
 
 fn write_chunk<W: Write>(dst: &mut W, bytes: &[u8]) -> io::Result<()> {

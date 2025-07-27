@@ -11,10 +11,7 @@
 
 use criterion::{BenchmarkId, Criterion};
 use khttp::{
-    common::{Headers, Method, Status},
-    parser::RequestParser,
-    router::DefaultRouter,
-    server::{RouteFn, Server, ServerBuilder},
+    Headers, Method, Parser, ResponseHandle, RouteFn, Router, Server, ServerBuilder, Status,
 };
 use std::{
     env,
@@ -24,9 +21,6 @@ use std::{
     thread,
     time::Duration,
 };
-
-// -------- Types --------
-type KhttpServer = Server<DefaultRouter<Box<RouteFn>>>;
 
 struct ServerBench {
     full: &'static str,
@@ -39,6 +33,7 @@ enum ServerKind {
     Axum(Box<dyn FnOnce(axum::Router) -> axum::Router>),
 }
 
+type KhttpServer = Server<Router<Box<RouteFn>>>;
 type ParserBenchFn = dyn Fn(&mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>);
 
 struct ParserBench {
@@ -199,8 +194,8 @@ fn main() {
             let raw = b"GET /foo/bar HTTP/1.1\r\nHost: example.com\r\n\r\n";
             group.bench_function(BenchmarkId::new("complex", "GET /foo/bar"), |b| {
                 b.iter(|| {
-                    let _ = RequestParser::new(std::hint::black_box(&raw[..]))
-                        .parse(&Some(128), &Some(128), &Some(128))
+                    let _ = Parser::new(std::hint::black_box(&raw[..]))
+                        .parse_request(&Some(128), &Some(128), &Some(128))
                         .unwrap();
                 });
             });
@@ -259,8 +254,8 @@ Accept: */*\r\n"
             let raw = make_long_request();
             group.bench_function(BenchmarkId::new("long", "GET /long"), |b| {
                 b.iter(|| {
-                    let _ = RequestParser::new(std::hint::black_box(&raw[..]))
-                        .parse(&None, &None, &None)
+                    let _ = Parser::new(std::hint::black_box(&raw[..]))
+                        .parse_request(&None, &None, &None)
                         .unwrap();
                 });
             });
@@ -340,15 +335,15 @@ Accept: */*\r\n"
 }
 
 fn run_server_bench(sb: ServerBench) {
-    let connections = 10u32;
-    let threads = 10u32;
-    let duration_secs = if on_ci() { 1 } else { 10 };
+    let connections = 500u32;
+    let threads = 14u32;
+    let duration_secs = if on_ci() { 1 } else { 5 };
 
     let port = match sb.kind {
         ServerKind::Khttp(make_srv) => {
             let srv = make_srv();
             let port = srv.port().unwrap();
-            thread::spawn(move || srv.serve());
+            thread::spawn(move || srv.serve_epoll());
             port
         }
         ServerKind::Axum(build_router) => {
@@ -442,17 +437,17 @@ fn get_free_port() -> u16 {
     p
 }
 
-fn get_khttp_app() -> ServerBuilder<DefaultRouter<Box<RouteFn>>> {
+fn get_khttp_app() -> ServerBuilder<Router<Box<RouteFn>>> {
     let port = get_free_port();
     Server::builder(format!("127.0.0.1:{port}")).unwrap()
 }
 
-fn respond_hello(res: &mut khttp::server::ResponseHandle) -> io::Result<()> {
+fn respond_hello(res: &mut ResponseHandle) -> io::Result<()> {
     let msg = "Hello, World!";
     res.ok(Headers::new(), msg.as_bytes())
 }
 
-fn respond_longheader(res: &mut khttp::server::ResponseHandle) -> io::Result<()> {
+fn respond_longheader(res: &mut ResponseHandle) -> io::Result<()> {
     let msg = "hey";
     let mut headers = Headers::new();
     for i in 0..50 {
@@ -471,14 +466,14 @@ fn heavy_body() -> &'static [u8] {
         .as_slice()
 }
 
-fn respond_heavy(res: &mut khttp::server::ResponseHandle) -> io::Result<()> {
+fn respond_heavy(res: &mut ResponseHandle) -> io::Result<()> {
     let msg = heavy_body();
     let mut headers = Headers::new();
     headers.set_content_length(msg.len() as u64);
-    res.ok(Headers::new(), msg)
+    res.ok(headers, msg)
 }
 
-fn respond_chunked(res: &mut khttp::server::ResponseHandle) -> io::Result<()> {
+fn respond_chunked(res: &mut ResponseHandle) -> io::Result<()> {
     let msg = heavy_body();
     res.send_chunked(&Status::of(200), Headers::new(), msg)
 }

@@ -1,10 +1,9 @@
-// src/threadpool.rs
 use std::{
     sync::{Arc, Mutex, mpsc},
     thread,
 };
 
-pub struct ThreadPool {
+pub(crate) struct ThreadPool {
     workers: Vec<Worker>,
     sender: Option<mpsc::Sender<Job>>,
 }

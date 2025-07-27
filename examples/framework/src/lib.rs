@@ -4,13 +4,14 @@ use std::io;
 use std::net::TcpStream;
 use std::time::Duration;
 
-use khttp::common::{Headers, Method, Status};
-use khttp::parser::RequestParts;
-use khttp::router::DefaultRouter;
-use khttp::server::{
+pub use khttp;
+use khttp::RequestParts;
+use khttp::Router;
+use khttp::{
     ConnectionMeta, PreRoutingAction, RequestContext, ResponseHandle, RouteFn, Server,
     ServerBuilder, StreamSetupAction,
 };
+use khttp::{Headers, Method, Status};
 
 pub struct ServerConfig {
     pub port: u16,
@@ -73,7 +74,7 @@ fn trailing_slash_redirect()
 }
 
 pub struct FrameworkApp {
-    server: ServerBuilder<DefaultRouter<Box<RouteFn>>>,
+    server: ServerBuilder<Router<Box<RouteFn>>>,
     config: ServerConfig,
 }
 
@@ -90,7 +91,7 @@ impl FrameworkApp {
 
     pub fn serve(self) -> io::Result<()> {
         print_startup_banner(&self.config);
-        self.server.build().serve()
+        self.server.build().serve_epoll()
     }
 
     pub fn get(&mut self, path: &'static str) -> RouteBuilderWithMeta<'_> {

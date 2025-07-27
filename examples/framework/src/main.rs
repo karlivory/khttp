@@ -1,4 +1,4 @@
-use khttp::common::{Headers, Status};
+use khttp::{Headers, Status};
 use khttp_framework::{FrameworkApp, ServerConfig};
 use std::sync::Arc;
 
@@ -108,7 +108,7 @@ impl Logger {
 
 mod middlewares {
     use crate::Logger;
-    use khttp::common::{Headers, Status};
+    use khttp::{Headers, Status};
     use khttp_framework::Handler;
     use std::sync::Arc;
 

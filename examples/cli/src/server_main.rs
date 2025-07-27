@@ -4,11 +4,9 @@ use std::time::Duration;
 use std::{io, thread};
 
 use crate::args_parser::{ServerConfig, ServerOp};
-use khttp::common::{Headers, Method, Status};
-use khttp::router::DefaultRouter;
-use khttp::server::{
-    RequestContext, ResponseHandle, RouteFn, Server, ServerBuilder, StreamSetupAction,
-};
+use khttp::Router;
+use khttp::{Headers, Method, Status};
+use khttp::{RequestContext, ResponseHandle, RouteFn, Server, ServerBuilder, StreamSetupAction};
 
 pub fn run(op: ServerOp) {
     match op {
@@ -74,7 +72,7 @@ fn get_stream_setup_fn(
     }
 }
 
-fn get_app(config: ServerConfig) -> ServerBuilder<DefaultRouter<Box<RouteFn>>> {
+fn get_app(config: ServerConfig) -> ServerBuilder<Router<Box<RouteFn>>> {
     let mut app = Server::builder("0.0.0.0:8080").unwrap();
     if let Some(n) = config.thread_count {
         app.set_thread_count(n);

@@ -1,9 +1,5 @@
 #![cfg(feature = "client")]
-use khttp::{
-    client::Client,
-    common::{Headers, Method, Status},
-    server::{Server, StreamSetupAction},
-};
+use khttp::{Client, ClientResponseHandle, Headers, Method, Server, Status, StreamSetupAction};
 use std::io;
 use std::{
     io::Cursor,
@@ -94,7 +90,7 @@ fn request_limiter(
 }
 
 fn assert_status_and_body(
-    mut res: khttp::client::HttpResponse,
+    mut res: ClientResponseHandle,
     expected_status: u16,
     expected_body: &str,
 ) {

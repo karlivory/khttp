@@ -1,4 +1,4 @@
-use khttp::common::RequestUri;
+use khttp::RequestUri;
 
 #[test]
 fn test_absolute_uri_full_parts() {
