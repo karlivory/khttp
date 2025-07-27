@@ -11,6 +11,7 @@ use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
 const DEFAULT_THREAD_COUNT: usize = 20;
+
 pub type RouteFn =
     dyn Fn(RequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync + 'static;
 pub type StreamSetupFn = dyn Fn(io::Result<TcpStream>) -> StreamSetupAction + Send + Sync + 'static;
@@ -41,6 +42,9 @@ impl Server<DefaultRouter<Box<RouteFn>>> {
             })),
             stream_setup_hook: None,
             pre_routing_hook: None,
+            max_status_line_length: None,
+            max_header_line_length: None,
+            max_header_count: None,
         })
     }
 }
@@ -52,6 +56,9 @@ pub struct Server<R> {
     fallback_route: Arc<Box<RouteFn>>,
     stream_setup_hook: Option<Arc<StreamSetupFn>>,
     pre_routing_hook: Option<Arc<PreRoutingHookFn>>,
+    max_status_line_length: Option<usize>,
+    max_header_line_length: Option<usize>,
+    max_header_count: Option<usize>,
 }
 
 pub enum StreamSetupAction {
@@ -73,6 +80,9 @@ pub struct ServerBuilder<R> {
     fallback_route: Arc<Box<RouteFn>>,
     stream_setup_hook: Option<Arc<StreamSetupFn>>,
     pre_routing_hook: Option<Arc<PreRoutingHookFn>>,
+    max_status_line_length: Option<usize>,
+    max_header_line_length: Option<usize>,
+    max_header_count: Option<usize>,
 }
 
 impl<R> ServerBuilder<R>
@@ -114,6 +124,18 @@ where
         self.fallback_route = Arc::new(Box::new(f));
     }
 
+    pub fn set_max_status_line_length(&mut self, value: Option<usize>) {
+        self.max_status_line_length = value;
+    }
+
+    pub fn set_max_header_line_length(&mut self, value: Option<usize>) {
+        self.max_header_line_length = value;
+    }
+
+    pub fn set_max_header_count(&mut self, value: Option<usize>) {
+        self.max_header_count = value;
+    }
+
     pub fn remove_route(&mut self, method: Method, path: &str) -> Option<Arc<R::Route>> {
         self.router.remove_route(&method, path)
     }
@@ -126,6 +148,9 @@ where
             fallback_route: self.fallback_route,
             stream_setup_hook: self.stream_setup_hook,
             pre_routing_hook: self.pre_routing_hook,
+            max_status_line_length: self.max_status_line_length,
+            max_header_line_length: self.max_header_line_length,
+            max_header_count: self.max_header_count,
         }
     }
 }
@@ -172,7 +197,15 @@ where
             let pre_routing_hook = self.pre_routing_hook.clone();
 
             pool.execute(move || {
-                let _ = handle_connection(stream, &router, &fallback_route, &pre_routing_hook);
+                let _ = handle_connection(
+                    stream,
+                    &router,
+                    &fallback_route,
+                    &pre_routing_hook,
+                    self.max_status_line_length,
+                    self.max_header_line_length,
+                    self.max_header_count,
+                );
             });
 
             if let Some(max) = limit {
@@ -191,6 +224,9 @@ where
             &self.router,
             &self.fallback_route,
             &self.pre_routing_hook,
+            self.max_status_line_length,
+            self.max_header_line_length,
+            self.max_header_count,
         )
     }
 }
@@ -301,6 +337,9 @@ pub fn handle_connection<R>(
     router: &Arc<R>,
     fallback_route: &Arc<Box<RouteFn>>,
     pre_routing_hook: &Option<Arc<PreRoutingHookFn>>,
+    max_status_line_length: Option<usize>,
+    max_header_line_length: Option<usize>,
+    max_header_count: Option<usize>,
 ) -> io::Result<()>
 where
     R: AppRouter<Route = Box<RouteFn>>,
@@ -313,6 +352,9 @@ where
             router,
             fallback_route,
             pre_routing_hook,
+            &max_status_line_length,
+            &max_header_line_length,
+            &max_header_count,
             &connection_meta,
         )?;
         if !keep_alive {
@@ -327,13 +369,20 @@ fn handle_one_request<R>(
     router: &Arc<R>,
     fallback_route: &Arc<Box<RouteFn>>,
     pre_routing_hook: &Option<Arc<PreRoutingHookFn>>,
+    max_status_line_length: &Option<usize>,
+    max_header_line_length: &Option<usize>,
+    max_header_count: &Option<usize>,
     connection_meta: &ConnectionMeta,
 ) -> io::Result<bool>
 where
     R: AppRouter<Route = Box<RouteFn>>,
 {
     let read_stream = stream.try_clone()?;
-    let mut parts = match RequestParser::new(read_stream).parse() {
+    let mut parts = match RequestParser::new(read_stream).parse(
+        max_status_line_length,
+        max_header_line_length,
+        max_header_count,
+    ) {
         Ok(p) => p,
         Err(HttpParsingError::IOError(e)) if e.kind() == io::ErrorKind::WouldBlock => {
             return Ok(true);

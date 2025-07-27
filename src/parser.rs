@@ -5,6 +5,51 @@ use std::{
     io::{self, BufRead, BufReader, Read},
 };
 
+struct LimitedBufRead<'a, R: BufRead> {
+    inner: &'a mut R,
+    remaining: usize,
+}
+
+impl<'a, R: BufRead> LimitedBufRead<'a, R> {
+    fn new(inner: &'a mut R, max: usize) -> Self {
+        Self {
+            inner,
+            remaining: max,
+        }
+    }
+}
+
+impl<R: BufRead> BufRead for LimitedBufRead<'_, R> {
+    fn fill_buf(&mut self) -> io::Result<&[u8]> {
+        if self.remaining == 0 {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "line too long"));
+        }
+        let buf = self.inner.fill_buf()?;
+        if buf.len() > self.remaining {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "line too long"));
+        }
+        Ok(buf)
+    }
+
+    fn consume(&mut self, amt: usize) {
+        let used = std::cmp::min(amt, self.remaining);
+        self.remaining -= used;
+        self.inner.consume(amt);
+    }
+}
+
+impl<R: BufRead> Read for LimitedBufRead<'_, R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.remaining == 0 {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "line too long"));
+        }
+        let to_read = std::cmp::min(buf.len(), self.remaining);
+        let n = self.inner.read(&mut buf[..to_read])?;
+        self.remaining -= n;
+        Ok(n)
+    }
+}
+
 pub struct RequestParser<R: Read> {
     reader: BufReader<R>,
 }
@@ -31,10 +76,29 @@ impl<R: Read> RequestParser<R> {
         }
     }
 
-    pub fn parse(mut self) -> Result<RequestParts<R>, HttpParsingError> {
+    pub fn parse(
+        mut self,
+        max_status_line_length: &Option<usize>,
+        max_header_line_length: &Option<usize>,
+        max_header_count: &Option<usize>,
+    ) -> Result<RequestParts<R>, HttpParsingError> {
         let mut line_buf = String::with_capacity(256);
-        let status_line = parse_request_status_line(&mut self.reader, &mut line_buf)?;
-        let headers = parse_headers(&mut self.reader, &mut line_buf)?;
+
+        let status_line = match max_status_line_length {
+            Some(limit) => parse_request_status_line(
+                &mut LimitedBufRead::new(&mut self.reader, *limit),
+                &mut line_buf,
+            )?,
+            None => parse_request_status_line(&mut self.reader, &mut line_buf)?,
+        };
+        let headers = match max_header_line_length {
+            Some(limit) => parse_headers(
+                &mut LimitedBufRead::new(&mut self.reader, *limit),
+                &mut line_buf,
+                max_header_count,
+            )?,
+            None => parse_headers(&mut self.reader, &mut line_buf, max_header_count)?,
+        };
 
         Ok(RequestParts {
             method: status_line.method,
@@ -64,10 +128,29 @@ impl<R: Read> ResponseParser<R> {
         }
     }
 
-    pub fn parse(mut self) -> Result<ResponseParts<R>, HttpParsingError> {
+    pub fn parse(
+        mut self,
+        max_status_line_length: &Option<usize>,
+        max_header_line_length: &Option<usize>,
+        max_header_count: &Option<usize>,
+    ) -> Result<ResponseParts<R>, HttpParsingError> {
         let mut line_buf = String::with_capacity(256);
-        let status = parse_response_status_line(&mut self.reader, &mut line_buf)?;
-        let headers = parse_headers(&mut self.reader, &mut line_buf)?;
+        let status = match max_status_line_length {
+            Some(limit) => parse_response_status_line(
+                &mut LimitedBufRead::new(&mut self.reader, *limit),
+                &mut line_buf,
+            )?,
+            None => parse_response_status_line(&mut self.reader, &mut line_buf)?,
+        };
+
+        let headers = match max_header_line_length {
+            Some(limit) => parse_headers(
+                &mut LimitedBufRead::new(&mut self.reader, *limit),
+                &mut line_buf,
+                max_header_count,
+            )?,
+            None => parse_headers(&mut self.reader, &mut line_buf, max_header_count)?,
+        };
 
         Ok(ResponseParts {
             status,
@@ -145,10 +228,17 @@ pub fn parse_request_status_line<R: BufRead>(
 pub fn parse_headers<R: BufRead>(
     reader: &mut R,
     buf: &mut String,
+    max_header_count: &Option<usize>,
 ) -> Result<Headers, HttpParsingError> {
     let mut headers = Headers::new();
-
+    let mut i = 0;
     loop {
+        if let Some(limit) = max_header_count {
+            if i > *limit {
+                return Err(HttpParsingError::TooManyHeaders);
+            }
+            i += 1;
+        }
         match read_crlf_line(reader, buf) {
             Ok(true) => {
                 if buf.trim().is_empty() {
@@ -180,6 +270,9 @@ pub enum HttpParsingError {
     MalformedStatusLine,
     MalformedHeader,
     UnexpectedEof,
+    StatusLineTooLong,
+    HeaderLineTooLong,
+    TooManyHeaders,
     IOError(io::Error),
 }
 
@@ -201,6 +294,9 @@ impl Display for HttpParsingError {
             MalformedStatusLine => write!(f, "Malformed status line!"),
             MalformedHeader => write!(f, "Malformed header!"),
             UnexpectedEof => write!(f, "Unexpected end of stream!"),
+            StatusLineTooLong => write!(f, "status line too long"),
+            HeaderLineTooLong => write!(f, "header line too long"),
+            TooManyHeaders => write!(f, "too many header"),
             IOError(e) => write!(f, "io error: {}", e),
         }
     }

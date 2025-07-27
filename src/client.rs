@@ -172,7 +172,7 @@ impl ClientRequestTcpStream {
     }
 
     fn read(self) -> Result<HttpResponse, HttpClientError> {
-        let parts = ResponseParser::new(self.stream).parse()?;
+        let parts = ResponseParser::new(self.stream).parse(&None, &None, &None)?; // TODO
         let body = BodyReader::from(&parts.headers, parts.reader);
         let response = HttpResponse {
             headers: parts.headers,

@@ -200,7 +200,7 @@ fn main() {
             group.bench_function(BenchmarkId::new("complex", "GET /foo/bar"), |b| {
                 b.iter(|| {
                     let _ = RequestParser::new(std::hint::black_box(&raw[..]))
-                        .parse()
+                        .parse(&Some(128), &Some(128), &Some(128))
                         .unwrap();
                 });
             });
@@ -260,7 +260,7 @@ Accept: */*\r\n"
             group.bench_function(BenchmarkId::new("long", "GET /long"), |b| {
                 b.iter(|| {
                     let _ = RequestParser::new(std::hint::black_box(&raw[..]))
-                        .parse()
+                        .parse(&None, &None, &None)
                         .unwrap();
                 });
             });
