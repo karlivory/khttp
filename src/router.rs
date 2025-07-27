@@ -1,5 +1,4 @@
-// src/router.rs
-
+use crate::common::Method;
 use std::{
     cmp::max,
     collections::HashMap,
@@ -7,23 +6,21 @@ use std::{
     sync::Arc,
 };
 
-use crate::common::HttpMethod;
-
 pub trait AppRouter {
     type Route;
 
     fn new() -> Self;
     fn match_route<'a, 'r>(
         &'a self,
-        method: &HttpMethod,
+        method: &Method,
         path: &'r str,
     ) -> Option<Match<'a, 'r, Self::Route>>;
-    fn add_route(&mut self, method: &HttpMethod, path: &str, route: Self::Route);
-    fn remove_route(&mut self, method: &HttpMethod, path: &str) -> Option<Arc<Self::Route>>;
+    fn add_route(&mut self, method: &Method, path: &str, route: Self::Route);
+    fn remove_route(&mut self, method: &Method, path: &str) -> Option<Arc<Self::Route>>;
 }
 
 pub struct DefaultRouter<T> {
-    routes: HashMap<HttpMethod, HashMap<RouteEntry, Arc<T>>>,
+    routes: HashMap<Method, HashMap<RouteEntry, Arc<T>>>,
 }
 
 impl<T> Default for DefaultRouter<T> {
@@ -41,7 +38,7 @@ impl<T> AppRouter for DefaultRouter<T> {
         Self::default()
     }
 
-    fn add_route(&mut self, method: &HttpMethod, path: &str, route: T) {
+    fn add_route(&mut self, method: &Method, path: &str, route: T) {
         let route_entry = parse_route(path);
         self.routes
             .entry(method.clone())
@@ -49,7 +46,7 @@ impl<T> AppRouter for DefaultRouter<T> {
             .insert(route_entry, Arc::new(route));
     }
 
-    fn remove_route(&mut self, method: &HttpMethod, path: &str) -> Option<Arc<T>> {
+    fn remove_route(&mut self, method: &Method, path: &str) -> Option<Arc<T>> {
         self.routes
             .get_mut(method)
             .and_then(|m| m.remove(&parse_route(path)))
@@ -57,7 +54,7 @@ impl<T> AppRouter for DefaultRouter<T> {
 
     fn match_route<'a, 'r>(
         &'a self,
-        method: &HttpMethod,
+        method: &Method,
         uri: &'r str,
     ) -> Option<Match<'a, 'r, Self::Route>> {
         let uri_parts = uri.split("/").collect::<Vec<&str>>();

@@ -1,7 +1,7 @@
 use khttp::{
     body_reader::BodyReader,
-    common::{HttpHeaders, HttpMethod},
-    http_parser::{HttpParsingError, HttpRequestParser, HttpResponseParser, HttpResponseParts},
+    common::{Headers, Method},
+    parser::{HttpParsingError, RequestParser, ResponseParser, ResponseParts},
 };
 use std::io::Read;
 
@@ -13,7 +13,7 @@ use std::io::Read;
 fn test_request_get_simple() {
     assert_parse_request_ok(
         "GET /foo HTTP/1.1\r\nhost: localhost\r\n\r\n",
-        HttpMethod::Get,
+        Method::Get,
         "/foo",
         &[("host", &["localhost"])],
         "",
@@ -24,7 +24,7 @@ fn test_request_get_simple() {
 fn test_request_post_with_body() {
     assert_parse_request_ok(
         "POST /data HTTP/1.1\r\nContent-Length: 5\r\n\r\nhello",
-        HttpMethod::Post,
+        Method::Post,
         "/data",
         &[("Content-Length", &["5"])],
         "hello",
@@ -35,7 +35,7 @@ fn test_request_post_with_body() {
 fn test_request_extra_whitespace() {
     assert_parse_request_ok(
         "GET    /abc     HTTP/1.1\r\nhost: x\r\n\r\n",
-        HttpMethod::Get,
+        Method::Get,
         "/abc",
         &[("host", &["x"])],
         "",
@@ -57,7 +57,7 @@ fn test_response_crlf_only_headers() {
 fn test_request_header_empty_value() {
     assert_parse_request_ok(
         "GET /foo HTTP/1.1\r\nX-Test:\r\n\r\n",
-        HttpMethod::Get,
+        Method::Get,
         "/foo",
         &[("X-Test", &[""])],
         "",
@@ -68,7 +68,7 @@ fn test_request_header_empty_value() {
 fn test_request_header_with_tabs() {
     assert_parse_request_ok(
         "GET / HTTP/1.1\r\nFoo:\t bar \t\r\n\r\n",
-        HttpMethod::Get,
+        Method::Get,
         "/",
         &[("Foo", &["bar"])],
         "",
@@ -342,17 +342,17 @@ impl Read for MockReader<'_> {
     }
 }
 
-fn must_parse_response(body: &[u8]) -> HttpResponseParts<MockReader> {
+fn must_parse_response(body: &[u8]) -> ResponseParts<MockReader> {
     let test_reader = MockReader { body, read: false };
 
-    HttpResponseParser::new(test_reader)
+    ResponseParser::new(test_reader)
         .parse()
         .expect("parse headers")
 }
 
 fn assert_parse_request_ok(
     input: &str,
-    method: HttpMethod,
+    method: Method,
     uri: &str,
     headers: &[(&str, &[&str])],
     body: &str,
@@ -361,13 +361,11 @@ fn assert_parse_request_ok(
         body: input.as_bytes(),
         read: false,
     };
-    let mut parsed = HttpRequestParser::new(reader)
-        .parse()
-        .expect("should parse");
+    let mut parsed = RequestParser::new(reader).parse().expect("should parse");
 
     assert_eq!(parsed.method, method);
     assert_eq!(parsed.uri.full(), uri);
-    assert_eq!(parsed.headers, HttpHeaders::from(headers));
+    assert_eq!(parsed.headers, Headers::from(headers));
 
     let mut buf = String::new();
     _ = parsed.reader.read_to_string(&mut buf);
@@ -379,7 +377,7 @@ fn assert_parse_request_err(input: &str, expected: HttpParsingError) {
         body: input.as_bytes(),
         read: false,
     };
-    let parsed = HttpRequestParser::new(reader).parse();
+    let parsed = RequestParser::new(reader).parse();
     assert_eq!(parsed.unwrap_err(), expected);
 }
 
@@ -394,13 +392,11 @@ fn assert_parse_response_ok(
         body: input.as_bytes(),
         read: false,
     };
-    let mut parsed = HttpResponseParser::new(reader)
-        .parse()
-        .expect("should parse");
+    let mut parsed = ResponseParser::new(reader).parse().expect("should parse");
 
     assert_eq!(parsed.status.code, code);
     assert_eq!(parsed.status.reason, reason);
-    assert_eq!(parsed.headers, HttpHeaders::from(headers));
+    assert_eq!(parsed.headers, Headers::from(headers));
 
     let mut buf = String::new();
     _ = parsed.reader.read_to_string(&mut buf);
@@ -412,6 +408,6 @@ fn assert_parse_response_err(input: &str, expected: HttpParsingError) {
         body: input.as_bytes(),
         read: false,
     };
-    let parsed = HttpResponseParser::new(reader).parse();
+    let parsed = ResponseParser::new(reader).parse();
     assert_eq!(parsed.unwrap_err(), expected);
 }

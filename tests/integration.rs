@@ -1,8 +1,8 @@
 #![cfg(feature = "client")]
 use khttp::{
     client::Client,
-    common::{HttpHeaders, HttpMethod, HttpStatus},
-    server::HttpServer,
+    common::{Headers, Method, Status},
+    server::Server,
 };
 use std::{
     io::Cursor,
@@ -20,21 +20,21 @@ fn simple_multi_test() {
 
     let client = Client::new(&format!("localhost:{}", TEST_PORT));
 
-    let response = client.get("/hello", HttpHeaders::new()).unwrap();
+    let response = client.get("/hello", Headers::new()).unwrap();
     assert_status_and_body(response, 200, "Hello, World!");
 
     let response = client
-        .post("/api/uppercase", HttpHeaders::new(), Cursor::new("test123"))
+        .post("/api/uppercase", Headers::new(), Cursor::new("test123"))
         .unwrap();
     assert_status_and_body(response, 201, "TEST123");
 
     let response = client
-        .post("/not-routed", HttpHeaders::new(), Cursor::new(""))
+        .post("/not-routed", Headers::new(), Cursor::new(""))
         .unwrap();
     assert_status_and_body(response, 404, "");
 
     let response = client
-        .delete("/user/123", HttpHeaders::new(), Cursor::new(""))
+        .delete("/user/123", Headers::new(), Cursor::new(""))
         .unwrap();
     assert_status_and_body(response, 400, "no user: 123");
 
@@ -48,21 +48,21 @@ fn simple_multi_test() {
 
 fn start_server(n: u64) -> std::thread::JoinHandle<()> {
     thread::spawn(move || {
-        let mut app = HttpServer::builder(format!("127.0.0.1:{TEST_PORT}")).unwrap();
+        let mut app = Server::builder(format!("127.0.0.1:{TEST_PORT}")).unwrap();
 
-        app.route(HttpMethod::Get, "/hello", |_, res| {
-            res.ok(HttpHeaders::new(), &b"Hello, World!"[..])
+        app.route(Method::Get, "/hello", |_, res| {
+            res.ok(Headers::new(), &b"Hello, World!"[..])
         });
 
-        app.route(HttpMethod::Post, "/api/uppercase", |mut ctx, res| {
+        app.route(Method::Post, "/api/uppercase", |mut ctx, res| {
             let mut body = ctx.read_body().unwrap();
             body.make_ascii_uppercase();
-            res.send(&HttpStatus::of(201), HttpHeaders::new(), &body[..])
+            res.send(&Status::of(201), Headers::new(), &body[..])
         });
 
-        app.route(HttpMethod::Delete, "/user/:id", |ctx, res| {
+        app.route(Method::Delete, "/user/:id", |ctx, res| {
             let body = format!("no user: {}", ctx.route_params.get("id").unwrap());
-            res.send(&HttpStatus::of(400), HttpHeaders::new(), body.as_bytes())
+            res.send(&Status::of(400), Headers::new(), body.as_bytes())
         });
 
         app.build().serve_n(n).ok();

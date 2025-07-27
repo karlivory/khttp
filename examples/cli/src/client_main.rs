@@ -1,6 +1,6 @@
 use crate::args_parser::ClientOp;
 use khttp::client::{Client, HttpClientError};
-use khttp::common::HttpHeaders;
+use khttp::common::Headers;
 use std::io::{self, Cursor, Read};
 use std::time::Duration;
 
@@ -8,7 +8,7 @@ pub fn run(op: ClientOp) {
     let address = format!("{}:{}", op.host, op.port);
     let client = Client::new(&address);
 
-    let mut headers = HttpHeaders::new();
+    let mut headers = Headers::new();
 
     // Set Host
     headers.add("Host", &op.host);

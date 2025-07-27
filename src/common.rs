@@ -1,5 +1,3 @@
-// src/common.rs
-
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Display;
@@ -93,13 +91,13 @@ impl RequestUri {
 // ---------------------------------------------------------------------
 
 #[derive(Debug, Default, Clone, PartialEq)]
-pub struct HttpHeaders {
+pub struct Headers {
     headers: HashMap<String, Vec<String>>,
 }
 
-impl From<HashMap<&str, &str>> for HttpHeaders {
+impl From<HashMap<&str, &str>> for Headers {
     fn from(value: HashMap<&str, &str>) -> Self {
-        let mut headers = HttpHeaders::new();
+        let mut headers = Headers::new();
         for (key, val) in value {
             headers.add(key, val);
         }
@@ -107,9 +105,9 @@ impl From<HashMap<&str, &str>> for HttpHeaders {
     }
 }
 
-impl From<HashMap<String, String>> for HttpHeaders {
+impl From<HashMap<String, String>> for Headers {
     fn from(value: HashMap<String, String>) -> Self {
-        let mut headers = HttpHeaders::new();
+        let mut headers = Headers::new();
         for (key, val) in value {
             headers.add(&key, &val);
         }
@@ -117,9 +115,9 @@ impl From<HashMap<String, String>> for HttpHeaders {
     }
 }
 
-impl From<Vec<(&str, &str)>> for HttpHeaders {
+impl From<Vec<(&str, &str)>> for Headers {
     fn from(value: Vec<(&str, &str)>) -> Self {
-        let mut headers = HttpHeaders::new();
+        let mut headers = Headers::new();
         for (key, val) in value {
             headers.add(key, val);
         }
@@ -127,9 +125,9 @@ impl From<Vec<(&str, &str)>> for HttpHeaders {
     }
 }
 
-impl From<&[(&str, &str)]> for HttpHeaders {
+impl From<&[(&str, &str)]> for Headers {
     fn from(value: &[(&str, &str)]) -> Self {
-        let mut headers = HttpHeaders::new();
+        let mut headers = Headers::new();
         for (key, val) in value {
             headers.add(key, val);
         }
@@ -137,9 +135,9 @@ impl From<&[(&str, &str)]> for HttpHeaders {
     }
 }
 
-impl From<&[(&str, &[&str])]> for HttpHeaders {
+impl From<&[(&str, &[&str])]> for Headers {
     fn from(value: &[(&str, &[&str])]) -> Self {
-        let mut headers = HttpHeaders::new();
+        let mut headers = Headers::new();
         for (key, vals) in value {
             for val in *vals {
                 headers.add(key, val);
@@ -149,7 +147,7 @@ impl From<&[(&str, &[&str])]> for HttpHeaders {
     }
 }
 
-impl HttpHeaders {
+impl Headers {
     pub fn new() -> Self {
         Default::default()
     }
@@ -251,7 +249,7 @@ impl TransferEncoding {
     pub const CHUNKED: &str = "chunked";
 }
 
-impl std::fmt::Display for HttpHeaders {
+impl std::fmt::Display for Headers {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for (k, vs) in &self.headers {
             for v in vs {
@@ -267,7 +265,7 @@ impl std::fmt::Display for HttpHeaders {
 // ---------------------------------------------------------------------
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
-pub enum HttpMethod {
+pub enum Method {
     Get,
     Post,
     Head,
@@ -279,73 +277,73 @@ pub enum HttpMethod {
     Custom(String),
 }
 
-impl From<&str> for HttpMethod {
+impl From<&str> for Method {
     fn from(value: &str) -> Self {
         // compare ignoring ASCII case without allocating
         if value.eq_ignore_ascii_case("GET") {
-            HttpMethod::Get
+            Method::Get
         } else if value.eq_ignore_ascii_case("POST") {
-            HttpMethod::Post
+            Method::Post
         } else if value.eq_ignore_ascii_case("HEAD") {
-            HttpMethod::Head
+            Method::Head
         } else if value.eq_ignore_ascii_case("PUT") {
-            HttpMethod::Put
+            Method::Put
         } else if value.eq_ignore_ascii_case("PATCH") {
-            HttpMethod::Patch
+            Method::Patch
         } else if value.eq_ignore_ascii_case("DELETE") {
-            HttpMethod::Delete
+            Method::Delete
         } else if value.eq_ignore_ascii_case("OPTIONS") {
-            HttpMethod::Options
+            Method::Options
         } else if value.eq_ignore_ascii_case("TRACE") {
-            HttpMethod::Trace
+            Method::Trace
         } else {
-            HttpMethod::Custom(value.to_string())
+            Method::Custom(value.to_string())
         }
     }
 }
 
-impl HttpMethod {
+impl Method {
     pub fn as_str(&self) -> &str {
         match self {
-            HttpMethod::Get => "GET",
-            HttpMethod::Post => "POST",
-            HttpMethod::Head => "HEAD",
-            HttpMethod::Put => "PUT",
-            HttpMethod::Patch => "PATCH",
-            HttpMethod::Delete => "DELETE",
-            HttpMethod::Options => "OPTIONS",
-            HttpMethod::Trace => "TRACE",
-            HttpMethod::Custom(s) => s.as_str(),
+            Method::Get => "GET",
+            Method::Post => "POST",
+            Method::Head => "HEAD",
+            Method::Put => "PUT",
+            Method::Patch => "PATCH",
+            Method::Delete => "DELETE",
+            Method::Options => "OPTIONS",
+            Method::Trace => "TRACE",
+            Method::Custom(s) => s.as_str(),
         }
     }
 }
 
-impl Display for HttpMethod {
+impl Display for Method {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str(self.as_str())
     }
 }
 
-impl FromStr for HttpMethod {
+impl FromStr for Method {
     type Err = ();
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(HttpMethod::from(s))
+        Ok(Method::from(s))
     }
 }
 
-impl AsRef<str> for HttpMethod {
+impl AsRef<str> for Method {
     fn as_ref(&self) -> &str {
         self.as_str()
     }
 }
 
-impl PartialEq<&str> for HttpMethod {
+impl PartialEq<&str> for Method {
     fn eq(&self, other: &&str) -> bool {
         self.as_str().eq_ignore_ascii_case(other)
     }
 }
 
-impl PartialEq<String> for HttpMethod {
+impl PartialEq<String> for Method {
     fn eq(&self, other: &String) -> bool {
         self.as_str().eq_ignore_ascii_case(other)
     }
@@ -356,12 +354,12 @@ impl PartialEq<String> for HttpMethod {
 // ---------------------------------------------------------------------
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HttpStatus {
+pub struct Status {
     pub code: u16,
     pub reason: Cow<'static, str>,
 }
 
-impl HttpStatus {
+impl Status {
     pub const fn borrowed(code: u16, reason: &'static str) -> Self {
         Self {
             code,
@@ -383,18 +381,18 @@ impl HttpStatus {
     }
 }
 
-impl fmt::Display for HttpStatus {
+impl fmt::Display for Status {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} {}", self.code, self.reason)
     }
 }
 
-impl From<u16> for HttpStatus {
+impl From<u16> for Status {
     fn from(code: u16) -> Self {
         Self::of(code)
     }
 }
-impl PartialEq<u16> for HttpStatus {
+impl PartialEq<u16> for Status {
     fn eq(&self, other: &u16) -> bool {
         self.code == *other
     }
@@ -402,17 +400,17 @@ impl PartialEq<u16> for HttpStatus {
 
 macro_rules! define_statuses {
     ($( $code:literal => $ident:ident, $reason:expr );* $(;)?) => {
-        impl HttpStatus {
+        impl Status {
             $(
-                pub const $ident: HttpStatus = HttpStatus::borrowed($code, $reason);
+                pub const $ident: Status = Status::borrowed($code, $reason);
             )*
 
             pub const fn of(code: u16) -> Self {
                 match code {
                     $(
-                        $code => HttpStatus::$ident,
+                        $code => Status::$ident,
                     )*
-                    _ => HttpStatus::borrowed(code, ""),
+                    _ => Status::borrowed(code, ""),
                 }
             }
         }

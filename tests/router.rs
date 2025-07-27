@@ -1,5 +1,5 @@
 use khttp::{
-    common::HttpMethod,
+    common::Method,
     router::{AppRouter, DefaultRouter},
 };
 
@@ -10,21 +10,17 @@ use khttp::{
 #[test]
 fn empty_route() {
     let mut r = new_router();
-    add_routes(&mut r, &HttpMethod::Get, &[("/", 0), ("/route", 1)]);
-    assert_match(&r, &HttpMethod::Get, "/", 0);
+    add_routes(&mut r, &Method::Get, &[("/", 0), ("/route", 1)]);
+    assert_match(&r, &Method::Get, "/", 0);
 }
 
 #[test]
 fn nested_routes() {
     let mut r = new_router();
-    add_routes(
-        &mut r,
-        &HttpMethod::Get,
-        &[("/route", 0), ("/route/foo", 1)],
-    );
+    add_routes(&mut r, &Method::Get, &[("/route", 0), ("/route/foo", 1)]);
 
-    assert_match(&r, &HttpMethod::Get, "/route", 0);
-    assert_match(&r, &HttpMethod::Get, "/route/foo", 1);
+    assert_match(&r, &Method::Get, "/route", 0);
+    assert_match(&r, &Method::Get, "/route/foo", 1);
 }
 
 #[test]
@@ -32,14 +28,14 @@ fn wildcard() {
     let mut r = new_router();
     add_routes(
         &mut r,
-        &HttpMethod::Get,
+        &Method::Get,
         &[("/route1/*/foo", 0), ("/route2/*", 1), ("/route2/hey", 2)],
     );
 
-    assert_match(&r, &HttpMethod::Get, "/route1/abc/foo", 0);
-    assert_match(&r, &HttpMethod::Get, "/route1/d/foo", 0);
-    assert_match(&r, &HttpMethod::Get, "/route2/hello", 1);
-    assert_match(&r, &HttpMethod::Get, "/route2/hey", 2);
+    assert_match(&r, &Method::Get, "/route1/abc/foo", 0);
+    assert_match(&r, &Method::Get, "/route1/d/foo", 0);
+    assert_match(&r, &Method::Get, "/route2/hello", 1);
+    assert_match(&r, &Method::Get, "/route2/hey", 2);
 }
 
 #[test]
@@ -47,7 +43,7 @@ fn double_wildcard() {
     let mut r = new_router();
     add_routes(
         &mut r,
-        &HttpMethod::Get,
+        &Method::Get,
         &[
             ("/route1/**", 0),
             ("/route2/*", 1),
@@ -56,13 +52,13 @@ fn double_wildcard() {
         ],
     );
 
-    assert_match(&r, &HttpMethod::Get, "/route1/abc/def/hjk", 0);
-    assert_match(&r, &HttpMethod::Get, "/route1/d/foo", 0);
-    assert_match(&r, &HttpMethod::Get, "/route2/hello", 1);
-    assert_match(&r, &HttpMethod::Get, "/route2", 2);
-    assert_match(&r, &HttpMethod::Get, "/", 3);
-    assert_match(&r, &HttpMethod::Get, "/route3", 3);
-    assert_match(&r, &HttpMethod::Get, "/fallback/for/any/other/route", 3);
+    assert_match(&r, &Method::Get, "/route1/abc/def/hjk", 0);
+    assert_match(&r, &Method::Get, "/route1/d/foo", 0);
+    assert_match(&r, &Method::Get, "/route2/hello", 1);
+    assert_match(&r, &Method::Get, "/route2", 2);
+    assert_match(&r, &Method::Get, "/", 3);
+    assert_match(&r, &Method::Get, "/route3", 3);
+    assert_match(&r, &Method::Get, "/fallback/for/any/other/route", 3);
 }
 
 #[test]
@@ -70,14 +66,14 @@ fn precedence() {
     let mut r = new_router();
     add_routes(
         &mut r,
-        &HttpMethod::Get,
+        &Method::Get,
         &[("/route/foo", 0), ("/route/*", 1), ("/route/**", 2)],
     );
 
-    assert_match(&r, &HttpMethod::Get, "/route/foo", 0);
-    assert_match(&r, &HttpMethod::Get, "/route/hello", 1);
-    assert_match(&r, &HttpMethod::Get, "/route/foobar", 1);
-    assert_match(&r, &HttpMethod::Get, "/route/foo/bar/index.html", 2);
+    assert_match(&r, &Method::Get, "/route/foo", 0);
+    assert_match(&r, &Method::Get, "/route/hello", 1);
+    assert_match(&r, &Method::Get, "/route/foobar", 1);
+    assert_match(&r, &Method::Get, "/route/foo/bar/index.html", 2);
 }
 
 #[test]
@@ -85,7 +81,7 @@ fn hashing_duplicate_routes() {
     let mut r = new_router();
     add_routes(
         &mut r,
-        &HttpMethod::Get,
+        &Method::Get,
         &[
             ("/route/foo", 0),
             ("/route/foo", 1),
@@ -98,10 +94,10 @@ fn hashing_duplicate_routes() {
     );
 
     // Last inserted 'wins' for identical routes
-    assert_match(&r, &HttpMethod::Get, "/route/foo", 1);
-    assert_match(&r, &HttpMethod::Get, "/route/foo2", 2);
-    assert_match(&r, &HttpMethod::Get, "/route/hey", 4);
-    assert_match(&r, &HttpMethod::Get, "/user/1234", 6);
+    assert_match(&r, &Method::Get, "/route/foo", 1);
+    assert_match(&r, &Method::Get, "/route/foo2", 2);
+    assert_match(&r, &Method::Get, "/route/hey", 4);
+    assert_match(&r, &Method::Get, "/user/1234", 6);
 }
 
 #[test]
@@ -109,14 +105,14 @@ fn params_extraction() {
     let mut r = new_router();
     add_routes(
         &mut r,
-        &HttpMethod::Get,
+        &Method::Get,
         &[("/users/:id", 0), ("/users/:id/posts/:post_id", 1)],
     );
 
-    assert_match_params(&r, &HttpMethod::Get, "/users/12", 0, &[("id", "12")]);
+    assert_match_params(&r, &Method::Get, "/users/12", 0, &[("id", "12")]);
     assert_match_params(
         &r,
-        &HttpMethod::Get,
+        &Method::Get,
         "/users/42/posts/abc",
         1,
         &[("id", "42"), ("post_id", "abc")],
@@ -127,27 +123,23 @@ fn params_extraction() {
 fn unmapping() {
     let mut r = new_router();
 
-    assert_404(&r, &HttpMethod::Get, "/hello");
+    assert_404(&r, &Method::Get, "/hello");
 
-    r.add_route(&HttpMethod::Get, "/hello", (10, "/hello"));
-    assert_match(&r, &HttpMethod::Get, "/hello", 10);
+    r.add_route(&Method::Get, "/hello", (10, "/hello"));
+    assert_match(&r, &Method::Get, "/hello", 10);
 
-    let removed = r.remove_route(&HttpMethod::Get, "/hello").unwrap();
+    let removed = r.remove_route(&Method::Get, "/hello").unwrap();
     assert_eq!(removed.0, 10);
-    assert_404(&r, &HttpMethod::Get, "/hello");
+    assert_404(&r, &Method::Get, "/hello");
 }
 
 #[test]
 fn literal_beats_param() {
     let mut r = new_router();
-    add_routes(
-        &mut r,
-        &HttpMethod::Get,
-        &[("/users/me", 0), ("/users/:id", 1)],
-    );
+    add_routes(&mut r, &Method::Get, &[("/users/me", 0), ("/users/:id", 1)]);
 
-    assert_match(&r, &HttpMethod::Get, "/users/me", 0);
-    assert_match_params(&r, &HttpMethod::Get, "/users/42", 1, &[("id", "42")]);
+    assert_match(&r, &Method::Get, "/users/me", 0);
+    assert_match_params(&r, &Method::Get, "/users/42", 1, &[("id", "42")]);
 }
 
 #[test]
@@ -155,17 +147,11 @@ fn param_beats_wildcard() {
     let mut r = new_router();
     add_routes(
         &mut r,
-        &HttpMethod::Get,
+        &Method::Get,
         &[("/files/:name", 0), ("/files/*", 1)],
     );
 
-    assert_match_params(
-        &r,
-        &HttpMethod::Get,
-        "/files/readme",
-        0,
-        &[("name", "readme")],
-    );
+    assert_match_params(&r, &Method::Get, "/files/readme", 0, &[("name", "readme")]);
 }
 
 #[test]
@@ -174,19 +160,19 @@ fn longest_literal_then_precedence() {
     // /a/*/c  -> LML=1 but ends with literal:
     //                  despite higher precedence it gets filtered out due to lower LML
     let mut r = new_router();
-    add_routes(&mut r, &HttpMethod::Get, &[("/a/b/*", 0), ("/a/*/c", 1)]);
+    add_routes(&mut r, &Method::Get, &[("/a/b/*", 0), ("/a/*/c", 1)]);
 
-    assert_match(&r, &HttpMethod::Get, "/a/b/c", 0);
+    assert_match(&r, &Method::Get, "/a/b/c", 0);
 }
 
 #[test]
 fn many_params_extraction() {
     let mut r = new_router();
-    add_routes(&mut r, &HttpMethod::Get, &[("/:a/:b/:c", 0)]);
+    add_routes(&mut r, &Method::Get, &[("/:a/:b/:c", 0)]);
 
     assert_match_params(
         &r,
-        &HttpMethod::Get,
+        &Method::Get,
         "/one/two/three",
         0,
         &[("a", "one"), ("b", "two"), ("c", "three")],
@@ -196,93 +182,89 @@ fn many_params_extraction() {
 #[test]
 fn root_double_wildcard_fallback() {
     let mut r = new_router();
-    add_routes(&mut r, &HttpMethod::Get, &[("/api/*", 0), ("/**", 1)]);
+    add_routes(&mut r, &Method::Get, &[("/api/*", 0), ("/**", 1)]);
 
-    assert_match(&r, &HttpMethod::Get, "/whatever/else", 1);
-    assert_match(&r, &HttpMethod::Get, "/api/foo", 0);
+    assert_match(&r, &Method::Get, "/whatever/else", 1);
+    assert_match(&r, &Method::Get, "/api/foo", 0);
 }
 
 #[test]
 fn method_isolation() {
     let mut r = new_router();
-    add_routes(&mut r, &HttpMethod::Get, &[("/users/:id", 0)]);
-    add_routes(&mut r, &HttpMethod::Post, &[("/users/:id", 1)]);
+    add_routes(&mut r, &Method::Get, &[("/users/:id", 0)]);
+    add_routes(&mut r, &Method::Post, &[("/users/:id", 1)]);
 
-    assert_match_params(&r, &HttpMethod::Get, "/users/10", 0, &[("id", "10")]);
-    assert_match_params(&r, &HttpMethod::Post, "/users/10", 1, &[("id", "10")]);
+    assert_match_params(&r, &Method::Get, "/users/10", 0, &[("id", "10")]);
+    assert_match_params(&r, &Method::Post, "/users/10", 1, &[("id", "10")]);
 }
 
 #[test]
 fn remove_param_route() {
     let mut r = new_router();
-    r.add_route(&HttpMethod::Get, "/users/:id", (99, "/users/:id"));
+    r.add_route(&Method::Get, "/users/:id", (99, "/users/:id"));
 
-    assert_match_params(&r, &HttpMethod::Get, "/users/5", 99, &[("id", "5")]);
-    let removed = r.remove_route(&HttpMethod::Get, "/users/:id").unwrap();
+    assert_match_params(&r, &Method::Get, "/users/5", 99, &[("id", "5")]);
+    let removed = r.remove_route(&Method::Get, "/users/:id").unwrap();
     assert_eq!(removed.0, 99);
-    assert_404(&r, &HttpMethod::Get, "/users/5");
+    assert_404(&r, &Method::Get, "/users/5");
 }
 
 #[test]
 fn overlap_param_and_double_wildcard() {
     let mut r = new_router();
-    add_routes(
-        &mut r,
-        &HttpMethod::Get,
-        &[("/blog/:slug", 0), ("/blog/**", 1)],
-    );
+    add_routes(&mut r, &Method::Get, &[("/blog/:slug", 0), ("/blog/**", 1)]);
 
     // single segment -> param wins
-    assert_match_params(&r, &HttpMethod::Get, "/blog/intro", 0, &[("slug", "intro")]);
+    assert_match_params(&r, &Method::Get, "/blog/intro", 0, &[("slug", "intro")]);
 
     // deeper path -> ** wins
-    assert_match(&r, &HttpMethod::Get, "/blog/2024/10/interesting", 1);
+    assert_match(&r, &Method::Get, "/blog/2024/10/interesting", 1);
 }
 
 #[test]
 fn test_asterisk_form() {
     let mut r = new_router();
-    assert_404(&r, &HttpMethod::Options, "*");
+    assert_404(&r, &Method::Options, "*");
 
-    add_routes(&mut r, &HttpMethod::Options, &[("*", 0)]);
-    assert_match(&r, &HttpMethod::Options, "*", 0);
-    assert_404(&r, &HttpMethod::Get, "*");
-    assert_404(&r, &HttpMethod::Options, "/route");
-    assert_404(&r, &HttpMethod::Options, "hello");
+    add_routes(&mut r, &Method::Options, &[("*", 0)]);
+    assert_match(&r, &Method::Options, "*", 0);
+    assert_404(&r, &Method::Get, "*");
+    assert_404(&r, &Method::Options, "/route");
+    assert_404(&r, &Method::Options, "hello");
 }
 
 #[test]
 fn test_trailing_slash() {
     // spec says: separate route
     let mut r = new_router();
-    add_routes(&mut r, &HttpMethod::Get, &[("/hello", 0)]);
-    add_routes(&mut r, &HttpMethod::Get, &[("/foo/bar", 1)]);
-    add_routes(&mut r, &HttpMethod::Get, &[("/foo/bar/", 2)]);
-    add_routes(&mut r, &HttpMethod::Get, &[("/wild/*", 3)]);
-    add_routes(&mut r, &HttpMethod::Get, &[("/user/:id", 4)]);
-    add_routes(&mut r, &HttpMethod::Get, &[("/any/**", 5)]);
+    add_routes(&mut r, &Method::Get, &[("/hello", 0)]);
+    add_routes(&mut r, &Method::Get, &[("/foo/bar", 1)]);
+    add_routes(&mut r, &Method::Get, &[("/foo/bar/", 2)]);
+    add_routes(&mut r, &Method::Get, &[("/wild/*", 3)]);
+    add_routes(&mut r, &Method::Get, &[("/user/:id", 4)]);
+    add_routes(&mut r, &Method::Get, &[("/any/**", 5)]);
 
-    assert_404(&r, &HttpMethod::Get, "/hello/");
-    assert_match(&r, &HttpMethod::Get, "/foo/bar", 1);
-    assert_match(&r, &HttpMethod::Get, "/foo/bar/", 2);
-    assert_404(&r, &HttpMethod::Get, "/foo/bar//");
-    assert_404(&r, &HttpMethod::Get, "/foo/bar//");
-    assert_404(&r, &HttpMethod::Get, "/wild/abc/");
-    assert_404(&r, &HttpMethod::Get, "/user/123/");
-    assert_match(&r, &HttpMethod::Get, "/any////", 5);
+    assert_404(&r, &Method::Get, "/hello/");
+    assert_match(&r, &Method::Get, "/foo/bar", 1);
+    assert_match(&r, &Method::Get, "/foo/bar/", 2);
+    assert_404(&r, &Method::Get, "/foo/bar//");
+    assert_404(&r, &Method::Get, "/foo/bar//");
+    assert_404(&r, &Method::Get, "/wild/abc/");
+    assert_404(&r, &Method::Get, "/user/123/");
+    assert_match(&r, &Method::Get, "/any////", 5);
 }
 
 #[test]
 fn test_multiple_slashes() {
     // spec says: separate route
     let mut r = new_router();
-    add_routes(&mut r, &HttpMethod::Get, &[("/hello", 0)]);
-    add_routes(&mut r, &HttpMethod::Get, &[("/foo/bar", 1)]);
+    add_routes(&mut r, &Method::Get, &[("/hello", 0)]);
+    add_routes(&mut r, &Method::Get, &[("/foo/bar", 1)]);
 
-    assert_404(&r, &HttpMethod::Get, "///hello");
-    assert_404(&r, &HttpMethod::Get, "///hello///");
-    assert_404(&r, &HttpMethod::Get, "/foo//bar");
-    assert_404(&r, &HttpMethod::Get, "//////foo////bar");
+    assert_404(&r, &Method::Get, "///hello");
+    assert_404(&r, &Method::Get, "///hello///");
+    assert_404(&r, &Method::Get, "/foo//bar");
+    assert_404(&r, &Method::Get, "//////foo////bar");
 }
 
 // ---------------------------------------------------------------------
@@ -295,13 +277,13 @@ fn new_router() -> Router {
     DefaultRouter::new()
 }
 
-fn add_routes(router: &mut Router, method: &HttpMethod, routes: &[(&'static str, usize)]) {
+fn add_routes(router: &mut Router, method: &Method, routes: &[(&'static str, usize)]) {
     for (pat, id) in routes {
         router.add_route(method, pat, (*id, *pat));
     }
 }
 
-fn assert_match(router: &Router, method: &HttpMethod, uri: &str, expected_idx: usize) {
+fn assert_match(router: &Router, method: &Method, uri: &str, expected_idx: usize) {
     let m = router
         .match_route(method, uri)
         .unwrap_or_else(|| panic!("expected match for URI {}", uri));
@@ -310,7 +292,7 @@ fn assert_match(router: &Router, method: &HttpMethod, uri: &str, expected_idx: u
 
 fn assert_match_params(
     router: &Router,
-    method: &HttpMethod,
+    method: &Method,
     uri: &str,
     expected_idx: usize,
     expected_params: &[(&str, &str)],
@@ -330,7 +312,7 @@ fn assert_match_params(
     }
 }
 
-fn assert_404(router: &Router, method: &HttpMethod, uri: &str) {
+fn assert_404(router: &Router, method: &Method, uri: &str) {
     assert!(
         router.match_route(method, uri).is_none(),
         "expected 404 for URI {}",

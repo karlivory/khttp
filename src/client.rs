@@ -1,8 +1,8 @@
 // src/client.rs
 use crate::body_reader::BodyReader;
-use crate::common::{HttpHeaders, HttpMethod, HttpStatus};
-use crate::http_parser::{HttpParsingError, HttpResponseParser};
-use crate::http_printer::HttpPrinter;
+use crate::common::{Headers, Method, Status};
+use crate::parser::{HttpParsingError, ResponseParser};
+use crate::printer::HttpPrinter;
 use std::error::Error;
 use std::fmt::Display;
 use std::io::{self, Read};
@@ -18,73 +18,73 @@ impl Client {
             address: address.to_string(),
         }
     }
-    pub fn get(&self, uri: &str, headers: HttpHeaders) -> Result<HttpResponse, HttpClientError> {
-        self.exchange(&HttpMethod::Get, uri, headers, &[][..])
+    pub fn get(&self, uri: &str, headers: Headers) -> Result<HttpResponse, HttpClientError> {
+        self.exchange(&Method::Get, uri, headers, &[][..])
     }
 
-    pub fn head(&self, uri: &str, headers: HttpHeaders) -> Result<HttpResponse, HttpClientError> {
-        self.exchange(&HttpMethod::Head, uri, headers, &[][..])
+    pub fn head(&self, uri: &str, headers: Headers) -> Result<HttpResponse, HttpClientError> {
+        self.exchange(&Method::Head, uri, headers, &[][..])
     }
 
     pub fn put(
         &self,
         uri: &str,
-        headers: HttpHeaders,
+        headers: Headers,
         body: impl Read,
     ) -> Result<HttpResponse, HttpClientError> {
-        self.exchange(&HttpMethod::Put, uri, headers, body)
+        self.exchange(&Method::Put, uri, headers, body)
     }
 
     pub fn patch(
         &self,
         uri: &str,
-        headers: HttpHeaders,
+        headers: Headers,
         body: impl Read,
     ) -> Result<HttpResponse, HttpClientError> {
-        self.exchange(&HttpMethod::Patch, uri, headers, body)
+        self.exchange(&Method::Patch, uri, headers, body)
     }
 
     pub fn post(
         &self,
         uri: &str,
-        headers: HttpHeaders,
+        headers: Headers,
         body: impl Read,
     ) -> Result<HttpResponse, HttpClientError> {
-        self.exchange(&HttpMethod::Post, uri, headers, body)
+        self.exchange(&Method::Post, uri, headers, body)
     }
 
     pub fn delete(
         &self,
         uri: &str,
-        headers: HttpHeaders,
+        headers: Headers,
         body: impl Read,
     ) -> Result<HttpResponse, HttpClientError> {
-        self.exchange(&HttpMethod::Delete, uri, headers, body)
+        self.exchange(&Method::Delete, uri, headers, body)
     }
 
     pub fn options(
         &self,
         uri: &str,
-        headers: HttpHeaders,
+        headers: Headers,
         body: impl Read,
     ) -> Result<HttpResponse, HttpClientError> {
-        self.exchange(&HttpMethod::Options, uri, headers, body)
+        self.exchange(&Method::Options, uri, headers, body)
     }
 
     pub fn trace(
         &self,
         uri: &str,
-        headers: HttpHeaders,
+        headers: Headers,
         body: impl Read,
     ) -> Result<HttpResponse, HttpClientError> {
-        self.exchange(&HttpMethod::Trace, uri, headers, body)
+        self.exchange(&Method::Trace, uri, headers, body)
     }
 
     pub fn exchange(
         &self,
-        method: &HttpMethod,
+        method: &Method,
         uri: &str,
-        headers: HttpHeaders,
+        headers: Headers,
         body: impl Read,
     ) -> Result<HttpResponse, HttpClientError> {
         // establish connection
@@ -106,8 +106,8 @@ struct ClientRequestTcpStream {
 
 // #[derive(Debug, Clone, PartialEq)]
 pub struct HttpResponse {
-    pub headers: HttpHeaders,
-    pub status: HttpStatus,
+    pub headers: Headers,
+    pub status: Status,
     body: BodyReader<TcpStream>,
 }
 
@@ -160,9 +160,9 @@ impl ClientRequestTcpStream {
 
     fn write(
         &mut self,
-        method: &HttpMethod,
+        method: &Method,
         uri: &str,
-        headers: HttpHeaders,
+        headers: Headers,
         body: impl Read,
     ) -> Result<(), HttpClientError> {
         HttpPrinter::new(&self.stream)
@@ -172,7 +172,7 @@ impl ClientRequestTcpStream {
     }
 
     fn read(self) -> Result<HttpResponse, HttpClientError> {
-        let parts = HttpResponseParser::new(self.stream).parse()?;
+        let parts = ResponseParser::new(self.stream).parse()?;
         let body = BodyReader::from(&parts.headers, parts.reader);
         let response = HttpResponse {
             headers: parts.headers,

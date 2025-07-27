@@ -11,10 +11,10 @@
 
 use criterion::{BenchmarkId, Criterion};
 use khttp::{
-    common::{HttpHeaders, HttpMethod, HttpStatus},
-    http_parser::HttpRequestParser,
+    common::{Headers, Method, Status},
+    parser::RequestParser,
     router::DefaultRouter,
-    server::{HttpServer, HttpServerBuilder, RouteFn},
+    server::{RouteFn, Server, ServerBuilder},
 };
 use std::{
     env,
@@ -26,7 +26,7 @@ use std::{
 };
 
 // -------- Types --------
-type KhttpServer = HttpServer<DefaultRouter<Box<RouteFn>>>;
+type KhttpServer = Server<DefaultRouter<Box<RouteFn>>>;
 
 struct ServerBench {
     full: &'static str,
@@ -56,7 +56,7 @@ fn main() {
         path: "/",
         kind: ServerKind::Khttp(Box::new(|| {
             let mut app = get_khttp_app();
-            app.route(HttpMethod::Get, "/", |_c, r| respond_hello(r));
+            app.route(Method::Get, "/", |_c, r| respond_hello(r));
             app.build()
         })),
     });
@@ -66,7 +66,7 @@ fn main() {
         path: "/",
         kind: ServerKind::Khttp(Box::new(|| {
             let mut app = get_khttp_app();
-            app.route(HttpMethod::Get, "/", |_c, r| respond_longheader(r));
+            app.route(Method::Get, "/", |_c, r| respond_longheader(r));
             app.build()
         })),
     });
@@ -76,7 +76,7 @@ fn main() {
         path: "/a/b/c",
         kind: ServerKind::Khttp(Box::new(|| {
             let mut app = get_khttp_app();
-            app.route(HttpMethod::Get, "/a/b/c", |_c, r| respond_heavy(r));
+            app.route(Method::Get, "/a/b/c", |_c, r| respond_heavy(r));
             app.build()
         })),
     });
@@ -90,14 +90,12 @@ fn main() {
                 for b in 0..10 {
                     for c in 0..10 {
                         let p = format!("/foo-{a}/bar-{b}/baz-{c}");
-                        app.route(HttpMethod::Get, &p, |_c, r| {
-                            r.ok(HttpHeaders::new(), &[][..])
-                        });
+                        app.route(Method::Get, &p, |_c, r| r.ok(Headers::new(), &[][..]));
                     }
                 }
             }
-            app.route(HttpMethod::Get, "/foo/bar/baz", |_c, r| {
-                r.ok(HttpHeaders::new(), &[][..])
+            app.route(Method::Get, "/foo/bar/baz", |_c, r| {
+                r.ok(Headers::new(), &[][..])
             });
             app.build()
         })),
@@ -168,7 +166,7 @@ fn main() {
         path: "/chunked",
         kind: ServerKind::Khttp(Box::new(|| {
             let mut app = get_khttp_app();
-            app.route(HttpMethod::Get, "/chunked", |_c, r| respond_chunked(r));
+            app.route(Method::Get, "/chunked", |_c, r| respond_chunked(r));
             app.build()
         })),
     });
@@ -201,7 +199,7 @@ fn main() {
             let raw = b"GET /foo/bar HTTP/1.1\r\nHost: example.com\r\n\r\n";
             group.bench_function(BenchmarkId::new("complex", "GET /foo/bar"), |b| {
                 b.iter(|| {
-                    let _ = HttpRequestParser::new(std::hint::black_box(&raw[..]))
+                    let _ = RequestParser::new(std::hint::black_box(&raw[..]))
                         .parse()
                         .unwrap();
                 });
@@ -214,7 +212,7 @@ fn main() {
         assert!(!full_uri.is_empty());
         let http_version = req.version.unwrap().to_string();
         assert!(!http_version.is_empty());
-        let mut headers = HttpHeaders::new();
+        let mut headers = Headers::new();
         for header in req.headers {
             let value = std::str::from_utf8(header.value).unwrap();
             headers.add(header.name, value);
@@ -261,7 +259,7 @@ Accept: */*\r\n"
             let raw = make_long_request();
             group.bench_function(BenchmarkId::new("long", "GET /long"), |b| {
                 b.iter(|| {
-                    let _ = HttpRequestParser::new(std::hint::black_box(&raw[..]))
+                    let _ = RequestParser::new(std::hint::black_box(&raw[..]))
                         .parse()
                         .unwrap();
                 });
@@ -444,19 +442,19 @@ fn get_free_port() -> u16 {
     p
 }
 
-fn get_khttp_app() -> HttpServerBuilder<DefaultRouter<Box<RouteFn>>> {
+fn get_khttp_app() -> ServerBuilder<DefaultRouter<Box<RouteFn>>> {
     let port = get_free_port();
-    HttpServer::builder(format!("127.0.0.1:{port}")).unwrap()
+    Server::builder(format!("127.0.0.1:{port}")).unwrap()
 }
 
 fn respond_hello(res: &mut khttp::server::ResponseHandle) -> io::Result<()> {
     let msg = "Hello, World!";
-    res.ok(HttpHeaders::new(), msg.as_bytes())
+    res.ok(Headers::new(), msg.as_bytes())
 }
 
 fn respond_longheader(res: &mut khttp::server::ResponseHandle) -> io::Result<()> {
     let msg = "hey";
-    let mut headers = HttpHeaders::new();
+    let mut headers = Headers::new();
     for i in 0..50 {
         headers.add(&format!("value{i}"), &"hello".repeat(10));
     }
@@ -475,14 +473,14 @@ fn heavy_body() -> &'static [u8] {
 
 fn respond_heavy(res: &mut khttp::server::ResponseHandle) -> io::Result<()> {
     let msg = heavy_body();
-    let mut headers = HttpHeaders::new();
+    let mut headers = Headers::new();
     headers.set_content_length(msg.len() as u64);
-    res.ok(HttpHeaders::new(), msg)
+    res.ok(Headers::new(), msg)
 }
 
 fn respond_chunked(res: &mut khttp::server::ResponseHandle) -> io::Result<()> {
     let msg = heavy_body();
-    res.send_chunked(&HttpStatus::of(200), HttpHeaders::new(), msg)
+    res.send_chunked(&Status::of(200), Headers::new(), msg)
 }
 
 fn ensure_rewrk() {

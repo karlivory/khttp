@@ -1,4 +1,4 @@
-use khttp::common::{HttpHeaders, HttpStatus};
+use khttp::common::{Headers, Status};
 use khttp_framework::{FrameworkApp, ServerConfig};
 use std::sync::Arc;
 
@@ -35,7 +35,7 @@ fn add_routes(app: &mut FrameworkApp) {
             let log = ctx.get::<Arc<Logger>>().unwrap();
             log.info("Connecting to db...");
             res.ok(
-                HttpHeaders::new(),
+                Headers::new(),
                 format!("db = {}\n", db.connection_string).as_bytes(),
             )
         });
@@ -58,8 +58,8 @@ fn add_routes(app: &mut FrameworkApp) {
                 None => {
                     log.warn("Invalid or missing user id");
                     return res.send(
-                        &HttpStatus::BAD_REQUEST,
-                        HttpHeaders::new(),
+                        &Status::BAD_REQUEST,
+                        Headers::new(),
                         "invalid user id".as_bytes(),
                     );
                 }
@@ -70,7 +70,7 @@ fn add_routes(app: &mut FrameworkApp) {
                 panic!();
             }
 
-            res.ok(HttpHeaders::new(), format!("user: {}", user_id).as_bytes())
+            res.ok(Headers::new(), format!("user: {}", user_id).as_bytes())
         });
 }
 
@@ -108,7 +108,7 @@ impl Logger {
 
 mod middlewares {
     use crate::Logger;
-    use khttp::common::{HttpHeaders, HttpStatus};
+    use khttp::common::{Headers, Status};
     use khttp_framework::Handler;
     use std::sync::Arc;
 
@@ -119,11 +119,7 @@ mod middlewares {
                 if ctx.request.headers.get("authorization") == Some(&secret) {
                     next(ctx, res)
                 } else {
-                    res.send(
-                        &HttpStatus::of(401),
-                        HttpHeaders::new(),
-                        &b"Unauthorized"[..],
-                    )
+                    res.send(&Status::of(401), Headers::new(), &b"Unauthorized"[..])
                 }
             })
         }
@@ -168,8 +164,8 @@ mod middlewares {
 
                     eprintln!("[panic] handler panicked: {msg}");
                     res.send(
-                        &HttpStatus::of(500),
-                        HttpHeaders::new(),
+                        &Status::of(500),
+                        Headers::new(),
                         &b"Internal Server Error"[..],
                     )
                 } else {

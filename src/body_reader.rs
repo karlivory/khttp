@@ -1,5 +1,5 @@
 // src/body_reader.rs
-use crate::common::HttpHeaders;
+use crate::common::Headers;
 use std::io::{self, BufRead, BufReader, Read};
 
 pub enum BodyReader<R: Read> {
@@ -35,7 +35,7 @@ impl<R: Read> Read for BodyReader<R> {
 }
 
 impl<R: Read> BodyReader<R> {
-    pub fn from(headers: &HttpHeaders, reader: BufReader<R>) -> Self {
+    pub fn from(headers: &Headers, reader: BufReader<R>) -> Self {
         if headers.is_transfer_encoding_chunked() {
             return BodyReader::Chunked(ChunkedReader::new(reader));
             // TODO: document: other transfer-encodings are ignored

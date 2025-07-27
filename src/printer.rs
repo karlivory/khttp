@@ -1,5 +1,4 @@
-// src/http_printer.rs
-use crate::common::{HttpHeaders, HttpMethod, HttpStatus};
+use crate::common::{Headers, Method, Status};
 use std::io::{self, BufWriter, Read, Write};
 
 const HTTP_VERSION: &[u8] = b"HTTP/1.1";
@@ -24,8 +23,8 @@ impl<W: Write> HttpPrinter<W> {
 
     pub fn write_response<R: Read>(
         &mut self,
-        status: &HttpStatus,
-        mut headers: HttpHeaders,
+        status: &Status,
+        mut headers: Headers,
         body: R,
     ) -> io::Result<()> {
         let strat = decide_body_strategy(&mut headers, body)?;
@@ -35,9 +34,9 @@ impl<W: Write> HttpPrinter<W> {
 
     pub fn write_request<R: Read>(
         &mut self,
-        method: &HttpMethod,
+        method: &Method,
         uri: &str,
-        mut headers: HttpHeaders,
+        mut headers: Headers,
         body: R,
     ) -> io::Result<()> {
         let strat = decide_body_strategy(&mut headers, body)?;
@@ -109,12 +108,12 @@ enum BodyStrategy<R: Read> {
 }
 
 fn decide_body_strategy<R: Read>(
-    headers: &mut HttpHeaders,
+    headers: &mut Headers,
     mut body: R,
 ) -> io::Result<BodyStrategy<R>> {
     // TE: chunked explicitly requested
     if headers.is_transfer_encoding_chunked() {
-        headers.remove(HttpHeaders::CONTENT_LENGTH);
+        headers.remove(Headers::CONTENT_LENGTH);
         headers.set_transfer_encoding_chunked();
         return Ok(BodyStrategy::Chunked {
             prefix: Vec::new(),
@@ -161,7 +160,7 @@ fn get_head_vector(header_count: usize) -> Vec<u8> {
     Vec::with_capacity(64 + header_count * 40)
 }
 
-fn build_response_head(status: &HttpStatus, headers: &HttpHeaders) -> Vec<u8> {
+fn build_response_head(status: &Status, headers: &Headers) -> Vec<u8> {
     let mut head = get_head_vector(headers.get_count());
 
     // status line
@@ -179,7 +178,7 @@ fn build_response_head(status: &HttpStatus, headers: &HttpHeaders) -> Vec<u8> {
     head
 }
 
-fn build_request_head(method: &HttpMethod, uri: &str, headers: &HttpHeaders) -> Vec<u8> {
+fn build_request_head(method: &Method, uri: &str, headers: &Headers) -> Vec<u8> {
     let mut head = get_head_vector(headers.get_count());
 
     // request line
@@ -197,7 +196,7 @@ fn build_request_head(method: &HttpMethod, uri: &str, headers: &HttpHeaders) -> 
     head
 }
 
-fn add_headers(buf: &mut Vec<u8>, headers: &HttpHeaders) {
+fn add_headers(buf: &mut Vec<u8>, headers: &Headers) {
     for (k, values) in headers.get_map() {
         for v in values {
             buf.extend_from_slice(k.as_bytes());

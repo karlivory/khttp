@@ -4,10 +4,10 @@ use std::time::Duration;
 use std::{io, thread};
 
 use crate::args_parser::{ServerConfig, ServerOp};
-use khttp::common::{HttpHeaders, HttpMethod, HttpStatus};
+use khttp::common::{Headers, Method, Status};
 use khttp::router::DefaultRouter;
 use khttp::server::{
-    HttpRequestContext, HttpServer, HttpServerBuilder, ResponseHandle, RouteFn, StreamSetupAction,
+    RequestContext, ResponseHandle, RouteFn, Server, ServerBuilder, StreamSetupAction,
 };
 
 pub fn run(op: ServerOp) {
@@ -21,7 +21,7 @@ fn run_echo_server(config: ServerConfig) {
     let mut app = get_app(config);
 
     app.route(
-        HttpMethod::Post,
+        Method::Post,
         "/**",
         recover(|mut ctx, res| res.ok(ctx.headers.clone(), ctx.get_body_reader())),
     );
@@ -32,7 +32,7 @@ fn run_sleep_server(config: ServerConfig) {
     let mut app = get_app(config);
 
     app.route(
-        HttpMethod::Get,
+        Method::Get,
         "/sleep",
         recover(|ctx, res| {
             thread::sleep(Duration::from_secs(3));
@@ -74,8 +74,8 @@ fn get_stream_setup_fn(
     }
 }
 
-fn get_app(config: ServerConfig) -> HttpServerBuilder<DefaultRouter<Box<RouteFn>>> {
-    let mut app = HttpServer::builder("0.0.0.0:8080").unwrap();
+fn get_app(config: ServerConfig) -> ServerBuilder<DefaultRouter<Box<RouteFn>>> {
+    let mut app = Server::builder("0.0.0.0:8080").unwrap();
     if let Some(n) = config.thread_count {
         app.set_thread_count(n);
     }
@@ -83,9 +83,9 @@ fn get_app(config: ServerConfig) -> HttpServerBuilder<DefaultRouter<Box<RouteFn>
     app
 }
 
-fn recover<F>(f: F) -> impl Fn(HttpRequestContext, &mut ResponseHandle) -> io::Result<()>
+fn recover<F>(f: F) -> impl Fn(RequestContext, &mut ResponseHandle) -> io::Result<()>
 where
-    F: Fn(HttpRequestContext, &mut ResponseHandle) -> io::Result<()> + UnwindSafe,
+    F: Fn(RequestContext, &mut ResponseHandle) -> io::Result<()> + UnwindSafe,
 {
     move |ctx, res| {
         if let Err(panic_info) =
@@ -100,8 +100,8 @@ where
             };
             eprintln!("handler panicked: {msg}");
             res.send(
-                &HttpStatus::of(500),
-                HttpHeaders::new(),
+                &Status::of(500),
+                Headers::new(),
                 &b"Internal Server Error"[..],
             )
         } else {

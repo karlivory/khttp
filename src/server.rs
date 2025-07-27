@@ -1,7 +1,7 @@
 use crate::body_reader::BodyReader;
-use crate::common::{HttpHeaders, HttpMethod, HttpStatus, RequestUri};
-use crate::http_parser::{HttpParsingError, HttpRequestParser, HttpRequestParts};
-use crate::http_printer::HttpPrinter;
+use crate::common::{Headers, Method, RequestUri, Status};
+use crate::parser::{HttpParsingError, RequestParser, RequestParts};
+use crate::printer::HttpPrinter;
 use crate::router::{AppRouter, DefaultRouter};
 use crate::threadpool::ThreadPool;
 use std::collections::HashMap;
@@ -11,11 +11,18 @@ use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
 const DEFAULT_THREAD_COUNT: usize = 20;
+pub type RouteFn =
+    dyn Fn(RequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync + 'static;
+pub type StreamSetupFn = dyn Fn(io::Result<TcpStream>) -> StreamSetupAction + Send + Sync + 'static;
+pub type PreRoutingHookFn = dyn Fn(RequestParts<TcpStream>, &mut ResponseHandle) -> PreRoutingAction
+    + Send
+    + Sync
+    + 'static;
 
-impl HttpServer<DefaultRouter<Box<RouteFn>>> {
+impl Server<DefaultRouter<Box<RouteFn>>> {
     pub fn builder<A: ToSocketAddrs>(
         addr: A,
-    ) -> io::Result<HttpServerBuilder<DefaultRouter<Box<RouteFn>>>> {
+    ) -> io::Result<ServerBuilder<DefaultRouter<Box<RouteFn>>>> {
         let bind_addrs: Vec<SocketAddr> = addr.to_socket_addrs()?.collect();
 
         if bind_addrs.is_empty() {
@@ -25,7 +32,7 @@ impl HttpServer<DefaultRouter<Box<RouteFn>>> {
             ));
         }
 
-        Ok(HttpServerBuilder {
+        Ok(ServerBuilder {
             bind_addrs,
             thread_count: DEFAULT_THREAD_COUNT,
             router: DefaultRouter::<Box<RouteFn>>::new(),
@@ -36,15 +43,7 @@ impl HttpServer<DefaultRouter<Box<RouteFn>>> {
     }
 }
 
-pub type RouteFn =
-    dyn Fn(HttpRequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync + 'static;
-pub type StreamSetupFn = dyn Fn(io::Result<TcpStream>) -> StreamSetupAction + Send + Sync + 'static;
-pub type PreRoutingHookFn = dyn Fn(HttpRequestParts<TcpStream>, &mut ResponseHandle) -> PreRoutingAction
-    + Send
-    + Sync
-    + 'static;
-
-pub struct HttpServer<R> {
+pub struct Server<R> {
     bind_addrs: Vec<SocketAddr>,
     thread_count: usize,
     router: Arc<R>,
@@ -60,12 +59,12 @@ pub enum StreamSetupAction {
 }
 
 pub enum PreRoutingAction {
-    Proceed(HttpRequestParts<TcpStream>),
+    Proceed(RequestParts<TcpStream>),
     Skip,
     Disconnect(io::Result<()>),
 }
 
-pub struct HttpServerBuilder<R> {
+pub struct ServerBuilder<R> {
     bind_addrs: Vec<SocketAddr>,
     thread_count: usize,
     router: R,
@@ -74,13 +73,13 @@ pub struct HttpServerBuilder<R> {
     pre_routing_hook: Option<Arc<PreRoutingHookFn>>,
 }
 
-impl<R> HttpServerBuilder<R>
+impl<R> ServerBuilder<R>
 where
     R: AppRouter<Route = Box<RouteFn>> + Send + Sync + 'static,
 {
-    pub fn route<F>(&mut self, method: HttpMethod, path: &str, route_fn: F)
+    pub fn route<F>(&mut self, method: Method, path: &str, route_fn: F)
     where
-        F: Fn(HttpRequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync + 'static,
+        F: Fn(RequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync + 'static,
     {
         self.router.add_route(&method, path, Box::new(route_fn));
     }
@@ -98,7 +97,7 @@ where
 
     pub fn set_pre_routing_hook<F>(&mut self, f: F)
     where
-        F: Fn(HttpRequestParts<TcpStream>, &mut ResponseHandle) -> PreRoutingAction
+        F: Fn(RequestParts<TcpStream>, &mut ResponseHandle) -> PreRoutingAction
             + Send
             + Sync
             + 'static,
@@ -108,17 +107,17 @@ where
 
     pub fn set_fallback_route<F>(&mut self, f: F)
     where
-        F: Fn(HttpRequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync + 'static,
+        F: Fn(RequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync + 'static,
     {
         self.fallback_route = Arc::new(Box::new(f));
     }
 
-    pub fn remove_route(&mut self, method: HttpMethod, path: &str) -> Option<Arc<R::Route>> {
+    pub fn remove_route(&mut self, method: Method, path: &str) -> Option<Arc<R::Route>> {
         self.router.remove_route(&method, path)
     }
 
-    pub fn build(self) -> HttpServer<R> {
-        HttpServer {
+    pub fn build(self) -> Server<R> {
+        Server {
             bind_addrs: self.bind_addrs,
             thread_count: self.thread_count,
             router: Arc::new(self.router),
@@ -129,7 +128,7 @@ where
     }
 }
 
-impl<R> HttpServer<R>
+impl<R> Server<R>
 where
     R: AppRouter<Route = Box<RouteFn>> + Send + Sync + 'static,
 {
@@ -199,27 +198,22 @@ pub struct ResponseHandle<'a> {
 }
 
 impl ResponseHandle<'_> {
-    pub fn ok(&mut self, headers: HttpHeaders, body: impl Read) -> io::Result<()> {
-        self.send(&HttpStatus::of(200), headers, body)
+    pub fn ok(&mut self, headers: Headers, body: impl Read) -> io::Result<()> {
+        self.send(&Status::of(200), headers, body)
     }
 
     pub fn send_chunked(
         &mut self,
-        status: &HttpStatus,
-        mut headers: HttpHeaders,
+        status: &Status,
+        mut headers: Headers,
         body: impl Read,
     ) -> io::Result<()> {
-        headers.remove(HttpHeaders::CONTENT_LENGTH);
+        headers.remove(Headers::CONTENT_LENGTH);
         headers.set_transfer_encoding_chunked();
         self.send(status, headers, body)
     }
 
-    pub fn send(
-        &mut self,
-        status: &HttpStatus,
-        headers: HttpHeaders,
-        body: impl Read,
-    ) -> io::Result<()> {
+    pub fn send(&mut self, status: &Status, headers: Headers, body: impl Read) -> io::Result<()> {
         let should_close = headers.is_connection_close();
 
         {
@@ -250,16 +244,16 @@ pub struct ConnectionMeta {
     pub last_activity: Instant,
 }
 
-pub struct HttpRequestContext<'a, 'r> {
-    pub headers: HttpHeaders,
-    pub method: HttpMethod,
+pub struct RequestContext<'a, 'r> {
+    pub headers: Headers,
+    pub method: Method,
     pub route_params: &'r HashMap<&'a str, &'r str>,
     pub uri: &'r RequestUri,
     pub http_version: &'r str,
     body: BodyReader<TcpStream>,
 }
 
-impl HttpRequestContext<'_, '_> {
+impl RequestContext<'_, '_> {
     pub fn get_body_reader(&mut self) -> &mut BodyReader<TcpStream> {
         &mut self.body
     }
@@ -296,15 +290,15 @@ where
 {
     loop {
         let read_stream = stream.try_clone()?;
-        let mut parts = match HttpRequestParser::new(read_stream).parse() {
+        let mut parts = match RequestParser::new(read_stream).parse() {
             Ok(p) => p,
             Err(HttpParsingError::IOError(e)) => {
                 return Err(e);
             }
             Err(_) => {
                 return HttpPrinter::new(&mut stream).write_response(
-                    &HttpStatus::of(400),
-                    HttpHeaders::new(),
+                    &Status::of(400),
+                    Headers::new(),
                     &[][..],
                 );
             }
@@ -332,7 +326,7 @@ where
         };
 
         let body = BodyReader::from(&parts.headers, parts.reader);
-        let ctx = HttpRequestContext {
+        let ctx = RequestContext {
             method: parts.method,
             headers: parts.headers,
             uri: &parts.uri,
@@ -349,7 +343,7 @@ where
     }
 }
 
-fn default_404_handler(_ctx: HttpRequestContext, response: &mut ResponseHandle) -> io::Result<()> {
-    let headers = HttpHeaders::new();
-    response.send(&HttpStatus::of(404), headers, &[][..])
+fn default_404_handler(_ctx: RequestContext, response: &mut ResponseHandle) -> io::Result<()> {
+    let headers = Headers::new();
+    response.send(&Status::of(404), headers, &[][..])
 }

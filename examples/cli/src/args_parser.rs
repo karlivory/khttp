@@ -1,4 +1,4 @@
-use khttp::common::HttpMethod;
+use khttp::common::Method;
 use std::{env::Args, str::FromStr};
 
 #[derive(Debug)]
@@ -31,7 +31,7 @@ pub struct ServerConfig {
 
 #[derive(Debug)]
 pub struct ClientOp {
-    pub method: HttpMethod,
+    pub method: Method,
     pub host: String,
     pub port: u16,
     pub uri: String,
@@ -90,8 +90,8 @@ impl ArgsParser {
     }
 
     fn parse_client(method: &str, mut args: Args) -> Result<MainOp, ArgsError> {
-        let method = HttpMethod::from(method.to_uppercase().as_str());
-        if let HttpMethod::Custom(_) = method {
+        let method = Method::from(method.to_uppercase().as_str());
+        if let Method::Custom(_) = method {
             return Err(ArgsError::InvalidArgs("Invalid HTTP method".to_string()));
         }
         let addr = get_required_old(&mut args)?;

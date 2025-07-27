@@ -4,11 +4,11 @@ use std::io;
 use std::net::TcpStream;
 use std::time::Duration;
 
-use khttp::common::{HttpHeaders, HttpMethod, HttpStatus};
-use khttp::http_parser::HttpRequestParts;
+use khttp::common::{Headers, Method, Status};
+use khttp::parser::RequestParts;
 use khttp::router::DefaultRouter;
 use khttp::server::{
-    HttpRequestContext, HttpServer, HttpServerBuilder, PreRoutingAction, ResponseHandle, RouteFn,
+    HttpRequestContext, PreRoutingAction, ResponseHandle, RouteFn, Server, ServerBuilder,
     StreamSetupAction,
 };
 
@@ -54,15 +54,15 @@ fn get_stream_setup_fn(
     }
 }
 fn trailing_slash_redirect()
--> impl Fn(HttpRequestParts<TcpStream>, &mut ResponseHandle) -> PreRoutingAction + Send + Sync + 'static
+-> impl Fn(RequestParts<TcpStream>, &mut ResponseHandle) -> PreRoutingAction + Send + Sync + 'static
 {
     move |parts, response| {
         let original_path = parts.uri.path();
         if original_path != "/" && original_path.ends_with('/') {
             let trimmed = original_path.trim_end_matches('/');
-            let mut headers = HttpHeaders::new();
+            let mut headers = Headers::new();
             headers.set("Location", trimmed);
-            let _ = response.send(&HttpStatus::of(301), headers, &[][..]);
+            let _ = response.send(&Status::of(301), headers, &[][..]);
             return PreRoutingAction::Skip;
         }
 
@@ -71,7 +71,7 @@ fn trailing_slash_redirect()
 }
 
 pub struct FrameworkApp {
-    server: HttpServerBuilder<DefaultRouter<Box<RouteFn>>>,
+    server: ServerBuilder<DefaultRouter<Box<RouteFn>>>,
     config: ServerConfig,
 }
 
@@ -79,7 +79,7 @@ impl FrameworkApp {
     pub fn new(config: ServerConfig) -> Self {
         let ip = &config.bind;
         let port = &config.port;
-        let mut server = HttpServer::builder(format!("{ip}:{port}")).expect("err: invalid addr");
+        let mut server = Server::builder(format!("{ip}:{port}")).expect("err: invalid addr");
         server.set_pre_routing_hook(trailing_slash_redirect());
         server.set_thread_count(config.thread_count);
         server.set_stream_setup_hook(get_stream_setup_fn(&config));
@@ -92,14 +92,14 @@ impl FrameworkApp {
     }
 
     pub fn get(&mut self, path: &'static str) -> RouteBuilderWithMeta<'_> {
-        self.route(HttpMethod::Get, path)
+        self.route(Method::Get, path)
     }
 
     pub fn post(&mut self, path: &'static str) -> RouteBuilderWithMeta<'_> {
-        self.route(HttpMethod::Post, path)
+        self.route(Method::Post, path)
     }
 
-    pub fn route(&mut self, method: HttpMethod, path: &'static str) -> RouteBuilderWithMeta<'_> {
+    pub fn route(&mut self, method: Method, path: &'static str) -> RouteBuilderWithMeta<'_> {
         RouteBuilderWithMeta {
             app: self,
             method,
@@ -160,7 +160,7 @@ pub struct RouteBuilder {
 
 pub struct RouteBuilderWithMeta<'a> {
     app: &'a mut FrameworkApp,
-    method: HttpMethod,
+    method: Method,
     path: &'static str,
     builder: RouteBuilder,
 }

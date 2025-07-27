@@ -1,42 +1,42 @@
-use crate::common::{HttpHeaders, HttpMethod, HttpStatus, RequestUri};
+use crate::common::{Headers, Method, RequestUri, Status};
 use std::{
     error::Error,
     fmt::Display,
     io::{self, BufRead, BufReader, Read},
 };
 
-pub struct HttpRequestParser<R: Read> {
+pub struct RequestParser<R: Read> {
     reader: BufReader<R>,
 }
 
-pub struct HttpRequestStatusLine {
-    pub method: HttpMethod,
+pub struct RequestStatusLine {
+    pub method: Method,
     pub uri: String,
     pub version: String,
 }
 
 #[derive(Debug)]
-pub struct HttpRequestParts<R: Read> {
-    pub headers: HttpHeaders,
-    pub method: HttpMethod,
+pub struct RequestParts<R: Read> {
+    pub headers: Headers,
+    pub method: Method,
     pub uri: RequestUri,
     pub reader: BufReader<R>,
     pub http_version: String,
 }
 
-impl<R: Read> HttpRequestParser<R> {
+impl<R: Read> RequestParser<R> {
     pub fn new(stream: R) -> Self {
         Self {
             reader: BufReader::new(stream),
         }
     }
 
-    pub fn parse(mut self) -> Result<HttpRequestParts<R>, HttpParsingError> {
+    pub fn parse(mut self) -> Result<RequestParts<R>, HttpParsingError> {
         let mut line_buf = String::with_capacity(256);
         let status_line = parse_request_status_line(&mut self.reader, &mut line_buf)?;
         let headers = parse_headers(&mut self.reader, &mut line_buf)?;
 
-        Ok(HttpRequestParts {
+        Ok(RequestParts {
             method: status_line.method,
             uri: RequestUri::new(status_line.uri),
             http_version: status_line.version,
@@ -46,30 +46,30 @@ impl<R: Read> HttpRequestParser<R> {
     }
 }
 
-pub struct HttpResponseParser<R: Read> {
+pub struct ResponseParser<R: Read> {
     reader: BufReader<R>,
 }
 
 #[derive(Debug)]
-pub struct HttpResponseParts<R: Read> {
-    pub headers: HttpHeaders,
-    pub status: HttpStatus,
+pub struct ResponseParts<R: Read> {
+    pub headers: Headers,
+    pub status: Status,
     pub reader: BufReader<R>,
 }
 
-impl<R: Read> HttpResponseParser<R> {
+impl<R: Read> ResponseParser<R> {
     pub fn new(stream: R) -> Self {
         Self {
             reader: BufReader::new(stream),
         }
     }
 
-    pub fn parse(mut self) -> Result<HttpResponseParts<R>, HttpParsingError> {
+    pub fn parse(mut self) -> Result<ResponseParts<R>, HttpParsingError> {
         let mut line_buf = String::with_capacity(256);
         let status = parse_response_status_line(&mut self.reader, &mut line_buf)?;
         let headers = parse_headers(&mut self.reader, &mut line_buf)?;
 
-        Ok(HttpResponseParts {
+        Ok(ResponseParts {
             status,
             headers,
             reader: self.reader,
@@ -94,7 +94,7 @@ fn read_crlf_line<R: BufRead>(r: &mut R, buf: &mut String) -> io::Result<bool> {
 pub fn parse_response_status_line<R: BufRead>(
     reader: &mut R,
     buf: &mut String,
-) -> Result<HttpStatus, HttpParsingError> {
+) -> Result<Status, HttpParsingError> {
     if !read_crlf_line(reader, buf)? {
         return Err(HttpParsingError::UnexpectedEof);
     }
@@ -115,13 +115,13 @@ pub fn parse_response_status_line<R: BufRead>(
         return Err(HttpParsingError::MalformedStatusLine);
     }
 
-    Ok(HttpStatus::owned(code, reason))
+    Ok(Status::owned(code, reason))
 }
 
 pub fn parse_request_status_line<R: BufRead>(
     reader: &mut R,
     buf: &mut String,
-) -> Result<HttpRequestStatusLine, HttpParsingError> {
+) -> Result<RequestStatusLine, HttpParsingError> {
     if !read_crlf_line(reader, buf)? {
         return Err(HttpParsingError::UnexpectedEof);
     }
@@ -135,7 +135,7 @@ pub fn parse_request_status_line<R: BufRead>(
         return Err(HttpParsingError::MalformedStatusLine);
     }
 
-    Ok(HttpRequestStatusLine {
+    Ok(RequestStatusLine {
         method: method.into(),
         uri: uri.to_string(),
         version: version.to_string(),
@@ -145,8 +145,8 @@ pub fn parse_request_status_line<R: BufRead>(
 pub fn parse_headers<R: BufRead>(
     reader: &mut R,
     buf: &mut String,
-) -> Result<HttpHeaders, HttpParsingError> {
-    let mut headers = HttpHeaders::new();
+) -> Result<Headers, HttpParsingError> {
+    let mut headers = Headers::new();
 
     loop {
         match read_crlf_line(reader, buf) {
