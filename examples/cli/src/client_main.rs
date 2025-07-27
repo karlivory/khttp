@@ -1,5 +1,5 @@
 use crate::args_parser::ClientOp;
-use khttp::{Client, Headers, HttpClientError};
+use khttp::{Client, ClientError, Headers};
 use std::io::{self, Cursor, Read};
 use std::time::Duration;
 
@@ -48,7 +48,7 @@ pub fn run(op: ClientOp) {
     }
 }
 
-fn handle_error(err: HttpClientError) {
+fn handle_error(err: ClientError) {
     eprintln!("ERROR: {err}");
 }
 
