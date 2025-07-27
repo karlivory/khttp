@@ -146,8 +146,13 @@ pub fn parse_request_status_line<R: BufRead>(
     reader: &mut R,
     buf: &mut String,
 ) -> Result<(Method, RequestUri, String), HttpParsingError> {
-    if !read_crlf_line(reader, buf)? {
-        return Err(HttpParsingError::UnexpectedEof);
+    match read_crlf_line(reader, buf) {
+        Ok(true) => (),
+        Ok(false) => return Err(HttpParsingError::UnexpectedEof),
+        Err(e) if e.kind() == io::ErrorKind::Other => {
+            return Err(HttpParsingError::StatusLineTooLong);
+        }
+        Err(e) => return Err(e.into()),
     }
 
     let mut parts = buf.split_whitespace();
@@ -200,6 +205,9 @@ pub fn parse_headers<R: BufRead>(
             Ok(false) => {
                 return Err(HttpParsingError::UnexpectedEof);
             }
+            Err(e) if e.kind() == io::ErrorKind::Other => {
+                return Err(HttpParsingError::HeaderLineTooLong);
+            }
             Err(e) => return Err(HttpParsingError::IOError(e)),
         }
     }
@@ -222,11 +230,11 @@ impl<'a, R: BufRead> LimitedBufRead<'a, R> {
 impl<R: BufRead> BufRead for LimitedBufRead<'_, R> {
     fn fill_buf(&mut self) -> io::Result<&[u8]> {
         if self.remaining == 0 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "line too long"));
+            return Err(io::Error::new(io::ErrorKind::Other, ""));
         }
         let buf = self.inner.fill_buf()?;
         if buf.len() > self.remaining {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "line too long"));
+            return Err(io::Error::new(io::ErrorKind::Other, ""));
         }
         Ok(buf)
     }
@@ -241,7 +249,7 @@ impl<R: BufRead> BufRead for LimitedBufRead<'_, R> {
 impl<R: BufRead> Read for LimitedBufRead<'_, R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if self.remaining == 0 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "line too long"));
+            return Err(io::Error::new(io::ErrorKind::Other, ""));
         }
         let to_read = std::cmp::min(buf.len(), self.remaining);
         let n = self.inner.read(&mut buf[..to_read])?;
@@ -282,7 +290,7 @@ impl Display for HttpParsingError {
             UnexpectedEof => write!(f, "unexpected eof"),
             StatusLineTooLong => write!(f, "status line too long"),
             HeaderLineTooLong => write!(f, "header line too long"),
-            TooManyHeaders => write!(f, "too many header"),
+            TooManyHeaders => write!(f, "too many headers"),
             IOError(e) => write!(f, "io error: {}", e),
         }
     }
