@@ -228,6 +228,10 @@ impl Headers {
         }
     }
 
+    pub fn set_connection_close(&mut self) {
+        self.set(Self::CONNECTION, "close");
+    }
+
     pub fn is_connection_close(&self) -> bool {
         match self.get(Self::CONNECTION) {
             Some(te) => te.eq_ignore_ascii_case("close"),

@@ -197,6 +197,7 @@ where
 
 pub struct ResponseHandle<'a> {
     stream: &'a mut TcpStream,
+    keep_alive: bool,
 }
 
 impl ResponseHandle<'_> {
@@ -216,6 +217,9 @@ impl ResponseHandle<'_> {
     }
 
     pub fn send(&mut self, status: &Status, headers: Headers, body: impl Read) -> io::Result<()> {
+        if headers.is_connection_close() {
+            self.keep_alive = false;
+        }
         let mut p = HttpPrinter::new(&mut self.stream);
         p.write_response(status, headers, body)
     }
@@ -281,6 +285,7 @@ where
     }
 }
 
+/// returns whether to keep the stream alive for the next request
 fn handle_one_request<R>(
     stream: &mut TcpStream,
     router: &Arc<R>,
@@ -307,7 +312,10 @@ where
         HttpPrinter::new(stream.try_clone().unwrap()).write_100_continue()?;
     }
 
-    let mut response = ResponseHandle { stream };
+    let mut response = ResponseHandle {
+        stream,
+        keep_alive: true,
+    };
 
     if let Some(hook) = pre_routing_hook {
         parts = match (hook)(parts, &mut response) {
@@ -333,10 +341,13 @@ where
         body,
     };
 
-    let should_close = ctx.headers.is_connection_close();
+    let client_requested_close = ctx.headers.is_connection_close();
     (handler)(ctx, &mut response)?;
 
-    Ok(!should_close)
+    if client_requested_close {
+        return Ok(false);
+    }
+    Ok(response.keep_alive)
 }
 
         }
