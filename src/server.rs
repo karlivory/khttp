@@ -288,6 +288,10 @@ impl ConnectionMeta {
         }
     }
 
+    pub fn increment(&mut self) {
+        self.index = self.index.wrapping_add(1);
+    }
+
     pub fn index(&self) -> &usize {
         &self.index
     }
@@ -307,7 +311,7 @@ where
 {
     let mut connection_meta = ConnectionMeta::new();
     loop {
-        connection_meta.index = connection_meta.index.wrapping_add(1);
+        connection_meta.increment();
         let keep_alive = handle_one_request(&mut stream, router, &pipeline, &connection_meta)?;
         if !keep_alive {
             return Ok(());
@@ -475,6 +479,7 @@ where
                             }
                         };
 
+                        conn.1.increment();
                         let keep_alive =
                             handle_one_request(&mut conn.0, &router, &pipeline, &conn.1)
                                 .unwrap_or(false);
