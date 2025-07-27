@@ -433,30 +433,134 @@ where
     Ok(response.keep_alive)
 }
 
+#[cfg(feature = "epoll")]
+impl<R> Server<R>
+where
+    R: AppRouter<Route = Box<RouteFn>> + Send + Sync + 'static,
+{
+    pub fn serve_epoll(self) -> io::Result<()> {
+        use libc::{EPOLL_CTL_MOD, EPOLLONESHOT};
+        use std::sync::Mutex;
+
+        use libc::{
+            EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLLET, EPOLLIN, epoll_create1, epoll_ctl, epoll_event,
+            epoll_wait,
+        };
+        use std::os::unix::io::{AsRawFd, RawFd};
+
+        let listener = TcpListener::bind(&*self.bind_addrs)?;
+        listener.set_nonblocking(true)?;
+
+        let epfd = unsafe { epoll_create1(0) };
+        if epfd == -1 {
+            return Err(io::Error::last_os_error());
+        }
+        let epfd = Arc::new(epfd);
+
+        let listener_fd = listener.as_raw_fd();
+        let mut ev = epoll_event {
+            events: (EPOLLIN | EPOLLET) as u32,
+            u64: listener_fd as u64,
+        };
+        if unsafe { epoll_ctl(*epfd, EPOLL_CTL_ADD, listener_fd, &mut ev) } == -1 {
+            return Err(io::Error::last_os_error());
         }
 
-        let matched = router.match_route(&parts.method, parts.uri.path());
-        let (handler, params) = match &matched {
-            Some(r) => (r.route, &r.params),
-            None => (handler_404, &*EMPTY_PARAMS),
-        };
+        struct Connection(TcpStream, ConnectionMeta);
 
-        let body = BodyReader::from(&parts.headers, parts.reader);
-        let ctx = RequestContext {
-            method: parts.method,
-            headers: parts.headers,
-            uri: &parts.uri,
-            http_version: &parts.http_version,
-            route_params: params,
-            body,
-        };
-        let connection_close = ctx.headers.is_connection_close();
+        let connections: Arc<Mutex<HashMap<RawFd, Connection>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        let pool = ThreadPool::new(self.thread_count);
+        let mut events = vec![epoll_event { events: 0, u64: 0 }; 1024];
 
-        (handler)(ctx, &mut response)?;
-        if connection_close {
-            return Ok(());
+        loop {
+            let n = unsafe { epoll_wait(*epfd, events.as_mut_ptr(), 1024, -1) };
+            if n == -1 {
+                return Err(io::Error::last_os_error());
+            }
+
+            for ev in &events[..n as usize] {
+                let fd = ev.u64 as RawFd;
+
+                if fd == listener_fd {
+                    loop {
+                        match listener.accept() {
+                            Ok((mut stream, _)) => {
+                                if let Some(hook) = &self.stream_setup_hook {
+                                    stream = match (hook)(Ok(stream)) {
+                                        StreamSetupAction::Accept(s) => s,
+                                        StreamSetupAction::Skip => continue,
+                                        StreamSetupAction::StopAccepting => return Ok(()),
+                                    }
+                                }
+
+                                let client_fd = stream.as_raw_fd();
+                                let mut ev = epoll_event {
+                                    events: (EPOLLIN | EPOLLONESHOT | EPOLLET) as u32,
+                                    u64: client_fd as u64,
+                                };
+
+                                if unsafe { epoll_ctl(*epfd, EPOLL_CTL_ADD, client_fd, &mut ev) }
+                                    == -1
+                                {
+                                    continue;
+                                }
+
+                                let conn = Connection(stream, ConnectionMeta::new());
+                                connections.lock().unwrap().insert(client_fd, conn);
+                            }
+                            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                            Err(_) => break,
+                        }
+                    }
+                } else {
+                    let router = Arc::clone(&self.router);
+                    let fallback_route = Arc::clone(&self.fallback_route);
+                    let pre_routing_hook = self.pre_routing_hook.clone();
+
+                    let connections = Arc::clone(&connections);
+                    let epfd = Arc::clone(&epfd);
+                    pool.execute(move || {
+                        let mut conn = {
+                            match connections.lock().unwrap().remove(&fd) {
+                                Some(s) => s,
+                                None => return,
+                            }
+                        };
+
+                        let keep_alive = handle_one_request(
+                            &mut conn.0,
+                            &router,
+                            &fallback_route,
+                            &pre_routing_hook,
+                            &self.max_status_line_length,
+                            &self.max_header_line_length,
+                            &self.max_header_count,
+                            &conn.1,
+                        )
+                        .unwrap_or(false);
+
+                        if keep_alive {
+                            {
+                                let mut conns_lock = connections.lock().unwrap();
+                                conns_lock.insert(fd, conn);
+                            }
+
+                            let mut ev = epoll_event {
+                                events: (EPOLLIN | EPOLLONESHOT | EPOLLET) as u32,
+                                u64: fd as u64,
+                            };
+                            unsafe {
+                                epoll_ctl(*epfd, EPOLL_CTL_MOD, fd, &mut ev);
+                            }
+                        } else {
+                            unsafe {
+                                epoll_ctl(*epfd, EPOLL_CTL_DEL, fd, std::ptr::null_mut());
+                            }
+                        }
+                    });
+                }
+            }
         }
     }
-}
-
 }

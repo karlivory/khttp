@@ -18,6 +18,11 @@ path = "src/lib.rs"
 [features]
 default = []
 client = []
+epoll = ["libc"]
+
+[dependencies.libc]
+version = "0.2.174"
+optional = true
 
 [workspace]
 members = [".", "examples/*"]
