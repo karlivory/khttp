@@ -6,7 +6,7 @@ use crate::router::{AppRouter, DefaultRouter};
 use crate::threadpool::ThreadPool;
 use std::collections::HashMap;
 use std::io::{self, Read};
-use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
@@ -168,11 +168,11 @@ where
             };
 
             let router = self.router.clone();
-            let handler_404 = self.fallback_route.clone();
+            let fallback_route = self.fallback_route.clone();
             let pre_routing_hook = self.pre_routing_hook.clone();
 
             pool.execute(move || {
-                let _ = handle_connection(stream, &router, &handler_404, &pre_routing_hook);
+                let _ = handle_connection(stream, &router, &fallback_route, &pre_routing_hook);
             });
 
             if let Some(max) = limit {
@@ -273,41 +273,78 @@ static EMPTY_PARAMS: LazyLock<HashMap<&str, &str>> = LazyLock::new(HashMap::new)
 pub fn handle_connection<R>(
     mut stream: TcpStream,
     router: &Arc<R>,
-    handler_404: &Arc<Box<RouteFn>>,
+    fallback_route: &Arc<Box<RouteFn>>,
     pre_routing_hook: &Option<Arc<PreRoutingHookFn>>,
 ) -> io::Result<()>
 where
     R: AppRouter<Route = Box<RouteFn>>,
 {
     loop {
-        let read_stream = stream.try_clone()?;
-        let mut parts = match RequestParser::new(read_stream).parse() {
-            Ok(p) => p,
-            Err(HttpParsingError::IOError(e)) => {
-                return Err(e);
-            }
-            Err(_) => {
-                return HttpPrinter::new(&mut stream).write_response(
-                    &Status::of(400),
-                    Headers::new(),
-                    &[][..],
-                );
-            }
-        };
-
-        if parts.headers.is_100_continue() {
-            HttpPrinter::new(&mut stream).write_100_continue()?;
+        let keep_alive = handle_one_request(&mut stream, router, fallback_route, pre_routing_hook)?;
+        if !keep_alive {
+            return Ok(());
         }
-        let mut response = ResponseHandle {
-            stream: &mut stream,
-        };
+    }
+}
 
-        if let Some(hook) = pre_routing_hook {
-            parts = match (hook)(parts, &mut response) {
-                PreRoutingAction::Proceed(p) => p,
-                PreRoutingAction::Skip => continue,
-                PreRoutingAction::Disconnect(r) => return r,
-            }
+fn handle_one_request<R>(
+    stream: &mut TcpStream,
+    router: &Arc<R>,
+    handler_404: &Arc<Box<RouteFn>>,
+    pre_routing_hook: &Option<Arc<PreRoutingHookFn>>,
+) -> io::Result<bool>
+where
+    R: AppRouter<Route = Box<RouteFn>>,
+{
+    let read_stream = stream.try_clone()?;
+    let mut parts = match RequestParser::new(read_stream).parse() {
+        Ok(p) => p,
+        Err(HttpParsingError::IOError(e)) if e.kind() == io::ErrorKind::WouldBlock => {
+            return Ok(true);
+        }
+        Err(HttpParsingError::UnexpectedEof) => return Ok(false),
+        Err(_) => {
+            HttpPrinter::new(stream).write_response(&Status::of(400), Headers::new(), &[][..])?;
+            return Ok(false);
+        }
+    };
+
+    if parts.headers.is_100_continue() {
+        HttpPrinter::new(stream.try_clone().unwrap()).write_100_continue()?;
+    }
+
+    let mut response = ResponseHandle { stream };
+
+    if let Some(hook) = pre_routing_hook {
+        parts = match (hook)(parts, &mut response) {
+            PreRoutingAction::Proceed(p) => p,
+            PreRoutingAction::Skip => return Ok(true),
+            PreRoutingAction::Disconnect(r) => return r.map(|_| false),
+        };
+    }
+
+    let matched = router.match_route(&parts.method, parts.uri.path());
+    let (handler, params) = match &matched {
+        Some(r) => (r.route, &r.params),
+        None => (handler_404, &*EMPTY_PARAMS),
+    };
+
+    let body = BodyReader::from(&parts.headers, parts.reader);
+    let ctx = RequestContext {
+        method: parts.method,
+        headers: parts.headers,
+        uri: &parts.uri,
+        http_version: &parts.http_version,
+        route_params: params,
+        body,
+    };
+
+    let should_close = ctx.headers.is_connection_close();
+    (handler)(ctx, &mut response)?;
+
+    Ok(!should_close)
+}
+
         }
 
         let matched = router.match_route(&parts.method, parts.uri.path());
