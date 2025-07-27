@@ -337,7 +337,7 @@ Accept: */*\r\n"
 fn run_server_bench(sb: ServerBench) {
     let connections = 500u32;
     let threads = 14u32;
-    let duration_secs = if on_ci() { 1 } else { 5 };
+    let duration_secs = 5;
 
     let port = match sb.kind {
         ServerKind::Khttp(make_srv) => {
@@ -442,14 +442,24 @@ fn get_khttp_app() -> ServerBuilder<Router<Box<RouteFn>>> {
     Server::builder(format!("127.0.0.1:{port}")).unwrap()
 }
 
+fn get_base_headers() -> Headers {
+    // for fairness: same headers that axum responds with
+    let now = chrono::Utc::now();
+    let mut headers = Headers::new();
+    let date_str = now.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+    headers.set("date", &date_str);
+    headers.set(Headers::CONTENT_TYPE, "text/plain; charset=utf-8");
+    headers
+}
+
 fn respond_hello(res: &mut ResponseHandle) -> io::Result<()> {
     let msg = "Hello, World!";
-    res.ok(Headers::new(), msg.as_bytes())
+    res.ok(get_base_headers(), msg.as_bytes())
 }
 
 fn respond_longheader(res: &mut ResponseHandle) -> io::Result<()> {
     let msg = "hey";
-    let mut headers = Headers::new();
+    let mut headers = get_base_headers();
     for i in 0..50 {
         headers.add(&format!("value{i}"), &"hello".repeat(10));
     }
@@ -468,21 +478,17 @@ fn heavy_body() -> &'static [u8] {
 
 fn respond_heavy(res: &mut ResponseHandle) -> io::Result<()> {
     let msg = heavy_body();
-    let mut headers = Headers::new();
+    let mut headers = get_base_headers();
     headers.set_content_length(msg.len() as u64);
     res.ok(headers, msg)
 }
 
 fn respond_chunked(res: &mut ResponseHandle) -> io::Result<()> {
     let msg = heavy_body();
-    res.send_chunked(&Status::of(200), Headers::new(), msg)
+    res.send_chunked(&Status::of(200), get_base_headers(), msg)
 }
 
 fn ensure_rewrk() {
-    if on_ci() {
-        install_rewrk();
-        return;
-    }
     let status = Command::new("rewrk")
         .arg("--help")
         .stdout(Stdio::null())
@@ -492,24 +498,4 @@ fn ensure_rewrk() {
     if !status.success() {
         panic!("rewrk is not installed. See https://github.com/lnx-search/rewrk");
     }
-}
-
-fn install_rewrk() {
-    println!("installing rewrk");
-    let status = Command::new("cargo")
-        .args([
-            "install",
-            "rewrk",
-            "--git",
-            "https://github.com/ChillFish8/rewrk.git",
-        ])
-        .status()
-        .expect("failed to install rewrk");
-    if !status.success() {
-        panic!("failed to install rewrk");
-    }
-}
-
-fn on_ci() -> bool {
-    env::var("GITHUB_ACTIONS").is_ok()
 }
