@@ -224,6 +224,11 @@ impl ResponseHandle<'_> {
         p.write_response(status, headers, body)
     }
 
+    pub fn send_100_continue(&mut self) -> io::Result<()> {
+        let mut p = HttpPrinter::new(&mut self.stream);
+        p.write_100_continue()
+    }
+
     pub fn get_stream(&mut self) -> &TcpStream {
         self.stream
     }
@@ -307,10 +312,6 @@ where
             return Ok(false);
         }
     };
-
-    if parts.headers.is_100_continue() {
-        HttpPrinter::new(stream.try_clone().unwrap()).write_100_continue()?;
-    }
 
     let mut response = ResponseHandle {
         stream,
