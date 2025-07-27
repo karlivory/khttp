@@ -1,6 +1,6 @@
 use crate::args_parser::ClientOp;
 use khttp::client::{Client, HttpClientError};
-use khttp::common::Headers;
+use khttp::common::{Headers, RequestUri};
 use std::io::{self, Cursor, Read};
 use std::time::Duration;
 
@@ -10,23 +10,19 @@ pub fn run(op: ClientOp) {
 
     let mut headers = Headers::new();
 
-    // Set Host
-    headers.add("Host", &op.host);
-
-    // Set User-Agent
-    headers.add("User-Agent", "khttp-cli/0.1");
-
-    // Set Accept
-    headers.add("Accept", "*/*");
+    headers.set("Host", &op.host);
+    headers.set("User-Agent", "khttp-cli/0.1");
+    headers.set("Accept", "*/*");
 
     let body = op.body.unwrap_or_default();
-    if !body.is_empty() {
-        headers.add("Content-Type", "text/plain");
+    if !body.is_empty() && headers.get(Headers::CONTENT_TYPE).is_none() {
+        headers.set(Headers::CONTENT_TYPE, "text/plain");
     }
+
     headers.set_content_length(body.len() as u64);
 
     let reader: Box<dyn Read> = if op.stall > 0 {
-        Box::new(StallingBodyReader::new(body.into_bytes(), op.stall as u64))
+        Box::new(StallingBodyReader::new(body.into_bytes(), op.stall))
     } else {
         Box::new(Cursor::new(body))
     };
