@@ -20,6 +20,14 @@ pub type PreRoutingHookFn = dyn Fn(RequestParts<TcpStream>, &ConnectionMeta, &mu
     + Sync
     + 'static;
 
+pub struct RequestPipelineConfig {
+    pub fallback_route: Box<RouteFn>,
+    pub pre_routing_hook: Option<Box<PreRoutingHookFn>>,
+    pub max_status_line_length: Option<usize>,
+    pub max_header_line_length: Option<usize>,
+    pub max_header_count: Option<usize>,
+}
+
 impl Server<DefaultRouter<Box<RouteFn>>> {
     pub fn builder<A: ToSocketAddrs>(
         addr: A,
@@ -37,9 +45,7 @@ impl Server<DefaultRouter<Box<RouteFn>>> {
             bind_addrs,
             thread_count: DEFAULT_THREAD_COUNT,
             router: DefaultRouter::<Box<RouteFn>>::new(),
-            fallback_route: Arc::new(Box::new(|_, r| {
-                r.send(&Status::NOT_FOUND, Headers::new(), &[][..])
-            })),
+            fallback_route: Box::new(|_, r| r.send(&Status::NOT_FOUND, Headers::new(), &[][..])),
             stream_setup_hook: None,
             pre_routing_hook: None,
             max_status_line_length: None,
@@ -53,12 +59,8 @@ pub struct Server<R> {
     bind_addrs: Vec<SocketAddr>,
     thread_count: usize,
     router: Arc<R>,
-    fallback_route: Arc<Box<RouteFn>>,
-    stream_setup_hook: Option<Arc<StreamSetupFn>>,
-    pre_routing_hook: Option<Arc<PreRoutingHookFn>>,
-    max_status_line_length: Option<usize>,
-    max_header_line_length: Option<usize>,
-    max_header_count: Option<usize>,
+    stream_setup_hook: Option<Box<StreamSetupFn>>,
+    pipeline: Arc<RequestPipelineConfig>,
 }
 
 pub enum StreamSetupAction {
@@ -77,9 +79,9 @@ pub struct ServerBuilder<R> {
     bind_addrs: Vec<SocketAddr>,
     thread_count: usize,
     router: R,
-    fallback_route: Arc<Box<RouteFn>>,
-    stream_setup_hook: Option<Arc<StreamSetupFn>>,
-    pre_routing_hook: Option<Arc<PreRoutingHookFn>>,
+    fallback_route: Box<RouteFn>,
+    stream_setup_hook: Option<Box<StreamSetupFn>>,
+    pre_routing_hook: Option<Box<PreRoutingHookFn>>,
     max_status_line_length: Option<usize>,
     max_header_line_length: Option<usize>,
     max_header_count: Option<usize>,
@@ -104,7 +106,7 @@ where
     where
         F: Fn(io::Result<TcpStream>) -> StreamSetupAction + Send + Sync + 'static,
     {
-        self.stream_setup_hook = Some(Arc::new(f));
+        self.stream_setup_hook = Some(Box::new(f));
     }
 
     pub fn set_pre_routing_hook<F>(&mut self, f: F)
@@ -114,14 +116,14 @@ where
             + Sync
             + 'static,
     {
-        self.pre_routing_hook = Some(Arc::new(f));
+        self.pre_routing_hook = Some(Box::new(f));
     }
 
     pub fn set_fallback_route<F>(&mut self, f: F)
     where
         F: Fn(RequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync + 'static,
     {
-        self.fallback_route = Arc::new(Box::new(f));
+        self.fallback_route = Box::new(f);
     }
 
     pub fn set_max_status_line_length(&mut self, value: Option<usize>) {
@@ -145,12 +147,14 @@ where
             bind_addrs: self.bind_addrs,
             thread_count: self.thread_count,
             router: Arc::new(self.router),
-            fallback_route: self.fallback_route,
             stream_setup_hook: self.stream_setup_hook,
-            pre_routing_hook: self.pre_routing_hook,
-            max_status_line_length: self.max_status_line_length,
-            max_header_line_length: self.max_header_line_length,
-            max_header_count: self.max_header_count,
+            pipeline: Arc::new(RequestPipelineConfig {
+                fallback_route: self.fallback_route,
+                pre_routing_hook: self.pre_routing_hook,
+                max_status_line_length: self.max_status_line_length,
+                max_header_line_length: self.max_header_line_length,
+                max_header_count: self.max_header_count,
+            }),
         }
     }
 }
@@ -181,34 +185,17 @@ where
             };
 
             let router = self.router.clone();
-            let fallback_route = self.fallback_route.clone();
-            let pre_routing_hook = self.pre_routing_hook.clone();
+            let pipeline = self.pipeline.clone();
 
             pool.execute(move || {
-                let _ = handle_connection(
-                    stream,
-                    &router,
-                    &fallback_route,
-                    &pre_routing_hook,
-                    self.max_status_line_length,
-                    self.max_header_line_length,
-                    self.max_header_count,
-                );
+                let _ = handle_connection(stream, &router, pipeline);
             });
         }
         Ok(())
     }
 
     pub fn handle(&self, stream: TcpStream) -> io::Result<()> {
-        handle_connection(
-            stream,
-            &self.router,
-            &self.fallback_route,
-            &self.pre_routing_hook,
-            self.max_status_line_length,
-            self.max_header_line_length,
-            self.max_header_count,
-        )
+        handle_connection(stream, &self.router, self.pipeline.clone())
     }
 }
 
@@ -316,11 +303,7 @@ impl ConnectionMeta {
 pub fn handle_connection<R>(
     mut stream: TcpStream,
     router: &Arc<R>,
-    fallback_route: &Arc<Box<RouteFn>>,
-    pre_routing_hook: &Option<Arc<PreRoutingHookFn>>,
-    max_status_line_length: Option<usize>,
-    max_header_line_length: Option<usize>,
-    max_header_count: Option<usize>,
+    pipeline: Arc<RequestPipelineConfig>,
 ) -> io::Result<()>
 where
     R: AppRouter<Route = Box<RouteFn>>,
@@ -328,16 +311,7 @@ where
     let mut connection_meta = ConnectionMeta::new();
     loop {
         connection_meta.index = connection_meta.index.wrapping_add(1);
-        let keep_alive = handle_one_request(
-            &mut stream,
-            router,
-            fallback_route,
-            pre_routing_hook,
-            &max_status_line_length,
-            &max_header_line_length,
-            &max_header_count,
-            &connection_meta,
-        )?;
+        let keep_alive = handle_one_request(&mut stream, router, &pipeline, &connection_meta)?;
         if !keep_alive {
             return Ok(());
         }
@@ -348,11 +322,7 @@ where
 fn handle_one_request<R>(
     stream: &mut TcpStream,
     router: &Arc<R>,
-    fallback_route: &Arc<Box<RouteFn>>,
-    pre_routing_hook: &Option<Arc<PreRoutingHookFn>>,
-    max_status_line_length: &Option<usize>,
-    max_header_line_length: &Option<usize>,
-    max_header_count: &Option<usize>,
+    pipeline: &RequestPipelineConfig,
     connection_meta: &ConnectionMeta,
 ) -> io::Result<bool>
 where
@@ -360,9 +330,9 @@ where
 {
     let read_stream = stream.try_clone()?;
     let mut parts = match RequestParser::new(read_stream).parse(
-        max_status_line_length,
-        max_header_line_length,
-        max_header_count,
+        &pipeline.max_status_line_length,
+        &pipeline.max_header_line_length,
+        &pipeline.max_header_count,
     ) {
         Ok(p) => p,
         Err(HttpParsingError::IOError(e)) if e.kind() == io::ErrorKind::WouldBlock => {
@@ -380,7 +350,7 @@ where
         keep_alive: true,
     };
 
-    if let Some(hook) = pre_routing_hook {
+    if let Some(hook) = &pipeline.pre_routing_hook {
         parts = match (hook)(parts, connection_meta, &mut response) {
             PreRoutingAction::Proceed(p) => p,
             PreRoutingAction::Skip => return Ok(true),
@@ -390,8 +360,8 @@ where
 
     let matched = router.match_route(&parts.method, parts.uri.path());
     let (handler, params) = match &matched {
-        Some(r) => (r.route, &r.params),
-        None => (fallback_route, &*EMPTY_PARAMS),
+        Some(r) => (&**r.route, &r.params),
+        None => (&pipeline.fallback_route, &*EMPTY_PARAMS),
     };
 
     let body = BodyReader::from(&parts.headers, parts.reader);
@@ -420,14 +390,13 @@ where
     R: AppRouter<Route = Box<RouteFn>> + Send + Sync + 'static,
 {
     pub fn serve_epoll(self) -> io::Result<()> {
-        use libc::{EPOLL_CTL_MOD, EPOLLONESHOT};
-        use std::sync::Mutex;
-
         use libc::{
             EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLLET, EPOLLIN, epoll_create1, epoll_ctl, epoll_event,
             epoll_wait,
         };
+        use libc::{EPOLL_CTL_MOD, EPOLLONESHOT};
         use std::os::unix::io::{AsRawFd, RawFd};
+        use std::sync::Mutex;
 
         let listener = TcpListener::bind(&*self.bind_addrs)?;
         listener.set_nonblocking(true)?;
@@ -496,11 +465,11 @@ where
                     }
                 } else {
                     let router = Arc::clone(&self.router);
-                    let fallback_route = Arc::clone(&self.fallback_route);
-                    let pre_routing_hook = self.pre_routing_hook.clone();
+                    let pipeline = Arc::clone(&self.pipeline);
 
                     let connections = Arc::clone(&connections);
                     let epfd = Arc::clone(&epfd);
+
                     pool.execute(move || {
                         let mut conn = {
                             match connections.lock().unwrap().remove(&fd) {
@@ -509,17 +478,9 @@ where
                             }
                         };
 
-                        let keep_alive = handle_one_request(
-                            &mut conn.0,
-                            &router,
-                            &fallback_route,
-                            &pre_routing_hook,
-                            &self.max_status_line_length,
-                            &self.max_header_line_length,
-                            &self.max_header_count,
-                            &conn.1,
-                        )
-                        .unwrap_or(false);
+                        let keep_alive =
+                            handle_one_request(&mut conn.0, &router, &pipeline, &conn.1)
+                                .unwrap_or(false);
 
                         if keep_alive {
                             {
