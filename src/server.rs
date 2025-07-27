@@ -14,7 +14,7 @@ const DEFAULT_THREAD_COUNT: usize = 20;
 pub type RouteFn =
     dyn Fn(RequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync + 'static;
 pub type StreamSetupFn = dyn Fn(io::Result<TcpStream>) -> StreamSetupAction + Send + Sync + 'static;
-pub type PreRoutingHookFn = dyn Fn(RequestParts<TcpStream>, &mut ResponseHandle) -> PreRoutingAction
+pub type PreRoutingHookFn = dyn Fn(RequestParts<TcpStream>, &ConnectionMeta, &mut ResponseHandle) -> PreRoutingAction
     + Send
     + Sync
     + 'static;
@@ -99,7 +99,7 @@ where
 
     pub fn set_pre_routing_hook<F>(&mut self, f: F)
     where
-        F: Fn(RequestParts<TcpStream>, &mut ResponseHandle) -> PreRoutingAction
+        F: Fn(RequestParts<TcpStream>, &ConnectionMeta, &mut ResponseHandle) -> PreRoutingAction
             + Send
             + Sync
             + 'static,
@@ -244,6 +244,7 @@ pub struct RequestContext<'a, 'r> {
     pub route_params: &'r HashMap<&'a str, &'r str>,
     pub uri: &'r RequestUri,
     pub http_version: &'r str,
+    pub conn: &'r ConnectionMeta,
     body: BodyReader<TcpStream>,
 }
 
@@ -273,6 +274,28 @@ impl RequestContext<'_, '_> {
 
 static EMPTY_PARAMS: LazyLock<HashMap<&str, &str>> = LazyLock::new(HashMap::new);
 
+pub struct ConnectionMeta {
+    index: usize,
+    conn_start: Instant,
+}
+
+impl ConnectionMeta {
+    fn new() -> Self {
+        Self {
+            index: 0,
+            conn_start: Instant::now(),
+        }
+    }
+
+    pub fn index(&self) -> &usize {
+        &self.index
+    }
+
+    pub fn conn_start(&self) -> &Instant {
+        &self.conn_start
+    }
+}
+
 pub fn handle_connection<R>(
     mut stream: TcpStream,
     router: &Arc<R>,
@@ -282,8 +305,16 @@ pub fn handle_connection<R>(
 where
     R: AppRouter<Route = Box<RouteFn>>,
 {
+    let mut connection_meta = ConnectionMeta::new();
     loop {
-        let keep_alive = handle_one_request(&mut stream, router, fallback_route, pre_routing_hook)?;
+        connection_meta.index = connection_meta.index.wrapping_add(1);
+        let keep_alive = handle_one_request(
+            &mut stream,
+            router,
+            fallback_route,
+            pre_routing_hook,
+            &connection_meta,
+        )?;
         if !keep_alive {
             return Ok(());
         }
@@ -294,8 +325,9 @@ where
 fn handle_one_request<R>(
     stream: &mut TcpStream,
     router: &Arc<R>,
-    handler_404: &Arc<Box<RouteFn>>,
+    fallback_route: &Arc<Box<RouteFn>>,
     pre_routing_hook: &Option<Arc<PreRoutingHookFn>>,
+    connection_meta: &ConnectionMeta,
 ) -> io::Result<bool>
 where
     R: AppRouter<Route = Box<RouteFn>>,
@@ -319,7 +351,7 @@ where
     };
 
     if let Some(hook) = pre_routing_hook {
-        parts = match (hook)(parts, &mut response) {
+        parts = match (hook)(parts, connection_meta, &mut response) {
             PreRoutingAction::Proceed(p) => p,
             PreRoutingAction::Skip => return Ok(true),
             PreRoutingAction::Disconnect(r) => return r.map(|_| false),
@@ -329,7 +361,7 @@ where
     let matched = router.match_route(&parts.method, parts.uri.path());
     let (handler, params) = match &matched {
         Some(r) => (r.route, &r.params),
-        None => (handler_404, &*EMPTY_PARAMS),
+        None => (fallback_route, &*EMPTY_PARAMS),
     };
 
     let body = BodyReader::from(&parts.headers, parts.reader);
@@ -339,6 +371,7 @@ where
         uri: &parts.uri,
         http_version: &parts.http_version,
         route_params: params,
+        conn: connection_meta,
         body,
     };
 

@@ -8,8 +8,8 @@ use khttp::common::{Headers, Method, Status};
 use khttp::parser::RequestParts;
 use khttp::router::DefaultRouter;
 use khttp::server::{
-    HttpRequestContext, PreRoutingAction, ResponseHandle, RouteFn, Server, ServerBuilder,
-    StreamSetupAction,
+    ConnectionMeta, PreRoutingAction, RequestContext, ResponseHandle, RouteFn, Server,
+    ServerBuilder, StreamSetupAction,
 };
 
 pub struct ServerConfig {
@@ -54,9 +54,11 @@ fn get_stream_setup_fn(
     }
 }
 fn trailing_slash_redirect()
--> impl Fn(RequestParts<TcpStream>, &mut ResponseHandle) -> PreRoutingAction + Send + Sync + 'static
-{
-    move |parts, response| {
+-> impl Fn(RequestParts<TcpStream>, &ConnectionMeta, &mut ResponseHandle) -> PreRoutingAction
++ Send
++ Sync
++ 'static {
+    move |parts, _, response| {
         let original_path = parts.uri.path();
         if original_path != "/" && original_path.ends_with('/') {
             let trimmed = original_path.trim_end_matches('/');
@@ -134,7 +136,7 @@ fn print_startup_banner(config: &ServerConfig) {
 // Middleware Framework
 
 pub struct HandlerContext<'a, 'r> {
-    pub request: HttpRequestContext<'a, 'r>,
+    pub request: RequestContext<'a, 'r>,
     pub extensions: HashMap<TypeId, Box<dyn Any + Send>>,
 }
 
@@ -196,7 +198,7 @@ impl RouteBuilder {
     pub fn handle<F>(
         self,
         handler: F,
-    ) -> impl Fn(HttpRequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync
+    ) -> impl Fn(RequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync
     where
         F: Fn(HandlerContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync + 'static,
     {
