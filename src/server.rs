@@ -229,12 +229,6 @@ impl ResponseHandle<'_> {
     }
 }
 
-pub struct ConnectionMeta {
-    pub req_index: usize,
-    pub started_at: Instant,
-    pub last_activity: Instant,
-}
-
 pub struct RequestContext<'a, 'r> {
     pub headers: Headers,
     pub method: Method,
