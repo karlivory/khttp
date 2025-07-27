@@ -159,26 +159,14 @@ impl<R> Server<R>
 where
     R: AppRouter<Route = Box<RouteFn>> + Send + Sync + 'static,
 {
-    pub fn serve_n(self, n: u64) -> io::Result<()> {
-        if n == 0 {
-            return Ok(());
-        }
-        self.serve_loop(Some(n))
-    }
-
     pub fn port(&self) -> Option<u16> {
         self.bind_addrs.first().map(|a| a.port())
     }
 
     pub fn serve(self) -> io::Result<()> {
-        self.serve_loop(None)
-    }
-
-    fn serve_loop(self, limit: Option<u64>) -> io::Result<()> {
         let listener = TcpListener::bind(&*self.bind_addrs)?;
         let pool = ThreadPool::new(self.thread_count);
 
-        let mut i = 0;
         for stream in listener.incoming() {
             let stream = match &self.stream_setup_hook {
                 Some(hook) => match (hook)(stream) {
@@ -207,13 +195,6 @@ where
                     self.max_header_count,
                 );
             });
-
-            if let Some(max) = limit {
-                i += 1;
-                if i >= max {
-                    break;
-                }
-            }
         }
         Ok(())
     }

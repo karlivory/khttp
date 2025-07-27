@@ -2,10 +2,13 @@
 use khttp::{
     client::Client,
     common::{Headers, Method, Status},
-    server::Server,
+    server::{Server, StreamSetupAction},
 };
+use std::io;
 use std::{
     io::Cursor,
+    net::TcpStream,
+    sync::{Arc, atomic::AtomicU64},
     thread::{self},
     time::Duration,
 };
@@ -39,6 +42,7 @@ fn simple_multi_test() {
     assert_status_and_body(response, 400, "no user: 123");
 
     // wait for server thread to finish
+    let _ = std::net::TcpStream::connect(("127.0.0.1", TEST_PORT));
     let _ = h.join();
 }
 
@@ -65,8 +69,28 @@ fn start_server(n: u64) -> std::thread::JoinHandle<()> {
             res.send(&Status::of(400), Headers::new(), body.as_bytes())
         });
 
-        app.build().serve_n(n).ok();
+        let counter = Arc::new(AtomicU64::new(0));
+        app.set_stream_setup_hook(request_limiter(counter, n));
+        app.build().serve().ok();
     })
+}
+
+fn request_limiter(
+    counter: Arc<AtomicU64>,
+    n: u64,
+) -> impl Fn(io::Result<TcpStream>) -> StreamSetupAction {
+    let counter = counter.clone();
+    move |stream| match stream {
+        Ok(stream) => {
+            let seen = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if seen < n {
+                StreamSetupAction::Accept(stream)
+            } else {
+                StreamSetupAction::StopAccepting
+            }
+        }
+        Err(_) => StreamSetupAction::StopAccepting,
+    }
 }
 
 fn assert_status_and_body(
