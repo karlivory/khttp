@@ -102,7 +102,6 @@ impl<R: Read> Parser<R> {
 // -------------------------------------------------------------------------
 
 fn read_crlf_line<R: BufRead>(r: &mut R, buf: &mut String) -> io::Result<bool> {
-    buf.clear();
     let n = r.read_line(buf)?;
     if n == 0 {
         return Ok(false);
@@ -155,14 +154,10 @@ pub fn parse_request_status_line<R: BufRead>(
         Err(e) => return Err(e.into()),
     }
 
-    let mut parts = buf.split_whitespace();
+    let mut parts = buf.split_ascii_whitespace();
     let method = parts.next().ok_or(HttpParsingError::MalformedStatusLine)?;
     let uri = parts.next().ok_or(HttpParsingError::MalformedStatusLine)?;
     let version = parts.next().ok_or(HttpParsingError::MalformedStatusLine)?;
-
-    if !version.starts_with("HTTP/") {
-        return Err(HttpParsingError::MalformedStatusLine);
-    }
 
     Ok((
         method.into(),
@@ -185,22 +180,15 @@ pub fn parse_headers<R: BufRead>(
             }
             i += 1;
         }
+        buf.clear();
         match read_crlf_line(reader, buf) {
             Ok(true) => {
-                if buf.trim().is_empty() {
+                if buf.is_empty() {
                     return Ok(headers);
                 }
 
-                let (name, value) = buf
-                    .split_once(':')
-                    .ok_or(HttpParsingError::MalformedHeader)?;
-
-                let name = name.trim();
-                validate_field_name(name)?;
-
-                let value = value.trim();
-
-                headers.add(name, value);
+                let (name, value) = parse_header_line(buf)?;
+                headers.add(name, value.trim_ascii_start());
             }
             Ok(false) => {
                 return Err(HttpParsingError::UnexpectedEof);
@@ -211,6 +199,23 @@ pub fn parse_headers<R: BufRead>(
             Err(e) => return Err(HttpParsingError::IOError(e)),
         }
     }
+}
+
+fn parse_header_line(line: &str) -> Result<(&str, &str), HttpParsingError> {
+    for (i, b) in line.bytes().enumerate() {
+        if b == b':' {
+            let name = &line[..i];
+            let value = &line[i + 1..];
+
+            // validate for US-ASCII
+            if name.bytes().any(|b| b <= 0x20 || b >= 0x7f) {
+                return Err(HttpParsingError::MalformedHeader);
+            }
+
+            return Ok((name, value));
+        }
+    }
+    Err(HttpParsingError::MalformedHeader) // no ':' found
 }
 
 struct LimitedBufRead<'a, R: BufRead> {
@@ -300,14 +305,4 @@ impl From<std::io::Error> for HttpParsingError {
     fn from(e: std::io::Error) -> Self {
         HttpParsingError::IOError(e)
     }
-}
-
-fn validate_field_name(name: &str) -> Result<(), HttpParsingError> {
-    if name.is_empty() {
-        return Err(HttpParsingError::MalformedHeader);
-    }
-    if name.bytes().any(|b| b <= 0x20 || b >= 0x7f || b == b':') {
-        return Err(HttpParsingError::MalformedHeader);
-    }
-    Ok(())
 }

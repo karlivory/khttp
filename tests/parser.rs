@@ -61,12 +61,23 @@ fn test_request_header_empty_value() {
 }
 
 #[test]
-fn test_request_header_with_tabs() {
+fn test_request_header_value_leading_whitespace_is_removed() {
     assert_parse_request_ok(
-        "GET / HTTP/1.1\r\nFoo:\t bar \t\r\n\r\n",
+        "GET / HTTP/1.1\r\nFoo:\t    bar\r\n\r\n",
         Method::Get,
         "/",
         &[("Foo", &["bar"])],
+        "",
+    );
+}
+
+#[test]
+fn test_request_header_value_trailing_whitespace_is_kept() {
+    assert_parse_request_ok(
+        "GET / HTTP/1.1\r\nFoo: bar  \t \r\n\r\n",
+        Method::Get,
+        "/",
+        &[("Foo", &["bar  \t "])],
         "",
     );
 }
