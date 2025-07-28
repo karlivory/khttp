@@ -1,5 +1,5 @@
 use std::{
-    fmt::{self},
+    fmt::{self, Display},
     str::FromStr,
 };
 
@@ -18,25 +18,16 @@ pub enum Method {
 
 impl From<&str> for Method {
     fn from(value: &str) -> Self {
-        // compare ignoring ASCII case without allocating
-        if value.eq_ignore_ascii_case("GET") {
-            Method::Get
-        } else if value.eq_ignore_ascii_case("POST") {
-            Method::Post
-        } else if value.eq_ignore_ascii_case("HEAD") {
-            Method::Head
-        } else if value.eq_ignore_ascii_case("PUT") {
-            Method::Put
-        } else if value.eq_ignore_ascii_case("PATCH") {
-            Method::Patch
-        } else if value.eq_ignore_ascii_case("DELETE") {
-            Method::Delete
-        } else if value.eq_ignore_ascii_case("OPTIONS") {
-            Method::Options
-        } else if value.eq_ignore_ascii_case("TRACE") {
-            Method::Trace
-        } else {
-            Method::Custom(value.to_string())
+        match value {
+            "GET" => Method::Get,
+            "POST" => Method::Post,
+            "HEAD" => Method::Head,
+            "PUT" => Method::Put,
+            "PATCH" => Method::Patch,
+            "DELETE" => Method::Delete,
+            "OPTIONS" => Method::Options,
+            "TRACE" => Method::Trace,
+            _ => Method::Custom(value.to_string()),
         }
     }
 }
@@ -55,9 +46,22 @@ impl Method {
             Method::Custom(s) => s.as_str(),
         }
     }
+    pub fn index(&self) -> usize {
+        match self {
+            Method::Get => 0,
+            Method::Post => 1,
+            Method::Head => 2,
+            Method::Put => 3,
+            Method::Patch => 4,
+            Method::Delete => 5,
+            Method::Options => 6,
+            Method::Trace => 7,
+            Method::Custom(_) => 8,
+        }
+    }
 }
 
-impl fmt::Display for Method {
+impl Display for Method {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str(self.as_str())
     }

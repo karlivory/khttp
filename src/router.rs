@@ -1,5 +1,6 @@
 use crate::Method;
 use std::{
+    array::from_fn,
     cmp::max,
     collections::HashMap,
     hash::{Hash, Hasher},
@@ -19,7 +20,8 @@ pub trait HttpRouter {
 }
 
 pub struct Router<T> {
-    routes: HashMap<Method, HashMap<RouteEntry, T>>,
+    standard_methods: [HashMap<RouteEntry, T>; 8],
+    extensions: HashMap<String, HashMap<RouteEntry, T>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -30,22 +32,29 @@ impl<T> HttpRouter for Router<T> {
 
     fn new() -> Self {
         Self {
-            routes: HashMap::new(),
+            standard_methods: from_fn(|_| HashMap::new()),
+            extensions: HashMap::new(),
         }
     }
 
     fn add_route(&mut self, method: &Method, path: &str, route: T) {
         let route_entry = parse_route(path);
-        self.routes
-            .entry(method.clone())
-            .or_default()
-            .insert(route_entry, route);
+        match method {
+            Method::Custom(x) => self
+                .extensions
+                .entry(x.clone())
+                .or_default()
+                .insert(route_entry, route),
+            _ => self.standard_methods[method.index()].insert(route_entry, route),
+        };
     }
 
     fn remove_route(&mut self, method: &Method, path: &str) -> Option<T> {
-        self.routes
-            .get_mut(method)
-            .and_then(|m| m.remove(&parse_route(path)))
+        let route_entry = parse_route(path);
+        match method {
+            Method::Custom(x) => self.extensions.get_mut(x)?.remove(&route_entry),
+            _ => self.standard_methods[method.index()].remove(&route_entry),
+        }
     }
 
     fn match_route<'a, 'r>(
@@ -57,15 +66,18 @@ impl<T> HttpRouter for Router<T> {
             uri = &uri[1..];
         }
 
-        let routes = self.routes.get(method)?;
+        let routes = match method {
+            Method::Custom(x) => self.extensions.get(x)?,
+            _ => &self.standard_methods[method.index()],
+        };
 
         #[allow(clippy::type_complexity)]
         let mut matched: Vec<(
-            u16,                 // lml
-            Precedence,          // precedence_tag
-            &Vec<RouteSegment>,  // &pattern_segments
-            &T,                  // &route
-            HashMap<&str, &str>, // params
+            u16,
+            Precedence,
+            &Vec<RouteSegment>,
+            &T,
+            HashMap<&str, &str>,
         )> = Vec::new();
 
         let mut max_lml = 0u16;
@@ -115,12 +127,9 @@ impl<T> HttpRouter for Router<T> {
                 }
             }
 
-            // If there are still unmatched URI parts, the match fails unless we ended with **.
+            // if there are still unmatched uri parts, pattern must end with **
             if ok && uri_iter.next().is_some() {
-                // pattern is exhausted but uri is not
-                if !matches!(pattern.last(), Some(RouteSegment::DoubleWildcard)) {
-                    ok = false;
-                }
+                ok = matches!(pattern.last(), Some(RouteSegment::DoubleWildcard));
             }
 
             if ok {
@@ -143,7 +152,7 @@ impl<T> HttpRouter for Router<T> {
             return None;
         }
 
-        matched.sort_by(|a, b| b.1.cmp(&a.1)); // descending precedence
+        matched.sort_by(|a, b| b.1.cmp(&a.1));
         let (_, _, _, best_route, params) = matched.remove(0);
         Some(Match {
             route: best_route,
@@ -162,8 +171,8 @@ pub struct Match<'a, 'r, T> {
 pub enum RouteSegment {
     Literal(String),
     Param(String),
-    Wildcard,       // "*"
-    DoubleWildcard, // "**"
+    Wildcard,
+    DoubleWildcard,
 }
 
 impl Hash for RouteSegment {
@@ -185,7 +194,6 @@ impl PartialEq for RouteSegment {
         match (self, other) {
             (Self::Literal(l0), Self::Literal(r0)) => l0 == r0,
             (Self::Param(_), Self::Param(_)) => true,
-            // TODO: write documentation on route overwriting: /users/:id will overwrite /users/:slug
             (Self::Wildcard, Self::Wildcard) => true,
             (Self::DoubleWildcard, Self::DoubleWildcard) => true,
             _ => false,
