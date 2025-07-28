@@ -20,7 +20,6 @@ pub trait HttpRouter {
 
 pub struct Router<T> {
     routes: HashMap<Method, HashMap<RouteEntry, T>>,
-    // route_cache: HashMap<String, RouteEntry>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -57,7 +56,7 @@ impl<T> HttpRouter for Router<T> {
         if uri.starts_with("/") {
             uri = &uri[1..];
         }
-        let uri_parts = uri.split("/").collect::<Vec<&str>>();
+
         let routes = self.routes.get(method)?;
 
         #[allow(clippy::type_complexity)]
@@ -71,37 +70,34 @@ impl<T> HttpRouter for Router<T> {
 
         let mut max_lml = 0u16;
         for (RouteEntry(pattern), route) in routes.iter() {
+            let mut uri_iter = uri.split('/');
             let mut params = HashMap::new();
-            let n = usize::max(uri_parts.len(), pattern.len());
-            let mut ok = true; // whether the route is matching
-            let mut lml = 0u16; // longest matching literal
-            let mut counting_prefix = true; // whether we are still in prefix (all literals so far)
+            let mut ok = true;
+            let mut lml = 0u16;
+            let mut counting_prefix = true;
 
-            for i in 0..n {
-                let uri_part = uri_parts.get(i);
-                let seg_part = pattern.get(i);
+            for seg_part in pattern {
+                let uri_part = uri_iter.next();
 
                 match seg_part {
-                    Some(RouteSegment::DoubleWildcard) => {
-                        break;
-                    }
-                    Some(RouteSegment::Wildcard) => {
+                    RouteSegment::DoubleWildcard => break,
+                    RouteSegment::Wildcard => {
                         if uri_part.is_none() {
                             ok = false;
                             break;
                         }
                         counting_prefix = false;
                     }
-                    Some(RouteSegment::Param(name)) => {
+                    RouteSegment::Param(name) => {
                         if let Some(v) = uri_part {
-                            params.insert(name.as_str(), *v);
+                            params.insert(name.as_str(), v);
                         } else {
                             ok = false;
                             break;
                         }
                         counting_prefix = false;
                     }
-                    Some(RouteSegment::Literal(lit)) => {
+                    RouteSegment::Literal(lit) => {
                         if let Some(v) = uri_part {
                             if lit == v {
                                 if counting_prefix {
@@ -116,10 +112,14 @@ impl<T> HttpRouter for Router<T> {
                             break;
                         }
                     }
-                    None => {
-                        ok = false;
-                        break;
-                    }
+                }
+            }
+
+            // If there are still unmatched URI parts, the match fails unless we ended with **.
+            if ok && uri_iter.next().is_some() {
+                // pattern is exhausted but uri is not
+                if !matches!(pattern.last(), Some(RouteSegment::DoubleWildcard)) {
+                    ok = false;
                 }
             }
 
@@ -129,22 +129,20 @@ impl<T> HttpRouter for Router<T> {
                         .iter()
                         .all(|s| matches!(s, RouteSegment::Literal(_)))
                 {
-                    // perfect match: no need to keep iterating
                     return Some(Match { route, params });
                 }
+
                 max_lml = max(max_lml, lml);
                 let prec = precedence_of(pattern.last());
                 matched.push((lml, prec, pattern, route, params));
             }
         }
 
-        // Filter by longest literal-match length
         matched.retain(|(l, _, _, _, _)| *l == max_lml);
         if matched.is_empty() {
             return None;
         }
 
-        // Pick best by precedence order
         matched.sort_by(|a, b| b.1.cmp(&a.1)); // descending precedence
         let (_, _, _, best_route, params) = matched.remove(0);
         Some(Match {
