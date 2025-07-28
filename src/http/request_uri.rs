@@ -37,24 +37,28 @@ impl RequestUri {
     }
 
     pub fn path(&self) -> &str {
-        if self.scheme().is_some() {
-            let after_scheme = &self.full[self.full.find("://").unwrap() + 3..];
-            if let Some(idx) = after_scheme.find('/') {
-                let path = &after_scheme[idx..];
-                let end = path.find(['?', '#'].as_ref()).unwrap_or(path.len());
-                &path[..end]
-            } else {
-                // RFC 7230: treat missing path as "/"
-                "/"
-            }
-        } else {
-            // relative URI (origin-form)
-            let end = self
-                .full
-                .find(['?', '#'].as_ref())
-                .unwrap_or(self.full.len());
-            &self.full[..end]
+        let uri = self.full.as_str();
+
+        // origin-form
+        if uri.starts_with('/') {
+            return uri.split(['?', '#']).next().unwrap_or("/");
         }
+
+        // absolute-form
+        if let Some(scheme_end) = uri.find("://") {
+            let after_scheme = &uri[scheme_end + 3..];
+            if let Some(path_start) = after_scheme.find('/') {
+                return after_scheme[path_start..]
+                    .split(['?', '#'])
+                    .next()
+                    .unwrap_or("/");
+            } else {
+                return "/";
+            }
+        }
+
+        // fallback / authority-form
+        uri.split(['?', '#']).next().unwrap_or("/")
     }
 
     pub fn query(&self) -> Option<&str> {
