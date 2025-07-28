@@ -55,7 +55,7 @@ fn start_server(n: u64) -> std::thread::JoinHandle<()> {
         });
 
         app.route(Method::Post, "/api/uppercase", |mut ctx, res| {
-            let mut body = ctx.read_body().unwrap();
+            let mut body = ctx.body().vec().unwrap();
             body.make_ascii_uppercase();
             res.send(&Status::of(201), Headers::new(), &body[..])
         });

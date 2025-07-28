@@ -57,6 +57,16 @@ impl<R: Read> BodyReader<R> {
         }
     }
 
+    pub fn string(&mut self) -> io::Result<String> {
+        let mut buf = String::new();
+        self.read_to_string(&mut buf).map(|_| buf)
+    }
+
+    pub fn vec(&mut self) -> io::Result<Vec<u8>> {
+        let mut buf = Vec::new();
+        self.read_to_end(&mut buf).map(|_| buf)
+    }
+
     pub fn inner_mut(&mut self) -> &mut BufReader<R> {
         match self {
             BodyReader::Fixed { inner, .. } => inner,

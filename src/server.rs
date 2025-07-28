@@ -251,18 +251,8 @@ pub struct RequestContext<'a, 'r> {
 }
 
 impl RequestContext<'_, '_> {
-    pub fn get_body_reader(&mut self) -> &mut BodyReader<TcpStream> {
+    pub fn body(&mut self) -> &mut BodyReader<TcpStream> {
         &mut self.body
-    }
-
-    pub fn read_body(&mut self) -> io::Result<Vec<u8>> {
-        let mut buf = Vec::new();
-        self.body.read_to_end(&mut buf).map(|_| buf)
-    }
-
-    pub fn read_body_to_string(&mut self) -> io::Result<String> {
-        let mut buf = String::new();
-        self.body.read_to_string(&mut buf).map(|_| buf)
     }
 
     pub fn get_stream(&self) -> &TcpStream {
