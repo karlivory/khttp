@@ -3,7 +3,6 @@ use std::{
     cmp::max,
     collections::HashMap,
     hash::{Hash, Hasher},
-    sync::Arc,
 };
 
 pub trait HttpRouter {
@@ -16,11 +15,11 @@ pub trait HttpRouter {
         path: &'r str,
     ) -> Option<Match<'a, 'r, Self::Route>>;
     fn add_route(&mut self, method: &Method, path: &str, route: Self::Route);
-    fn remove_route(&mut self, method: &Method, path: &str) -> Option<Arc<Self::Route>>;
+    fn remove_route(&mut self, method: &Method, path: &str) -> Option<Self::Route>;
 }
 
 pub struct Router<T> {
-    routes: HashMap<Method, HashMap<RouteEntry, Arc<T>>>,
+    routes: HashMap<Method, HashMap<RouteEntry, T>>,
 }
 
 impl<T> HttpRouter for Router<T> {
@@ -37,10 +36,10 @@ impl<T> HttpRouter for Router<T> {
         self.routes
             .entry(method.clone())
             .or_default()
-            .insert(route_entry, Arc::new(route));
+            .insert(route_entry, route);
     }
 
-    fn remove_route(&mut self, method: &Method, path: &str) -> Option<Arc<T>> {
+    fn remove_route(&mut self, method: &Method, path: &str) -> Option<T> {
         self.routes
             .get_mut(method)
             .and_then(|m| m.remove(&parse_route(path)))
@@ -66,7 +65,7 @@ impl<T> HttpRouter for Router<T> {
             u16,                 // lml
             Precedence,          // precedence_tag
             &Vec<RouteSegment>,  // &pattern_segments
-            &Arc<T>,             // &route
+            &T,                  // &route
             HashMap<&str, &str>, // params
         )> = Vec::new();
 
@@ -162,7 +161,7 @@ impl<T> HttpRouter for Router<T> {
 
 #[derive(Debug, Clone)]
 pub struct Match<'a, 'r, T> {
-    pub route: &'a Arc<T>,
+    pub route: &'a T,
     pub params: HashMap<&'a str, &'r str>,
 }
 

@@ -136,7 +136,7 @@ where
         self.max_header_count = value;
     }
 
-    pub fn remove_route(&mut self, method: Method, path: &str) -> Option<Arc<R::Route>> {
+    pub fn remove_route(&mut self, method: Method, path: &str) -> Option<R::Route> {
         self.router.remove_route(&method, path)
     }
 
@@ -352,7 +352,7 @@ where
 
     let matched = router.match_route(&parts.method, parts.uri.path());
     let (handler, params) = match &matched {
-        Some(r) => (&**r.route, &r.params),
+        Some(r) => (r.route, &r.params),
         None => (&config.fallback_route, &*EMPTY_PARAMS),
     };
 
