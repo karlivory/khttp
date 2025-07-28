@@ -20,7 +20,11 @@ pub trait HttpRouter {
 
 pub struct Router<T> {
     routes: HashMap<Method, HashMap<RouteEntry, T>>,
+    // route_cache: HashMap<String, RouteEntry>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RouteEntry(Vec<RouteSegment>);
 
 impl<T> HttpRouter for Router<T> {
     type Route = T;
@@ -48,17 +52,13 @@ impl<T> HttpRouter for Router<T> {
     fn match_route<'a, 'r>(
         &'a self,
         method: &Method,
-        uri: &'r str,
+        mut uri: &'r str,
     ) -> Option<Match<'a, 'r, Self::Route>> {
+        if uri.starts_with("/") {
+            uri = &uri[1..];
+        }
         let uri_parts = uri.split("/").collect::<Vec<&str>>();
         let routes = self.routes.get(method)?;
-
-        if uri_parts.len() == 1 && uri_parts[0] == "*" {
-            return routes.get(&RouteEntry::AsteriskForm).map(|route| Match {
-                route,
-                params: HashMap::new(),
-            });
-        };
 
         #[allow(clippy::type_complexity)]
         let mut matched: Vec<(
@@ -70,12 +70,7 @@ impl<T> HttpRouter for Router<T> {
         )> = Vec::new();
 
         let mut max_lml = 0u16;
-        for (pattern, route) in routes.iter() {
-            let pattern = match pattern {
-                RouteEntry::Standard(p) => p,
-                RouteEntry::AsteriskForm => continue,
-            };
-
+        for (RouteEntry(pattern), route) in routes.iter() {
             let mut params = HashMap::new();
             let n = usize::max(uri_parts.len(), pattern.len());
             let mut ok = true; // whether the route is matching
@@ -165,12 +160,6 @@ pub struct Match<'a, 'r, T> {
     pub params: HashMap<&'a str, &'r str>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum RouteEntry {
-    AsteriskForm,
-    Standard(Vec<RouteSegment>),
-}
-
 #[derive(Debug, Clone, Eq)]
 pub enum RouteSegment {
     Literal(String),
@@ -215,13 +204,12 @@ fn parse_route_segment(s: &str) -> RouteSegment {
     }
 }
 
-pub fn parse_route(route_str: &str) -> RouteEntry {
-    if route_str == "*" {
-        RouteEntry::AsteriskForm
-    } else {
-        let segments = route_str.split('/').map(parse_route_segment).collect();
-        RouteEntry::Standard(segments)
+pub fn parse_route(mut route_str: &str) -> RouteEntry {
+    if route_str.starts_with("/") {
+        route_str = &route_str[1..];
     }
+    let segments = route_str.split('/').map(parse_route_segment).collect();
+    RouteEntry(segments)
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]

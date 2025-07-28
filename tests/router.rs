@@ -219,18 +219,6 @@ fn overlap_param_and_double_wildcard() {
 }
 
 #[test]
-fn test_asterisk_form() {
-    let mut r = new_router();
-    assert_404(&r, &Method::Options, "*");
-
-    add_routes(&mut r, &Method::Options, &[("*", 0)]);
-    assert_match(&r, &Method::Options, "*", 0);
-    assert_404(&r, &Method::Get, "*");
-    assert_404(&r, &Method::Options, "/route");
-    assert_404(&r, &Method::Options, "hello");
-}
-
-#[test]
 fn test_trailing_slash() {
     // spec says: separate route
     let mut r = new_router();
