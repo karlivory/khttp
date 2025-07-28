@@ -19,12 +19,13 @@ pub type PreRoutingHookFn = dyn Fn(RequestParts<TcpStream>, &ConnectionMeta, &mu
     + Sync
     + 'static;
 
-pub struct RequestPipelineConfig {
-    pub fallback_route: Box<RouteFn>,
-    pub pre_routing_hook: Option<Box<PreRoutingHookFn>>,
-    pub max_status_line_length: Option<usize>,
-    pub max_header_line_length: Option<usize>,
-    pub max_header_count: Option<usize>,
+struct HandlerConfig {
+    fallback_route: Box<RouteFn>,
+    pre_routing_hook: Option<Box<PreRoutingHookFn>>,
+    // parser options
+    max_status_line_length: Option<usize>,
+    max_header_line_length: Option<usize>,
+    max_header_count: Option<usize>,
 }
 
 impl Server<Router<Box<RouteFn>>> {
@@ -57,7 +58,7 @@ pub struct Server<R> {
     thread_count: usize,
     router: Arc<R>,
     stream_setup_hook: Option<Box<StreamSetupFn>>,
-    pipeline: Arc<RequestPipelineConfig>,
+    handler_config: Arc<HandlerConfig>,
 }
 
 pub enum StreamSetupAction {
@@ -145,7 +146,7 @@ where
             thread_count: self.thread_count,
             router: Arc::new(self.router),
             stream_setup_hook: self.stream_setup_hook,
-            pipeline: Arc::new(RequestPipelineConfig {
+            handler_config: Arc::new(HandlerConfig {
                 fallback_route: self.fallback_route,
                 pre_routing_hook: self.pre_routing_hook,
                 max_status_line_length: self.max_status_line_length,
@@ -182,17 +183,17 @@ where
             };
 
             let router = self.router.clone();
-            let pipeline = self.pipeline.clone();
+            let config = self.handler_config.clone();
 
             pool.execute(move || {
-                let _ = handle_connection(stream, &router, pipeline);
+                let _ = handle_connection(stream, &router, config);
             });
         }
         Ok(())
     }
 
     pub fn handle(&self, stream: TcpStream) -> io::Result<()> {
-        handle_connection(stream, &self.router, self.pipeline.clone())
+        handle_connection(stream, &self.router, self.handler_config.clone())
     }
 }
 
@@ -304,7 +305,7 @@ impl ConnectionMeta {
 fn handle_connection<R>(
     mut stream: TcpStream,
     router: &Arc<R>,
-    pipeline: Arc<RequestPipelineConfig>,
+    config: Arc<HandlerConfig>,
 ) -> io::Result<()>
 where
     R: HttpRouter<Route = Box<RouteFn>>,
@@ -312,7 +313,7 @@ where
     let mut connection_meta = ConnectionMeta::new();
     loop {
         connection_meta.increment();
-        let keep_alive = handle_one_request(&mut stream, router, &pipeline, &connection_meta)?;
+        let keep_alive = handle_one_request(&mut stream, router, &config, &connection_meta)?;
         if !keep_alive {
             return Ok(());
         }
@@ -323,7 +324,7 @@ where
 fn handle_one_request<R>(
     stream: &mut TcpStream,
     router: &Arc<R>,
-    pipeline: &RequestPipelineConfig,
+    config: &HandlerConfig,
     connection_meta: &ConnectionMeta,
 ) -> io::Result<bool>
 where
@@ -331,9 +332,9 @@ where
 {
     let read_stream = stream.try_clone()?;
     let mut parts = match Parser::new(read_stream).parse_request(
-        &pipeline.max_status_line_length,
-        &pipeline.max_header_line_length,
-        &pipeline.max_header_count,
+        &config.max_status_line_length,
+        &config.max_header_line_length,
+        &config.max_header_count,
     ) {
         Ok(p) => p,
         Err(HttpParsingError::IOError(e)) if e.kind() == io::ErrorKind::WouldBlock => {
@@ -351,7 +352,7 @@ where
         keep_alive: true,
     };
 
-    if let Some(hook) = &pipeline.pre_routing_hook {
+    if let Some(hook) = &config.pre_routing_hook {
         parts = match (hook)(parts, connection_meta, &mut response) {
             PreRoutingAction::Proceed(p) => p,
             PreRoutingAction::Skip => return Ok(true),
@@ -362,7 +363,7 @@ where
     let matched = router.match_route(&parts.method, parts.uri.path());
     let (handler, params) = match &matched {
         Some(r) => (&**r.route, &r.params),
-        None => (&pipeline.fallback_route, &*EMPTY_PARAMS),
+        None => (&config.fallback_route, &*EMPTY_PARAMS),
     };
 
     let body = BodyReader::from(&parts.headers, parts.reader);
@@ -466,7 +467,7 @@ where
                     }
                 } else {
                     let router = Arc::clone(&self.router);
-                    let pipeline = Arc::clone(&self.pipeline);
+                    let config = Arc::clone(&self.handler_config);
 
                     let connections = Arc::clone(&connections);
                     let epfd = Arc::clone(&epfd);
@@ -480,9 +481,8 @@ where
                         };
 
                         conn.1.increment();
-                        let keep_alive =
-                            handle_one_request(&mut conn.0, &router, &pipeline, &conn.1)
-                                .unwrap_or(false);
+                        let keep_alive = handle_one_request(&mut conn.0, &router, &config, &conn.1)
+                            .unwrap_or(false);
 
                         if keep_alive {
                             {
