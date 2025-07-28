@@ -124,7 +124,6 @@ fn decide_body_strategy<R: Read>(
             let mut buf = Vec::with_capacity(cl as usize);
             let mut limited = body.by_ref().take(cl);
             limited.read_to_end(&mut buf)?;
-            headers.set_content_length(buf.len() as u64);
             return Ok(BodyStrategy::Fast(buf));
         } else {
             return Ok(BodyStrategy::Streaming(body));
