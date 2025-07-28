@@ -115,6 +115,22 @@ fn test_request_header_with_invalid_characters() {
     );
 }
 
+#[test]
+fn test_request_unsupported_http_version() {
+    assert_parse_request_err(
+        "GET / HTTP/2\r\n\r\n",
+        HttpParsingError::UnsupportedHttpVersion,
+    );
+    assert_parse_request_err(
+        "GET / HTTP/3\r\n\r\n",
+        HttpParsingError::UnsupportedHttpVersion,
+    );
+    assert_parse_request_err(
+        "GET / HTTP/F\r\n\r\n",
+        HttpParsingError::UnsupportedHttpVersion,
+    );
+}
+
 // ---------------------------------------------------------------------
 // RESPONSE OK
 // ---------------------------------------------------------------------

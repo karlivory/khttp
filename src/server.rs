@@ -245,7 +245,7 @@ pub struct RequestContext<'a, 'r> {
     pub method: Method,
     pub route_params: &'r HashMap<&'a str, &'r str>,
     pub uri: &'r RequestUri,
-    pub http_version: &'r str,
+    pub http_version: &'r u8,
     pub conn: &'r ConnectionMeta,
     body: BodyReader<TcpStream>,
 }
