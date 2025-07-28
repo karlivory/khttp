@@ -486,8 +486,7 @@ where
 
                         if keep_alive {
                             {
-                                let mut conns_lock = connections.lock().unwrap();
-                                conns_lock.insert(fd, conn);
+                                connections.lock().unwrap().insert(fd, conn);
                             }
 
                             let mut ev = epoll_event {
