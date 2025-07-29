@@ -382,12 +382,12 @@ where
 {
     pub fn serve_epoll(self) -> io::Result<()> {
         use libc::{
-            EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLLET, EPOLLIN, epoll_create1, epoll_ctl, epoll_event,
-            epoll_wait,
+            EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLL_CTL_MOD, EPOLLET, EPOLLIN, EPOLLONESHOT,
+            epoll_create1, epoll_ctl, epoll_event, epoll_wait,
         };
-        use libc::{EPOLL_CTL_MOD, EPOLLONESHOT};
         use std::os::unix::io::{AsRawFd, RawFd};
-        use std::sync::Mutex;
+        use std::ptr::null_mut;
+        use std::sync::atomic::{AtomicPtr, Ordering};
 
         let listener = TcpListener::bind(&*self.bind_addrs)?;
         listener.set_nonblocking(true)?;
@@ -409,8 +409,13 @@ where
 
         struct Connection(TcpStream, ConnectionMeta);
 
-        let connections: Arc<Mutex<HashMap<RawFd, Connection>>> =
-            Arc::new(Mutex::new(HashMap::new()));
+        const MAX_FDS: usize = 1024; // TODO: should equal rlim_cur
+        let connections: Arc<[AtomicPtr<Connection>]> = Arc::from(
+            (0..MAX_FDS)
+                .map(|_| AtomicPtr::new(null_mut()))
+                .collect::<Vec<_>>(),
+        );
+
         let pool = ThreadPool::new(self.thread_count);
         let mut events = vec![epoll_event { events: 0, u64: 0 }; 1024];
 
@@ -436,6 +441,10 @@ where
                                 }
 
                                 let client_fd = stream.as_raw_fd();
+                                if client_fd < 0 || client_fd as usize >= MAX_FDS {
+                                    continue;
+                                }
+
                                 let mut ev = epoll_event {
                                     events: (EPOLLIN | EPOLLONESHOT | EPOLLET) as u32,
                                     u64: client_fd as u64,
@@ -447,36 +456,42 @@ where
                                     continue;
                                 }
 
-                                let conn = Connection(stream, ConnectionMeta::new());
-                                connections.lock().unwrap().insert(client_fd, conn);
+                                let conn = Box::new(Connection(stream, ConnectionMeta::new()));
+                                let ptr = Box::into_raw(conn);
+                                connections[client_fd as usize].store(ptr, Ordering::SeqCst);
                             }
                             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
                             Err(_) => break,
                         }
                     }
                 } else {
+                    if fd < 0 || fd as usize >= MAX_FDS {
+                        continue;
+                    }
+
                     let router = Arc::clone(&self.router);
                     let config = Arc::clone(&self.handler_config);
-
                     let connections = Arc::clone(&connections);
                     let epfd = Arc::clone(&epfd);
 
                     pool.execute(move || {
-                        let mut conn = {
-                            match connections.lock().unwrap().remove(&fd) {
-                                Some(s) => s,
-                                None => return,
-                            }
-                        };
+                        let conn_ptr = connections[fd as usize].swap(null_mut(), Ordering::SeqCst);
+                        if conn_ptr.is_null() {
+                            return;
+                        }
 
+                        // SAFETY: pointer is uniquely owned
+                        let mut conn = unsafe { Box::from_raw(conn_ptr) };
                         conn.1.increment();
+
+                        // SAFETY: (danger?)
+                        // if handle_one_request panics, then EPOLL_CTL_DEL is not called -> test/document
                         let keep_alive = handle_one_request(&mut conn.0, &router, &config, &conn.1)
                             .unwrap_or(false);
 
                         if keep_alive {
-                            {
-                                connections.lock().unwrap().insert(fd, conn);
-                            }
+                            let ptr = Box::into_raw(conn);
+                            connections[fd as usize].store(ptr, Ordering::SeqCst);
 
                             let mut ev = epoll_event {
                                 events: (EPOLLIN | EPOLLONESHOT | EPOLLET) as u32,
@@ -489,6 +504,7 @@ where
                             unsafe {
                                 epoll_ctl(*epfd, EPOLL_CTL_DEL, fd, std::ptr::null_mut());
                             }
+                            // SAFETY: conn pointer is deallocated
                         }
                     });
                 }
