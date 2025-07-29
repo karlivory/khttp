@@ -6,6 +6,8 @@ const CRLF: &[u8] = b"\r\n";
 const PROBE_MAX: usize = 8 * 1024;
 const RESPONSE_100_CONTINUE: &[u8] = b"HTTP/1.1 100 Continue\r\n\r\n";
 
+const CONTENT_LENGTH_HEADER: &[u8] = b"content-length";
+
 pub struct HttpPrinter<W: Write> {
     writer: BufWriter<W>,
 }
@@ -199,11 +201,37 @@ fn add_headers(buf: &mut Vec<u8>, headers: &Headers) {
             buf.extend_from_slice(CRLF);
         }
     }
+    if let Some(cl) = headers.get_content_length() {
+        buf.extend_from_slice(CONTENT_LENGTH_HEADER);
+        buf.extend_from_slice(b": ");
+        let mut num_buf = [0u8; 20]; // enough to hold any u64 in base 10
+        let len = u64_to_ascii_buf(cl, &mut num_buf);
+        buf.extend_from_slice(&num_buf[..len]);
+        buf.extend_from_slice(CRLF);
+    }
 }
 
 // -------------------------------------------------------------------------
 // UTILS
 // -------------------------------------------------------------------------
+
+fn u64_to_ascii_buf(mut n: u64, buf: &mut [u8; 20]) -> usize {
+    if n == 0 {
+        buf[0] = b'0';
+        return 1;
+    }
+
+    let mut i = 20;
+    while n > 0 {
+        i -= 1;
+        buf[i] = b'0' + (n % 10) as u8;
+        n /= 10;
+    }
+
+    let len = 20 - i;
+    buf.copy_within(i..20, 0);
+    len
+}
 
 fn write_chunk<W: Write>(dst: &mut W, bytes: &[u8]) -> io::Result<()> {
     write!(dst, "{:X}\r\n", bytes.len())?;

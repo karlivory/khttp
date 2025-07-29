@@ -19,10 +19,10 @@ fn test_request_get_simple() {
 #[test]
 fn test_request_post_with_body() {
     assert_parse_request_ok(
-        "POST /data HTTP/1.1\r\nContent-Length: 5\r\n\r\nhello",
+        "POST /data HTTP/1.1\r\nfoobar: 5\r\n\r\nhello",
         Method::Post,
         "/data",
-        &[("Content-Length", &["5"])],
+        &[("foobar", &["5"])],
         "hello",
     );
 }
@@ -138,10 +138,10 @@ fn test_request_unsupported_http_version() {
 #[test]
 fn test_response_simple_ok() {
     assert_parse_response_ok(
-        "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello",
+        "HTTP/1.1 200 OK\r\nfoobar: 5\r\n\r\nhello",
         200,
         "OK",
-        &[("Content-Length", &["5"])],
+        &[("foobar", &["5"])],
         "hello",
     );
 }
@@ -182,10 +182,10 @@ fn test_response_large_header_value() {
 #[test]
 fn test_response_extra_crlf_after_headers() {
     assert_parse_response_ok(
-        "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n\r\nhello",
+        "HTTP/1.1 200 OK\r\nfoobar: 5\r\n\r\n\r\nhello",
         200,
         "OK",
-        &[("Content-Length", &["5"])],
+        &[("foobar", &["5"])],
         "\r\nhello", // \r\n included in body
     );
 }
@@ -308,7 +308,7 @@ lo\r\n\
 
     let parsed = must_parse_response(raw);
     assert!(parsed.headers.is_transfer_encoding_chunked());
-    assert_eq!(parsed.headers.get("content-length"), Some("100"));
+    assert_eq!(parsed.headers.get_content_length(), Some(100));
 
     let mut body = BodyReader::from(&parsed.headers, parsed.reader);
     let mut buf = String::new();

@@ -213,7 +213,6 @@ impl ResponseHandle<'_> {
         mut headers: Headers,
         body: impl Read,
     ) -> io::Result<()> {
-        headers.remove(Headers::CONTENT_LENGTH);
         headers.set_transfer_encoding_chunked();
         self.send(status, headers, body)
     }
