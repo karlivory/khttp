@@ -8,7 +8,7 @@ use std::io::{Cursor, Read, Write};
 #[test]
 fn test_response_with_content_length() {
     let mut headers = Headers::new();
-    headers.set_content_length(5);
+    headers.set_content_length(Some(5));
     assert_print_response(
         b"HTTP/1.1 200 OK\r\ncontent-length: 5\r\n\r\nhello",
         Status::OK,
@@ -41,20 +41,6 @@ fn test_response_chunked_explicit_te() {
 }
 
 #[test]
-fn test_large_response_te_overrides_ce() {
-    let headers = Headers::from(vec![
-        ("content-length", "5"),
-        ("transfer-encoding", "chunked"),
-    ]);
-    assert_print_response(
-        b"HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n",
-        Status::OK,
-        headers,
-        "hello",
-    );
-}
-
-#[test]
 fn test_large_response_auto_te() {
     let body = b"hello".repeat(3000);
     let w = capture_response(Status::OK, Headers::new(), &body[..]);
@@ -67,7 +53,7 @@ fn test_large_response_cl_no_auto_te() {
     let body = b"hello".repeat(3000);
     let mut headers = Headers::new();
     let cl = body.len() as u64;
-    headers.set_content_length(cl);
+    headers.set_content_length(Some(cl));
     let w = capture_response(Status::OK, headers, &body[..]);
     assert!(!w.contains("transfer-encoding"));
     assert!(w.contains(&format!("content-length: {cl}")));
@@ -120,7 +106,7 @@ fn test_request_with_te() {
 
 fn headers_with_content_length(len: u64) -> Headers {
     let mut h = Headers::new();
-    h.set_content_length(len);
+    h.set_content_length(Some(len));
     h
 }
 

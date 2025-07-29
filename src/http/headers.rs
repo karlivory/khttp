@@ -53,6 +53,10 @@ impl<'a> IntoIterator for &'a HeaderValue {
 pub struct Headers {
     headers: HashMap<String, HeaderValue, BuildHasherDefault<AsciiHasher>>,
     content_length: Option<u64>,
+    /// stores whether transfer-encoding is "chunked"
+    chunked: bool,
+    /// stores transfer-encoding values other than "chunked"
+    transfer_encoding: Vec<String>,
 }
 
 impl Headers {
@@ -60,6 +64,8 @@ impl Headers {
         Self {
             headers: HashMap::default(),
             content_length: None,
+            transfer_encoding: Vec::new(),
+            chunked: false,
         }
     }
 
@@ -72,13 +78,25 @@ impl Headers {
     }
 
     pub fn add(&mut self, name: &str, value: &str) {
-        let key = name.to_ascii_lowercase();
-        if key == Self::CONTENT_LENGTH {
-            self.content_length = value.trim().parse().ok();
-            return;
+        match name {
+            Self::CONTENT_LENGTH => {
+                self.content_length = value.trim().parse().ok();
+                return;
+            }
+            Self::TRANSFER_ENCODING => {
+                value.split(",").map(|x| x.trim()).for_each(|x| {
+                    if x == "chunked" {
+                        self.chunked = true;
+                    }
+                    self.transfer_encoding.push(x.to_string());
+                });
+                return;
+            }
+            _ => (),
         }
 
-        match self.headers.entry(key) {
+        let name = name.to_ascii_lowercase();
+        match self.headers.entry(name) {
             hash_map::Entry::Vacant(e) => {
                 e.insert(HeaderValue::Single(value.to_string()));
             }
@@ -95,9 +113,22 @@ impl Headers {
     /// # Safety
     /// Caller must ensure `name` is lowercase ASCII-US.
     pub unsafe fn add_unchecked(&mut self, name: &str, value: &str) {
-        if name == Self::CONTENT_LENGTH {
-            self.content_length = value.trim().parse().ok();
-            return;
+        match name {
+            Self::CONTENT_LENGTH => {
+                self.content_length = value.trim().parse().ok();
+                return;
+            }
+            Self::TRANSFER_ENCODING => {
+                value.split(",").map(|x| x.trim()).for_each(|x| {
+                    if x == "chunked" {
+                        self.chunked = true;
+                    } else {
+                        self.transfer_encoding.push(x.to_string());
+                    }
+                });
+                return;
+            }
+            _ => (),
         }
 
         match self.headers.entry(name.to_string()) {
@@ -157,21 +188,20 @@ impl Headers {
         self.content_length
     }
 
-    pub fn set_content_length(&mut self, len: u64) {
-        self.content_length = Some(len);
+    pub fn set_content_length(&mut self, len: Option<u64>) {
+        self.content_length = len;
     }
 
     pub fn set_transfer_encoding_chunked(&mut self) {
-        self.set(Self::TRANSFER_ENCODING, "chunked");
+        self.chunked = true;
     }
 
     pub fn is_transfer_encoding_chunked(&self) -> bool {
-        self.get(Self::TRANSFER_ENCODING)
-            .map(|te| {
-                te.split(',')
-                    .any(|t| t.trim().eq_ignore_ascii_case("chunked"))
-            })
-            .unwrap_or(false)
+        self.chunked
+    }
+
+    pub fn get_transfer_encoding_other(&self) -> &Vec<String> {
+        &self.transfer_encoding
     }
 
     pub fn set_connection_close(&mut self) {

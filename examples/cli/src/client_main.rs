@@ -18,7 +18,7 @@ pub fn run(op: ClientOp) {
         headers.set(Headers::CONTENT_TYPE, "text/plain");
     }
 
-    headers.set_content_length(body.len() as u64);
+    headers.set_content_length(Some(body.len() as u64));
 
     let reader: Box<dyn Read> = if op.stall > 0 {
         Box::new(StallingBodyReader::new(body.into_bytes(), op.stall))

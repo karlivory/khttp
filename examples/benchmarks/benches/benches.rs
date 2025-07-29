@@ -479,7 +479,7 @@ fn heavy_body() -> &'static [u8] {
 fn respond_heavy(res: &mut ResponseHandle) -> io::Result<()> {
     let msg = heavy_body();
     let mut headers = get_base_headers();
-    headers.set_content_length(msg.len() as u64);
+    headers.set_content_length(Some(msg.len() as u64));
     res.ok(headers, msg)
 }
 

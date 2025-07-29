@@ -6,8 +6,6 @@ const CRLF: &[u8] = b"\r\n";
 const PROBE_MAX: usize = 8 * 1024;
 const RESPONSE_100_CONTINUE: &[u8] = b"HTTP/1.1 100 Continue\r\n\r\n";
 
-const CONTENT_LENGTH_HEADER: &[u8] = b"content-length";
-
 pub struct HttpPrinter<W: Write> {
     writer: BufWriter<W>,
 }
@@ -111,8 +109,7 @@ fn decide_body_strategy<R: Read>(
 ) -> io::Result<BodyStrategy<R>> {
     // TE: chunked explicitly requested
     if headers.is_transfer_encoding_chunked() {
-        headers.remove(Headers::CONTENT_LENGTH);
-        headers.set_transfer_encoding_chunked();
+        headers.set_content_length(None);
         return Ok(BodyStrategy::Chunked {
             prefix: Vec::new(),
             reader: body,
@@ -135,7 +132,7 @@ fn decide_body_strategy<R: Read>(
     // No CL, no TE -> probe
     let (prefix, complete) = probe_body(&mut body, PROBE_MAX)?;
     if complete {
-        headers.set_content_length(prefix.len() as u64);
+        headers.set_content_length(Some(prefix.len() as u64));
         Ok(BodyStrategy::Fast(prefix))
     } else {
         headers.set_transfer_encoding_chunked();
@@ -162,7 +159,7 @@ fn build_response_head(status: &Status, headers: &Headers) -> Vec<u8> {
     // status line
     head.extend_from_slice(HTTP_VERSION);
     head.extend_from_slice(b" ");
-    head.extend_from_slice(status.code.to_string().as_bytes());
+    head.extend_from_slice(&u16_to_ascii_3digits(status.code));
     head.extend_from_slice(b" ");
     head.extend_from_slice(status.reason.as_bytes());
     head.extend_from_slice(CRLF);
@@ -178,7 +175,7 @@ fn build_request_head(method: &Method, uri: &str, headers: &Headers) -> Vec<u8> 
     let mut head = get_head_vector(headers.get_count());
 
     // request line
-    head.extend_from_slice(method.to_string().as_bytes());
+    head.extend_from_slice(method.as_str().as_bytes());
     head.extend_from_slice(b" ");
     head.extend_from_slice(uri.as_bytes());
     head.extend_from_slice(b" ");
@@ -192,6 +189,9 @@ fn build_request_head(method: &Method, uri: &str, headers: &Headers) -> Vec<u8> 
     head
 }
 
+const CONTENT_LENGTH_HEADER: &[u8] = b"content-length: ";
+const TRANSFER_ENCODING_CHUNKED_HEADER: &[u8] = b"transfer-encoding: chunked";
+
 fn add_headers(buf: &mut Vec<u8>, headers: &Headers) {
     for (k, values) in headers.get_map() {
         for v in values {
@@ -201,9 +201,16 @@ fn add_headers(buf: &mut Vec<u8>, headers: &Headers) {
             buf.extend_from_slice(CRLF);
         }
     }
-    if let Some(cl) = headers.get_content_length() {
+    if headers.is_transfer_encoding_chunked() {
+        buf.extend_from_slice(TRANSFER_ENCODING_CHUNKED_HEADER);
+        for encoding in headers.get_transfer_encoding_other() {
+            buf.extend_from_slice(b", ");
+            buf.extend_from_slice(encoding.as_bytes());
+            buf.extend_from_slice(CRLF);
+        }
+        buf.extend_from_slice(CRLF);
+    } else if let Some(cl) = headers.get_content_length() {
         buf.extend_from_slice(CONTENT_LENGTH_HEADER);
-        buf.extend_from_slice(b": ");
         let mut num_buf = [0u8; 20]; // enough to hold any u64 in base 10
         let len = u64_to_ascii_buf(cl, &mut num_buf);
         buf.extend_from_slice(&num_buf[..len]);
@@ -231,6 +238,18 @@ fn u64_to_ascii_buf(mut n: u64, buf: &mut [u8; 20]) -> usize {
     let len = 20 - i;
     buf.copy_within(i..20, 0);
     len
+}
+
+fn u16_to_ascii_3digits(n: u16) -> [u8; 3] {
+    let hundreds = n / 100;
+    let tens = (n / 10) % 10;
+    let ones = n % 10;
+
+    [
+        b'0' + (hundreds as u8),
+        b'0' + (tens as u8),
+        b'0' + (ones as u8),
+    ]
 }
 
 fn write_chunk<W: Write>(dst: &mut W, bytes: &[u8]) -> io::Result<()> {
