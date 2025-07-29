@@ -190,7 +190,8 @@ fn build_request_head(method: &Method, uri: &str, headers: &Headers) -> Vec<u8> 
 }
 
 const CONTENT_LENGTH_HEADER: &[u8] = b"content-length: ";
-const TRANSFER_ENCODING_CHUNKED_HEADER: &[u8] = b"transfer-encoding: chunked";
+const TRANSFER_ENCODING_HEADER: &[u8] = b"transfer-encoding: ";
+const CONNECTION_HEADER: &[u8] = b"connection: close";
 
 fn add_headers(buf: &mut Vec<u8>, headers: &Headers) {
     for (k, values) in headers.get_map() {
@@ -201,15 +202,32 @@ fn add_headers(buf: &mut Vec<u8>, headers: &Headers) {
             buf.extend_from_slice(CRLF);
         }
     }
-    if headers.is_transfer_encoding_chunked() {
-        buf.extend_from_slice(TRANSFER_ENCODING_CHUNKED_HEADER);
-        for encoding in headers.get_transfer_encoding_other() {
-            buf.extend_from_slice(b", ");
+    // set "transfer-encoding"
+    let transfer_encoding = headers.get_transfer_encoding();
+    if !transfer_encoding.is_empty() {
+        buf.extend_from_slice(TRANSFER_ENCODING_HEADER);
+        for (i, encoding) in transfer_encoding.iter().enumerate() {
+            if i > 0 {
+                buf.extend_from_slice(b", ");
+            }
             buf.extend_from_slice(encoding.as_bytes());
-            buf.extend_from_slice(CRLF);
         }
         buf.extend_from_slice(CRLF);
-    } else if let Some(cl) = headers.get_content_length() {
+    }
+    // set "connection"
+    let connection = headers.get_connection_values();
+    if !connection.is_empty() {
+        buf.extend_from_slice(CONNECTION_HEADER);
+        for (i, value) in connection.iter().enumerate() {
+            if i > 0 {
+                buf.extend_from_slice(b", ");
+            }
+            buf.extend_from_slice(value.as_bytes());
+        }
+        buf.extend_from_slice(CRLF);
+    }
+    // set "content-length"
+    if let Some(cl) = headers.get_content_length() {
         buf.extend_from_slice(CONTENT_LENGTH_HEADER);
         let mut num_buf = [0u8; 20]; // enough to hold any u64 in base 10
         let len = u64_to_ascii_buf(cl, &mut num_buf);

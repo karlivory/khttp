@@ -57,6 +57,8 @@ pub struct Headers {
     chunked: bool,
     /// stores transfer-encoding values other than "chunked"
     transfer_encoding: Vec<String>,
+    connection_close: bool,
+    connection_values: Vec<String>,
 }
 
 impl Headers {
@@ -66,6 +68,8 @@ impl Headers {
             content_length: None,
             transfer_encoding: Vec::new(),
             chunked: false,
+            connection_close: false,
+            connection_values: Vec::new(),
         }
     }
 
@@ -89,6 +93,15 @@ impl Headers {
                         self.chunked = true;
                     }
                     self.transfer_encoding.push(x.to_string());
+                });
+                return;
+            }
+            Self::CONNECTION => {
+                value.split(',').map(|x| x.trim()).for_each(|x| {
+                    if x.eq_ignore_ascii_case("close") {
+                        self.connection_close = true;
+                    }
+                    self.connection_values.push(x.to_string());
                 });
                 return;
             }
@@ -122,9 +135,17 @@ impl Headers {
                 value.split(",").map(|x| x.trim()).for_each(|x| {
                     if x == "chunked" {
                         self.chunked = true;
-                    } else {
-                        self.transfer_encoding.push(x.to_string());
                     }
+                    self.transfer_encoding.push(x.to_string());
+                });
+                return;
+            }
+            Self::CONNECTION => {
+                value.split(',').map(|x| x.trim()).for_each(|x| {
+                    if x.eq_ignore_ascii_case("close") {
+                        self.connection_close = true;
+                    }
+                    self.connection_values.push(x.to_string());
                 });
                 return;
             }
@@ -194,24 +215,28 @@ impl Headers {
 
     pub fn set_transfer_encoding_chunked(&mut self) {
         self.chunked = true;
+        self.transfer_encoding.push("chunked".to_string());
     }
 
     pub fn is_transfer_encoding_chunked(&self) -> bool {
         self.chunked
     }
 
-    pub fn get_transfer_encoding_other(&self) -> &Vec<String> {
+    pub fn get_transfer_encoding(&self) -> &Vec<String> {
         &self.transfer_encoding
     }
 
     pub fn set_connection_close(&mut self) {
-        self.set(Self::CONNECTION, "close");
+        self.connection_close = true;
+        self.connection_values.push("close".to_string());
     }
 
     pub fn is_connection_close(&self) -> bool {
-        self.get(Self::CONNECTION)
-            .map(|val| val.eq_ignore_ascii_case("close"))
-            .unwrap_or(false)
+        self.connection_close
+    }
+
+    pub fn get_connection_values(&self) -> &Vec<String> {
+        &self.connection_values
     }
 
     pub fn is_100_continue(&self) -> bool {
