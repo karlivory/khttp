@@ -74,7 +74,7 @@ fn trailing_slash_redirect()
 }
 
 pub struct FrameworkApp {
-    server: ServerBuilder<Router<Box<RouteFn>>>,
+    server: ServerBuilder,
     config: ServerConfig,
 }
 

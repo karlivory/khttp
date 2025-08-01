@@ -1,3 +1,4 @@
+use crate::router::RouterBuilder;
 use crate::threadpool::ThreadPool;
 use crate::{
     BodyReader, Headers, HttpParsingError, HttpPrinter, HttpRouter, Method, Parser, RequestParts,
@@ -29,7 +30,7 @@ struct HandlerConfig {
 }
 
 impl Server<Router<Box<RouteFn>>> {
-    pub fn builder<A: ToSocketAddrs>(addr: A) -> io::Result<ServerBuilder<Router<Box<RouteFn>>>> {
+    pub fn builder<A: ToSocketAddrs>(addr: A) -> io::Result<ServerBuilder> {
         let bind_addrs: Vec<SocketAddr> = addr.to_socket_addrs()?.collect();
 
         if bind_addrs.is_empty() {
@@ -42,7 +43,7 @@ impl Server<Router<Box<RouteFn>>> {
         Ok(ServerBuilder {
             bind_addrs,
             thread_count: DEFAULT_THREAD_COUNT,
-            router: Router::<Box<RouteFn>>::new(),
+            router: RouterBuilder::<Box<RouteFn>>::new(),
             fallback_route: Box::new(|_, r| r.send(&Status::NOT_FOUND, Headers::new(), &[][..])),
             stream_setup_hook: None,
             pre_routing_hook: None,
@@ -73,10 +74,10 @@ pub enum PreRoutingAction {
     Disconnect(io::Result<()>),
 }
 
-pub struct ServerBuilder<R> {
+pub struct ServerBuilder {
     bind_addrs: Vec<SocketAddr>,
     thread_count: usize,
-    router: R,
+    router: RouterBuilder<Box<RouteFn>>,
     fallback_route: Box<RouteFn>,
     stream_setup_hook: Option<Box<StreamSetupFn>>,
     pre_routing_hook: Option<Box<PreRoutingHookFn>>,
@@ -85,10 +86,7 @@ pub struct ServerBuilder<R> {
     max_header_count: Option<usize>,
 }
 
-impl<R> ServerBuilder<R>
-where
-    R: HttpRouter<Route = Box<RouteFn>> + Send + Sync + 'static,
-{
+impl ServerBuilder {
     pub fn route<F>(&mut self, method: Method, path: &str, route_fn: F)
     where
         F: Fn(RequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync + 'static,
@@ -136,15 +134,11 @@ where
         self.max_header_count = value;
     }
 
-    pub fn remove_route(&mut self, method: Method, path: &str) -> Option<R::Route> {
-        self.router.remove_route(&method, path)
-    }
-
-    pub fn build(self) -> Server<R> {
+    pub fn build(self) -> Server<Router<Box<RouteFn>>> {
         Server {
             bind_addrs: self.bind_addrs,
             thread_count: self.thread_count,
-            router: Arc::new(self.router),
+            router: Arc::new(self.router.build()),
             stream_setup_hook: self.stream_setup_hook,
             handler_config: Arc::new(HandlerConfig {
                 fallback_route: self.fallback_route,

@@ -14,7 +14,6 @@ use khttp::{
     Headers, Method, Parser, ResponseHandle, RouteFn, Router, Server, ServerBuilder, Status,
 };
 use std::{
-    env,
     io::{self, BufRead, BufReader},
     net::TcpListener,
     process::{Command, Stdio},
@@ -337,7 +336,7 @@ Accept: */*\r\n"
 fn run_server_bench(sb: ServerBench) {
     let connections = 500u32;
     let threads = 14u32;
-    let duration_secs = 5;
+    let duration_secs = 6;
 
     let port = match sb.kind {
         ServerKind::Khttp(make_srv) => {
@@ -437,7 +436,7 @@ fn get_free_port() -> u16 {
     p
 }
 
-fn get_khttp_app() -> ServerBuilder<Router<Box<RouteFn>>> {
+fn get_khttp_app() -> ServerBuilder {
     let port = get_free_port();
     Server::builder(format!("127.0.0.1:{port}")).unwrap()
 }

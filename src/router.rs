@@ -9,35 +9,35 @@ use std::{
 pub trait HttpRouter {
     type Route;
 
-    fn new() -> Self;
     fn match_route<'a, 'r>(
         &'a self,
         method: &Method,
         path: &'r str,
     ) -> Option<Match<'a, 'r, Self::Route>>;
-    fn add_route(&mut self, method: &Method, path: &str, route: Self::Route);
-    fn remove_route(&mut self, method: &Method, path: &str) -> Option<Self::Route>;
+}
+
+#[derive(Default)]
+pub struct RouterBuilder<T> {
+    standard_methods: [HashMap<RouteEntry, T>; 8],
+    extensions: HashMap<String, HashMap<RouteEntry, T>>,
 }
 
 pub struct Router<T> {
-    standard_methods: [HashMap<RouteEntry, T>; 8],
-    extensions: HashMap<String, HashMap<RouteEntry, T>>,
+    standard_methods: [Vec<(RouteEntry, T)>; 8],
+    extensions: HashMap<String, Vec<(RouteEntry, T)>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RouteEntry(Vec<RouteSegment>);
 
-impl<T> HttpRouter for Router<T> {
-    type Route = T;
-
-    fn new() -> Self {
+impl<T> RouterBuilder<T> {
+    pub fn new() -> Self {
         Self {
             standard_methods: from_fn(|_| HashMap::new()),
             extensions: HashMap::new(),
         }
     }
-
-    fn add_route(&mut self, method: &Method, path: &str, route: T) {
+    pub fn add_route(&mut self, method: &Method, path: &str, route: T) {
         let route_entry = parse_route(path);
         match method {
             Method::Custom(x) => self
@@ -49,13 +49,27 @@ impl<T> HttpRouter for Router<T> {
         };
     }
 
-    fn remove_route(&mut self, method: &Method, path: &str) -> Option<T> {
-        let route_entry = parse_route(path);
-        match method {
-            Method::Custom(x) => self.extensions.get_mut(x)?.remove(&route_entry),
-            _ => self.standard_methods[method.index()].remove(&route_entry),
+    pub fn build(self) -> Router<T> {
+        let mut standard_methods: [Vec<(RouteEntry, T)>; 8] = Default::default();
+
+        for (i, map) in self.standard_methods.into_iter().enumerate() {
+            standard_methods[i] = map.into_iter().collect();
+        }
+        let extensions: HashMap<String, Vec<(RouteEntry, T)>> = self
+            .extensions
+            .into_iter()
+            .map(|(x, y)| (x, y.into_iter().collect()))
+            .collect();
+
+        Router {
+            standard_methods,
+            extensions,
         }
     }
+}
+
+impl<T> HttpRouter for Router<T> {
+    type Route = T;
 
     fn match_route<'a, 'r>(
         &'a self,
@@ -88,7 +102,7 @@ impl<T> HttpRouter for Router<T> {
             let mut lml = 0u16;
             let mut counting_prefix = true;
 
-            for seg_part in pattern {
+            for seg_part in pattern.iter() {
                 let uri_part = uri_iter.next();
 
                 match seg_part {

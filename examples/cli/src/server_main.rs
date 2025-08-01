@@ -72,7 +72,7 @@ fn get_stream_setup_fn(
     }
 }
 
-fn get_app(config: ServerConfig) -> ServerBuilder<Router<Box<RouteFn>>> {
+fn get_app(config: ServerConfig) -> ServerBuilder {
     let mut app = Server::builder("0.0.0.0:8080").unwrap();
     if let Some(n) = config.thread_count {
         app.set_thread_count(n);
