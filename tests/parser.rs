@@ -28,17 +28,6 @@ fn test_request_post_with_body() {
 }
 
 #[test]
-fn test_request_extra_whitespace() {
-    assert_parse_request_ok(
-        "GET    /abc     HTTP/1.1\r\nhost: x\r\n\r\n",
-        Method::Get,
-        "/abc",
-        &[("host", &["x"])],
-        "",
-    );
-}
-
-#[test]
 fn test_response_crlf_only_headers() {
     assert_parse_response_ok(
         "HTTP/1.1 204 No Content\r\n\r\n",
@@ -78,6 +67,17 @@ fn test_request_header_value_trailing_whitespace_is_kept() {
         Method::Get,
         "/",
         &[("Foo", &["bar  \t "])],
+        "",
+    );
+}
+
+#[test]
+fn test_request_valid_uri_chars() {
+    assert_parse_request_ok(
+        "GET https://host:8080/-._~:/?#%[]@!$&'()*+,;= HTTP/1.1\r\n\r\n",
+        Method::Get,
+        "https://host:8080/-._~:/?#%[]@!$&'()*+,;=",
+        &[],
         "",
     );
 }

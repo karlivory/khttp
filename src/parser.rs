@@ -145,6 +145,8 @@ fn parse_response_status_line<R: BufRead>(
     Ok(Status::owned(code, reason))
 }
 
+// request-line = method SP request-target SP HTTP-version
+// ref: https://datatracker.ietf.org/doc/html/rfc9112#name-request-line
 fn parse_request_status_line<R: BufRead>(
     reader: &mut R,
     buf: &mut Vec<u8>,
@@ -162,12 +164,11 @@ fn parse_request_status_line<R: BufRead>(
     let (uri, rest) = parse_uri(rest)?;
     let version = parse_version(rest)?;
 
-    Ok((method, RequestUri::new(uri.to_string()), version))
+    Ok((method, uri, version))
 }
 
 fn parse_version(buf: &[u8]) -> Result<u8, HttpParsingError> {
     const PREFIX: &[u8] = b"HTTP/";
-    let buf = buf.trim_ascii();
 
     if !buf.starts_with(PREFIX) {
         return Err(HttpParsingError::MalformedStatusLine);
@@ -180,23 +181,148 @@ fn parse_version(buf: &[u8]) -> Result<u8, HttpParsingError> {
     }
 }
 
-fn parse_uri(buf: &[u8]) -> Result<(&str, &[u8]), HttpParsingError> {
-    let buf = buf.trim_ascii_start();
+const fn make_uri_byte_mask() -> [bool; 256] {
+    let mut mask = [false; 256];
+    let valid =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/?#[]@!$&'()*+,;=%";
+    let mut i = 0;
+    while i < valid.len() {
+        mask[valid[i] as usize] = true;
+        i += 1;
+    }
+    mask
+}
+
+const fn make_header_field_byte_mask() -> [bool; 256] {
+    let mut mask = [false; 256];
+    let valid = b"!#$%&'*+-.^_`|~ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    let mut i = 0;
+    while i < valid.len() {
+        mask[valid[i] as usize] = true;
+        i += 1;
+    }
+    mask
+}
+
+static HEADER_FIELD_BYTE_MASK: [bool; 256] = make_header_field_byte_mask();
+
+#[inline(always)]
+pub fn is_valid_header_field_byte(b: u8) -> bool {
+    HEADER_FIELD_BYTE_MASK[b as usize]
+}
+
+static URI_BYTE_MASK: [bool; 256] = make_uri_byte_mask();
+
+#[inline(always)]
+pub fn is_valid_uri_byte(b: u8) -> bool {
+    URI_BYTE_MASK[b as usize]
+}
+
+fn parse_uri(buf: &[u8]) -> Result<(RequestUri, &[u8]), HttpParsingError> {
+    use HttpParsingError::MalformedStatusLine;
+
+    let mut scheme_i = 0; // 0 → no “://” scheme
+    let mut path_i_start = 0; // 0 → origin-form  (“/foo”)
+    let mut path_i_end = 0; // exclusive; will be set later
+
+    // ──────────────── 1. classify first byte ───────────────────────────
+    let first = *buf.first().ok_or(MalformedStatusLine)?;
+    let origin_form = match first {
+        b' ' => return Err(MalformedStatusLine),
+        b'*' => {
+            return Ok((
+                RequestUri::new(String::from("*"), 0, 0, 1),
+                buf.get(1..).ok_or(MalformedStatusLine)?,
+            ));
+        }
+        b'/' => true,
+        _ => false,
+    };
+
+    // ──────────────── 2. advance to start of path ──────────────────────
     let mut i = 0;
 
+    if !origin_form {
+        // uri is either absolute or authority-form
+        while i < buf.len() {
+            let b = buf[i];
+
+            match b {
+                // detect first “://”
+                b':' if scheme_i == 0 && i + 2 < buf.len() && &buf[i..i + 3] == b"://" => {
+                    scheme_i = i;
+                    i += 3;
+                    continue;
+                }
+
+                b'/' => {
+                    path_i_start = i;
+                    break;
+                }
+
+                // validate authority byte
+                _ => {
+                    if !is_valid_uri_byte(b) {
+                        return Err(MalformedStatusLine);
+                    }
+                }
+            }
+
+            i += 1;
+        }
+
+        // no slash found → authority-form (“example.com:443”)
+        if path_i_start == 0 {
+            // TODO: test this
+            let uri = unsafe { std::str::from_utf8_unchecked(&buf[..i]) };
+            return Ok((
+                RequestUri::new(uri.to_string(), 0, 0, 0),
+                buf.get(i + 1..).ok_or(MalformedStatusLine)?,
+            ));
+        }
+    }
+
+    // ──────────────── 3. scan path/query until the SP ──────────────────
     while i < buf.len() {
         let b = buf[i];
-        if b.is_ascii_whitespace() {
-            let uri_bytes = &buf[..i];
-            let uri = std::str::from_utf8(uri_bytes)
-                .map_err(|_| HttpParsingError::MalformedStatusLine)?;
-            return Ok((uri, &buf[i + 1..]));
+
+        match b {
+            b' ' => {
+                if path_i_end == 0 {
+                    path_i_end = i; // set end if we never saw “?”
+                }
+                break; // end of request-target
+            }
+            b'?' if path_i_end == 0 => {
+                // first ‘?’ marks end-of-path
+                path_i_end = i;
+            }
+            _ => {
+                if !is_valid_uri_byte(b) {
+                    return Err(MalformedStatusLine);
+                }
+            }
         }
+
         i += 1;
     }
 
-    // version is missing
-    Err(HttpParsingError::MalformedStatusLine)
+    if path_i_end == 0 {
+        // we never hit ‘ ’ → malformed
+        return Err(MalformedStatusLine);
+    }
+
+    // ──────────────── 4. build &str and remainder slice ────────────────
+    // SAFETY: every byte already validated as US-ASCII subset
+    let uri = unsafe { std::str::from_utf8_unchecked(&buf[..i]) };
+
+    // skip the space so `rest` starts with “HTTP/…”
+    let rest = buf.get(i + 1..).ok_or(MalformedStatusLine)?;
+
+    Ok((
+        RequestUri::new(uri.to_string(), scheme_i, path_i_start, path_i_end),
+        rest,
+    ))
 }
 
 fn parse_method(buf: &[u8]) -> Result<(Method, &[u8]), HttpParsingError> {
@@ -276,11 +402,15 @@ pub fn parse_headers<R: BufRead>(
 fn parse_header_line(line: &mut [u8]) -> Result<(&str, &str), HttpParsingError> {
     for (i, b) in line.iter_mut().enumerate() {
         if *b == b':' {
-            // parse header name: check if ASCII-US, then convert to lowercase
-            if line[..i].iter().any(|&b| !(b.is_ascii_graphic())) {
-                return Err(HttpParsingError::MalformedHeader);
+            // parse header name: check if ASCII-US, then normalize to lowercase
+            for c in line[..i].iter_mut() {
+                if !is_valid_header_field_byte(*c) {
+                    return Err(HttpParsingError::MalformedHeader);
+                }
+                c.make_ascii_lowercase();
             }
-            line[..i].make_ascii_lowercase();
+
+            // safety: every char in name_str is us-ascii
             let name_str = unsafe { std::str::from_utf8_unchecked(&line[..i]) };
 
             // parse header value: just a str
