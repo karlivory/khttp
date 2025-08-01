@@ -4,33 +4,33 @@ use std::hash::{BuildHasherDefault, Hasher};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum HeaderValue {
-    Single(String),
-    Multi(Vec<String>),
+    Single(Vec<u8>),
+    Multi(Vec<Vec<u8>>),
 }
 
 impl HeaderValue {
     pub fn iter(&self) -> HeaderValueIter<'_> {
         match self {
-            HeaderValue::Single(val) => HeaderValueIter::Single(Some(val.as_str())),
-            HeaderValue::Multi(vals) => HeaderValueIter::Multi(vals.iter().map(|s| s.as_str())),
+            HeaderValue::Single(val) => HeaderValueIter::Single(Some(val.as_slice())),
+            HeaderValue::Multi(vals) => HeaderValueIter::Multi(vals.iter().map(|v| v.as_slice())),
         }
     }
 
-    pub fn last(&self) -> Option<&str> {
+    pub fn last(&self) -> Option<&[u8]> {
         match self {
-            HeaderValue::Single(val) => Some(val.as_str()),
-            HeaderValue::Multi(vals) => vals.last().map(|s| s.as_str()),
+            HeaderValue::Single(val) => Some(val.as_slice()),
+            HeaderValue::Multi(vals) => vals.last().map(|v| v.as_slice()),
         }
     }
 }
 
 pub enum HeaderValueIter<'a> {
-    Single(Option<&'a str>),
-    Multi(std::iter::Map<std::slice::Iter<'a, String>, fn(&String) -> &str>),
+    Single(Option<&'a [u8]>),
+    Multi(std::iter::Map<std::slice::Iter<'a, Vec<u8>>, fn(&Vec<u8>) -> &[u8]>),
 }
 
 impl<'a> Iterator for HeaderValueIter<'a> {
-    type Item = &'a str;
+    type Item = &'a [u8];
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
@@ -41,7 +41,7 @@ impl<'a> Iterator for HeaderValueIter<'a> {
 }
 
 impl<'a> IntoIterator for &'a HeaderValue {
-    type Item = &'a str;
+    type Item = &'a [u8];
     type IntoIter = HeaderValueIter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -53,12 +53,10 @@ impl<'a> IntoIterator for &'a HeaderValue {
 pub struct Headers {
     headers: HashMap<String, HeaderValue, BuildHasherDefault<AsciiHasher>>,
     content_length: Option<u64>,
-    /// stores whether transfer-encoding is "chunked"
     chunked: bool,
-    /// stores transfer-encoding values other than "chunked"
-    transfer_encoding: Vec<String>,
+    transfer_encoding: Vec<Vec<u8>>,
     connection_close: bool,
-    connection_values: Vec<String>,
+    connection_values: Vec<Vec<u8>>,
 }
 
 impl Headers {
@@ -81,110 +79,128 @@ impl Headers {
         self.headers.len()
     }
 
-    pub fn add(&mut self, name: &str, value: &str) {
+    pub fn add(&mut self, name: &str, value: &[u8]) {
         match name {
             Self::CONTENT_LENGTH => {
-                self.content_length = value.trim().parse().ok();
+                if let Ok(s) = std::str::from_utf8(value) {
+                    self.content_length = s.trim().parse().ok();
+                }
                 return;
             }
             Self::TRANSFER_ENCODING => {
-                value.split(",").map(|x| x.trim()).for_each(|x| {
-                    if x == "chunked" {
-                        self.chunked = true;
-                    }
-                    self.transfer_encoding.push(x.to_string());
-                });
+                value
+                    .split(|&b| b == b',')
+                    .map(|v| v.trim_ascii_start())
+                    .for_each(|v| {
+                        if v.eq_ignore_ascii_case(b"chunked") {
+                            self.chunked = true;
+                        }
+                        self.transfer_encoding.push(v.to_vec());
+                    });
                 return;
             }
             Self::CONNECTION => {
-                value.split(',').map(|x| x.trim()).for_each(|x| {
-                    if x.eq_ignore_ascii_case("close") {
-                        self.connection_close = true;
-                    }
-                    self.connection_values.push(x.to_string());
-                });
+                value
+                    .split(|&b| b == b',')
+                    .map(|v| v.trim_ascii_start())
+                    .for_each(|v| {
+                        if v.eq_ignore_ascii_case(b"close") {
+                            self.connection_close = true;
+                        }
+                        self.connection_values.push(v.to_vec());
+                    });
                 return;
             }
             _ => (),
         }
 
-        let name = name.to_ascii_lowercase();
-        match self.headers.entry(name) {
+        let key = name.to_ascii_lowercase();
+        match self.headers.entry(key) {
             hash_map::Entry::Vacant(e) => {
-                e.insert(HeaderValue::Single(value.to_string()));
+                e.insert(HeaderValue::Single(value.to_vec()));
             }
             hash_map::Entry::Occupied(mut e) => match e.get_mut() {
                 HeaderValue::Single(existing) => {
                     let old = std::mem::take(existing);
-                    *e.get_mut() = HeaderValue::Multi(vec![old, value.to_string()]);
+                    *e.get_mut() = HeaderValue::Multi(vec![old, value.to_vec()]);
                 }
-                HeaderValue::Multi(vec) => vec.push(value.to_string()),
+                HeaderValue::Multi(vec) => vec.push(value.to_vec()),
             },
         }
     }
 
     /// # Safety
     /// Caller must ensure `name` is lowercase ASCII-US.
-    pub unsafe fn add_unchecked(&mut self, name: &str, value: &str) {
+    pub unsafe fn add_unchecked(&mut self, name: &str, value: &[u8]) {
         match name {
             Self::CONTENT_LENGTH => {
-                self.content_length = value.trim().parse().ok();
+                if let Ok(s) = std::str::from_utf8(value) {
+                    self.content_length = s.trim().parse().ok();
+                }
                 return;
             }
             Self::TRANSFER_ENCODING => {
-                value.split(",").map(|x| x.trim()).for_each(|x| {
-                    if x == "chunked" {
-                        self.chunked = true;
-                    }
-                    self.transfer_encoding.push(x.to_string());
-                });
+                value
+                    .split(|&b| b == b',')
+                    .map(|v| v.trim_ascii_start())
+                    .for_each(|v| {
+                        if v.eq_ignore_ascii_case(b"chunked") {
+                            self.chunked = true;
+                        }
+                        self.transfer_encoding.push(v.to_vec());
+                    });
                 return;
             }
             Self::CONNECTION => {
-                value.split(',').map(|x| x.trim()).for_each(|x| {
-                    if x.eq_ignore_ascii_case("close") {
-                        self.connection_close = true;
-                    }
-                    self.connection_values.push(x.to_string());
-                });
+                value
+                    .split(|&b| b == b',')
+                    .map(|v| v.trim_ascii_start())
+                    .for_each(|v| {
+                        if v.eq_ignore_ascii_case(b"close") {
+                            self.connection_close = true;
+                        }
+                        self.connection_values.push(v.to_vec());
+                    });
                 return;
             }
             _ => (),
         }
 
         match self.headers.entry(name.to_string()) {
-            std::collections::hash_map::Entry::Vacant(e) => {
-                e.insert(HeaderValue::Single(value.to_string()));
+            hash_map::Entry::Vacant(e) => {
+                e.insert(HeaderValue::Single(value.to_vec()));
             }
-            std::collections::hash_map::Entry::Occupied(mut e) => match e.get_mut() {
+            hash_map::Entry::Occupied(mut e) => match e.get_mut() {
                 HeaderValue::Single(existing) => {
                     let old = std::mem::take(existing);
-                    *e.get_mut() = HeaderValue::Multi(vec![old, value.to_string()]);
+                    *e.get_mut() = HeaderValue::Multi(vec![old, value.to_vec()]);
                 }
-                HeaderValue::Multi(vec) => vec.push(value.to_string()),
+                HeaderValue::Multi(vec) => vec.push(value.to_vec()),
             },
         }
     }
 
-    pub fn get(&self, name: &str) -> Option<&str> {
+    pub fn get(&self, name: &str) -> Option<&[u8]> {
         self.headers.get(&name.to_ascii_lowercase())?.last()
     }
 
-    pub fn get_all(&self, name: &str) -> impl Iterator<Item = &str> {
+    pub fn get_all(&self, name: &str) -> impl Iterator<Item = &[u8]> {
         self.headers
             .get(&name.to_ascii_lowercase())
             .into_iter()
             .flat_map(|hv| hv.iter())
     }
 
-    pub fn set(&mut self, name: &str, value: &str) {
+    pub fn set(&mut self, name: &str, value: &[u8]) {
         let key = name.to_ascii_lowercase();
         if key == Self::CONTENT_LENGTH {
-            self.content_length = value.trim().parse().ok();
+            if let Ok(s) = std::str::from_utf8(value) {
+                self.content_length = s.trim().parse().ok();
+            }
             return;
         }
         self.headers
-            .insert(key, HeaderValue::Single(value.to_string()));
+            .insert(key, HeaderValue::Single(value.to_vec()));
     }
 
     pub fn remove(&mut self, name: &str) -> Option<HeaderValue> {
@@ -215,33 +231,33 @@ impl Headers {
 
     pub fn set_transfer_encoding_chunked(&mut self) {
         self.chunked = true;
-        self.transfer_encoding.push("chunked".to_string());
+        self.transfer_encoding.push(b"chunked".to_vec());
     }
 
     pub fn is_transfer_encoding_chunked(&self) -> bool {
         self.chunked
     }
 
-    pub fn get_transfer_encoding(&self) -> &Vec<String> {
+    pub fn get_transfer_encoding(&self) -> &Vec<Vec<u8>> {
         &self.transfer_encoding
     }
 
     pub fn set_connection_close(&mut self) {
         self.connection_close = true;
-        self.connection_values.push("close".to_string());
+        self.connection_values.push(b"close".to_vec());
     }
 
     pub fn is_connection_close(&self) -> bool {
         self.connection_close
     }
 
-    pub fn get_connection_values(&self) -> &Vec<String> {
+    pub fn get_connection_values(&self) -> &Vec<Vec<u8>> {
         &self.connection_values
     }
 
     pub fn is_100_continue(&self) -> bool {
         self.get("expect")
-            .map(|val| val.eq_ignore_ascii_case("100-continue"))
+            .map(|val| val.eq_ignore_ascii_case(b"100-continue"))
             .unwrap_or(false)
     }
 }
@@ -250,15 +266,15 @@ impl fmt::Display for Headers {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (key, value) in &self.headers {
             for val in value.iter() {
-                writeln!(f, "{}: {}", key, val)?;
+                writeln!(f, "{}: {}", key, String::from_utf8_lossy(val))?;
             }
         }
         Ok(())
     }
 }
 
-impl From<Vec<(&str, &str)>> for Headers {
-    fn from(vec: Vec<(&str, &str)>) -> Self {
+impl From<Vec<(&str, &[u8])>> for Headers {
+    fn from(vec: Vec<(&str, &[u8])>) -> Self {
         let mut headers = Headers::new();
         for (k, v) in vec {
             headers.add(k, v);
@@ -267,8 +283,8 @@ impl From<Vec<(&str, &str)>> for Headers {
     }
 }
 
-impl From<&[(&str, &[&str])]> for Headers {
-    fn from(slice: &[(&str, &[&str])]) -> Self {
+impl From<&[(&str, &[&[u8]])]> for Headers {
+    fn from(slice: &[(&str, &[&[u8]])]) -> Self {
         let mut headers = Headers::new();
         for (k, vs) in slice {
             for v in *vs {

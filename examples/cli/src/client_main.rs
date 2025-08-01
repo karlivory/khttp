@@ -9,13 +9,13 @@ pub fn run(op: ClientOp) {
 
     let mut headers = Headers::new();
 
-    headers.set("Host", &op.host);
-    headers.set("User-Agent", "khttp-cli/0.1");
-    headers.set("Accept", "*/*");
+    headers.set("Host", op.host.as_bytes());
+    headers.set("User-Agent", b"khttp-cli/0.1");
+    headers.set("Accept", b"*/*");
 
     let body = op.body.unwrap_or_default();
     if !body.is_empty() && headers.get(Headers::CONTENT_TYPE).is_none() {
-        headers.set(Headers::CONTENT_TYPE, "text/plain");
+        headers.set(Headers::CONTENT_TYPE, b"text/plain");
     }
 
     headers.set_content_length(Some(body.len() as u64));
@@ -27,7 +27,7 @@ pub fn run(op: ClientOp) {
     };
 
     for (k, v) in op.headers {
-        headers.add(&k, &v);
+        headers.add(&k, v.as_bytes());
     }
 
     match client.exchange(&op.method, &op.uri, headers, reader) {
@@ -36,7 +36,7 @@ pub fn run(op: ClientOp) {
                 println!("{} {}", response.status.code, response.status.reason);
                 for (k, vs) in response.headers.get_map() {
                     for v in vs {
-                        println!("{}: {}", k, v);
+                        println!("{}: {}", k, String::from_utf8_lossy(v));
                     }
                 }
                 println!();

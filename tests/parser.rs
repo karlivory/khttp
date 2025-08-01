@@ -11,7 +11,7 @@ fn test_request_get_simple() {
         "GET /foo HTTP/1.1\r\nhost: localhost\r\n\r\n",
         Method::Get,
         "/foo",
-        &[("host", &["localhost"])],
+        &[("host", &[b"localhost"])],
         "",
     );
 }
@@ -22,7 +22,7 @@ fn test_request_post_with_body() {
         "POST /data HTTP/1.1\r\nfoobar: 5\r\n\r\nhello",
         Method::Post,
         "/data",
-        &[("foobar", &["5"])],
+        &[("foobar", &[b"5"])],
         "hello",
     );
 }
@@ -44,7 +44,7 @@ fn test_request_header_empty_value() {
         "GET /foo HTTP/1.1\r\nX-Test:\r\n\r\n",
         Method::Get,
         "/foo",
-        &[("X-Test", &[""])],
+        &[("X-Test", &[b""])],
         "",
     );
 }
@@ -55,7 +55,7 @@ fn test_request_header_value_leading_whitespace_is_removed() {
         "GET / HTTP/1.1\r\nFoo:\t    bar\r\n\r\n",
         Method::Get,
         "/",
-        &[("Foo", &["bar"])],
+        &[("Foo", &[b"bar"])],
         "",
     );
 }
@@ -66,7 +66,7 @@ fn test_request_header_value_trailing_whitespace_is_kept() {
         "GET / HTTP/1.1\r\nFoo: bar  \t \r\n\r\n",
         Method::Get,
         "/",
-        &[("Foo", &["bar  \t "])],
+        &[("Foo", &[b"bar  \t "])],
         "",
     );
 }
@@ -141,7 +141,7 @@ fn test_response_simple_ok() {
         "HTTP/1.1 200 OK\r\nfoobar: 5\r\n\r\nhello",
         200,
         "OK",
-        &[("foobar", &["5"])],
+        &[("foobar", &[b"5"])],
         "hello",
     );
 }
@@ -162,7 +162,7 @@ fn test_response_multiple_headers_same_name() {
         "HTTP/1.1 200 OK\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\n\r\n",
         200,
         "OK",
-        &[("Set-Cookie", &["a=1", "b=2"])],
+        &[("Set-Cookie", &[b"a=1", b"b=2"])],
         "",
     );
 }
@@ -174,7 +174,7 @@ fn test_response_large_header_value() {
         &format!("HTTP/1.1 200 OK\r\nBig: {}\r\n\r\n", big),
         200,
         "OK",
-        &[("Big", &[&big])],
+        &[("Big", &[big.as_bytes()])],
         "",
     );
 }
@@ -185,7 +185,7 @@ fn test_response_extra_crlf_after_headers() {
         "HTTP/1.1 200 OK\r\nfoobar: 5\r\n\r\n\r\nhello",
         200,
         "OK",
-        &[("foobar", &["5"])],
+        &[("foobar", &[b"5"])],
         "\r\nhello", // \r\n included in body
     );
 }
@@ -377,7 +377,7 @@ fn assert_parse_request_ok(
     input: &str,
     method: Method,
     uri: &str,
-    headers: &[(&str, &[&str])],
+    headers: &[(&str, &[&[u8]])],
     body: &str,
 ) {
     let reader = MockReader {
@@ -410,7 +410,7 @@ fn assert_parse_response_ok(
     input: &str,
     code: u16,
     reason: &str,
-    headers: &[(&str, &[&str])],
+    headers: &[(&str, &[&[u8]])],
     body: &str,
 ) {
     let reader = MockReader {

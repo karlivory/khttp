@@ -399,7 +399,7 @@ pub fn parse_headers<R: BufRead>(
     }
 }
 
-fn parse_header_line(line: &mut [u8]) -> Result<(&str, &str), HttpParsingError> {
+fn parse_header_line(line: &mut [u8]) -> Result<(&str, &[u8]), HttpParsingError> {
     for (i, b) in line.iter_mut().enumerate() {
         if *b == b':' {
             // parse header name: check if ASCII-US, then normalize to lowercase
@@ -409,16 +409,11 @@ fn parse_header_line(line: &mut [u8]) -> Result<(&str, &str), HttpParsingError> 
                 }
                 c.make_ascii_lowercase();
             }
-
             // safety: every char in name_str is us-ascii
             let name_str = unsafe { std::str::from_utf8_unchecked(&line[..i]) };
 
-            // parse header value: just a str
             let value = &line[i + 1..].trim_ascii_start();
-            let value_str =
-                std::str::from_utf8(value).map_err(|_| HttpParsingError::MalformedHeader)?;
-
-            return Ok((name_str, value_str));
+            return Ok((name_str, value));
         }
     }
     Err(HttpParsingError::MalformedHeader) // no ':' found

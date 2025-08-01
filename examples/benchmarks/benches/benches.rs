@@ -203,14 +203,27 @@ fn main() {
 
     fn httparse_make_allocations(req: httparse::Request) {
         let full_uri = req.path.unwrap().to_string();
-        assert!(!full_uri.is_empty());
         let http_version = req.version.unwrap().to_string();
         assert!(!http_version.is_empty());
         let mut headers = Headers::new();
         for header in req.headers {
-            let value = std::str::from_utf8(header.value).unwrap();
-            headers.add(header.name, value);
+            // let value = std::str::from_utf8(header.value).unwrap();
+            headers.add(header.name, header.value);
         }
+        // parse method
+        let method = match req.method.unwrap().as_bytes() {
+            b"GET" => Method::Get,
+            b"POST" => Method::Post,
+            b"HEAD" => Method::Head,
+            b"PUT" => Method::Put,
+            b"PATCH" => Method::Patch,
+            b"DELETE" => Method::Delete,
+            b"OPTIONS" => Method::Options,
+            b"TRACE" => Method::Trace,
+            _ => {
+                unimplemented!();
+            }
+        };
     }
 
     parser_benches.push(ParserBench {
@@ -446,8 +459,8 @@ fn get_base_headers() -> Headers {
     let now = chrono::Utc::now();
     let mut headers = Headers::new();
     let date_str = now.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
-    headers.set("date", &date_str);
-    headers.set(Headers::CONTENT_TYPE, "text/plain; charset=utf-8");
+    headers.set("date", date_str.as_bytes());
+    headers.set(Headers::CONTENT_TYPE, b"text/plain; charset=utf-8");
     headers
 }
 
@@ -460,7 +473,7 @@ fn respond_longheader(res: &mut ResponseHandle) -> io::Result<()> {
     let msg = "hey";
     let mut headers = get_base_headers();
     for i in 0..50 {
-        headers.add(&format!("value{i}"), &"hello".repeat(10));
+        headers.add(&format!("value{i}"), "hello".repeat(10).as_bytes());
     }
     res.ok(headers, msg.as_bytes())
 }

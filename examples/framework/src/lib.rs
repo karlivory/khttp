@@ -64,7 +64,7 @@ fn trailing_slash_redirect()
         if original_path != "/" && original_path.ends_with('/') {
             let trimmed = original_path.trim_end_matches('/');
             let mut headers = Headers::new();
-            headers.set("Location", trimmed);
+            headers.set("Location", trimmed.as_bytes());
             let _ = response.send(&Status::of(301), headers, &[][..]);
             return PreRoutingAction::Skip;
         }

@@ -116,7 +116,7 @@ mod middlewares {
         move |next| {
             let secret = secret.clone();
             Box::new(move |ctx, res| {
-                if ctx.request.headers.get("authorization") == Some(&secret) {
+                if ctx.request.headers.get("authorization") == Some(secret.as_bytes()) {
                     next(ctx, res)
                 } else {
                     res.send(&Status::of(401), Headers::new(), &b"Unauthorized"[..])

@@ -198,7 +198,7 @@ fn add_headers(buf: &mut Vec<u8>, headers: &Headers) {
         for v in values {
             buf.extend_from_slice(k.as_bytes());
             buf.extend_from_slice(b": ");
-            buf.extend_from_slice(v.as_bytes());
+            buf.extend_from_slice(v);
             buf.extend_from_slice(CRLF);
         }
     }
@@ -210,7 +210,7 @@ fn add_headers(buf: &mut Vec<u8>, headers: &Headers) {
             if i > 0 {
                 buf.extend_from_slice(b", ");
             }
-            buf.extend_from_slice(encoding.as_bytes());
+            buf.extend_from_slice(encoding);
         }
         buf.extend_from_slice(CRLF);
     }
@@ -222,7 +222,7 @@ fn add_headers(buf: &mut Vec<u8>, headers: &Headers) {
             if i > 0 {
                 buf.extend_from_slice(b", ");
             }
-            buf.extend_from_slice(value.as_bytes());
+            buf.extend_from_slice(value);
         }
         buf.extend_from_slice(CRLF);
     }
