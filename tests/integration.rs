@@ -66,7 +66,7 @@ fn start_server(n: u64) -> std::thread::JoinHandle<()> {
         });
 
         let counter = Arc::new(AtomicU64::new(0));
-        app.set_stream_setup_hook(request_limiter(counter, n));
+        app.stream_setup_hook(request_limiter(counter, n));
         app.build().serve().ok();
     })
 }

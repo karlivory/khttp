@@ -83,8 +83,8 @@ impl FrameworkApp {
         let port = &config.port;
         let mut server = Server::builder(format!("{ip}:{port}")).expect("err: invalid addr");
         // server.set_pre_routing_hook(trailing_slash_redirect());
-        server.set_thread_count(config.thread_count);
-        server.set_stream_setup_hook(get_stream_setup_fn(&config));
+        server.thread_count(config.thread_count);
+        server.stream_setup_hook(get_stream_setup_fn(&config));
         Self { server, config }
     }
 

@@ -36,9 +36,8 @@ impl Server<Router<Box<RouteFn>>> {
             thread_count: None,
             stream_setup_hook: None,
             pre_routing_hook: None,
-            max_request_head: None,
-            max_header_line_length: None,
-            max_header_count: None,
+            max_request_head_size: None,
+            max_request_header_count: None,
         })
     }
 }
@@ -76,31 +75,33 @@ pub struct ServerBuilder {
     stream_setup_hook: Option<Box<StreamSetupFn>>,
     pre_routing_hook: Option<Box<PreRoutingHookFn>>,
     thread_count: Option<usize>,
-    max_request_head: Option<usize>,
-    max_header_line_length: Option<usize>,
-    max_header_count: Option<usize>,
+    max_request_head_size: Option<usize>,
+    max_request_header_count: Option<usize>,
 }
 
 impl ServerBuilder {
-    pub fn route<F>(&mut self, method: Method, path: &str, route_fn: F)
+    pub fn route<F>(&mut self, method: Method, path: &str, route_fn: F) -> &mut Self
     where
         F: Fn(RequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync + 'static,
     {
         self.router.add_route(&method, path, Box::new(route_fn));
+        self
     }
 
-    pub fn set_thread_count(&mut self, thread_count: usize) {
+    pub fn thread_count(&mut self, thread_count: usize) -> &mut Self {
         self.thread_count = Some(thread_count);
+        self
     }
 
-    pub fn set_stream_setup_hook<F>(&mut self, f: F)
+    pub fn stream_setup_hook<F>(&mut self, f: F) -> &mut Self
     where
         F: Fn(io::Result<TcpStream>) -> StreamSetupAction + Send + Sync + 'static,
     {
         self.stream_setup_hook = Some(Box::new(f));
+        self
     }
 
-    pub fn set_pre_routing_hook<F>(&mut self, f: F)
+    pub fn pre_routing_hook<F>(&mut self, f: F) -> &mut Self
     where
         F: Fn(&mut Request<'_>, &ConnectionMeta, &mut ResponseHandle) -> PreRoutingAction
             + Send
@@ -108,25 +109,25 @@ impl ServerBuilder {
             + 'static,
     {
         self.pre_routing_hook = Some(Box::new(f));
+        self
     }
 
-    pub fn set_fallback_route<F>(&mut self, f: F)
+    pub fn fallback_route<F>(&mut self, f: F) -> &mut Self
     where
         F: Fn(RequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync + 'static,
     {
         self.fallback_route = Box::new(f);
+        self
     }
 
-    pub fn set_max_status_line_length(&mut self, value: Option<usize>) {
-        self.max_request_head = value;
+    pub fn max_request_head_size(&mut self, value: Option<usize>) -> &mut Self {
+        self.max_request_head_size = value;
+        self
     }
 
-    pub fn set_max_header_line_length(&mut self, value: Option<usize>) {
-        self.max_header_line_length = value;
-    }
-
-    pub fn set_max_header_count(&mut self, value: Option<usize>) {
-        self.max_header_count = value;
+    pub fn max_request_header_count(&mut self, value: Option<usize>) -> &mut Self {
+        self.max_request_header_count = value;
+        self
     }
 
     pub fn build(self) -> Server<Router<Box<RouteFn>>> {
@@ -138,7 +139,9 @@ impl ServerBuilder {
                 router: self.router.build(),
                 fallback_route: self.fallback_route,
                 pre_routing_hook: self.pre_routing_hook,
-                max_request_head: self.max_request_head.unwrap_or(DEFAULT_MAX_REQUEST_HEAD),
+                max_request_head: self
+                    .max_request_head_size
+                    .unwrap_or(DEFAULT_MAX_REQUEST_HEAD),
             }),
         }
     }
