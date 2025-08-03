@@ -16,7 +16,7 @@ name = "khttp"
 path = "src/lib.rs"
 
 [features]
-default = []
+default = ["epoll"]
 client = []
 epoll = ["libc"]
 
