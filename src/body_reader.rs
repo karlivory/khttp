@@ -108,7 +108,7 @@ impl<'a, R: Read> BodyReader<'a, R> {
     }
 }
 
-impl<'a, R: Read> Read for BodyReader<'a, R> {
+impl<R: Read> Read for BodyReader<'_, R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match &mut self.0 {
             BodyEncoding::Fixed(r) => r.read(buf),
@@ -119,7 +119,7 @@ impl<'a, R: Read> Read for BodyReader<'a, R> {
     }
 }
 
-impl<'a, R: Read> BufRead for BodyReader<'a, R> {
+impl<R: Read> BufRead for BodyReader<'_, R> {
     fn fill_buf(&mut self) -> io::Result<&[u8]> {
         match &mut self.0 {
             BodyEncoding::Fixed(r) => r.fill_buf(),
@@ -162,7 +162,7 @@ impl<'a, R> StreamWithLeftover<'a, R> {
     }
 }
 
-impl<'a, R: Read> Read for StreamWithLeftover<'a, R> {
+impl<R: Read> Read for StreamWithLeftover<'_, R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if self.offset < self.leftover.len() {
             let avail = &self.leftover[self.offset..];
@@ -193,7 +193,7 @@ impl<'a, R: Read> FixedReader<'a, R> {
     }
 }
 
-impl<'a, R: Read> Read for FixedReader<'a, R> {
+impl<R: Read> Read for FixedReader<'_, R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if self.remaining == 0 {
             return Ok(0);
@@ -211,7 +211,7 @@ impl<'a, R: Read> Read for FixedReader<'a, R> {
     }
 }
 
-impl<'a, R: Read> BufRead for FixedReader<'a, R> {
+impl<R: Read> BufRead for FixedReader<'_, R> {
     fn fill_buf(&mut self) -> io::Result<&[u8]> {
         if self.remaining == 0 {
             return Ok(&[]);
@@ -277,7 +277,7 @@ impl<'a, R: Read> ChunkedReader<'a, R> {
     }
 }
 
-impl<'a, R: Read> Read for ChunkedReader<'a, R> {
+impl<R: Read> Read for ChunkedReader<'_, R> {
     fn read(&mut self, mut out: &mut [u8]) -> io::Result<usize> {
         let mut written = 0;
         loop {
@@ -339,7 +339,7 @@ impl<'a, R: Read> Read for ChunkedReader<'a, R> {
     }
 }
 
-impl<'a, R: Read> BufRead for ChunkedReader<'a, R> {
+impl<R: Read> BufRead for ChunkedReader<'_, R> {
     fn fill_buf(&mut self) -> io::Result<&[u8]> {
         self.inner.fill_buf()
     }
@@ -352,7 +352,7 @@ impl<'a, R: Read> BufRead for ChunkedReader<'a, R> {
 // Drain body on drop so the connection can be re‑used
 // ---------------------------------------------------------------------
 
-impl<'a, R: Read> Drop for BodyReader<'a, R> {
+impl<R: Read> Drop for BodyReader<'_, R> {
     fn drop(&mut self) {
         self.drain();
     }
