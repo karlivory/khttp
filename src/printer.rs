@@ -36,11 +36,11 @@ impl<W: Write> HttpPrinter<W> {
         &mut self,
         method: &Method,
         uri: &str,
-        headers: Headers,
+        headers: &Headers,
         body: R,
     ) -> io::Result<()> {
         let strat = decide_body_strategy(&headers, body)?;
-        let head = build_request_head(method, uri, &headers, &strat);
+        let head = build_request_head(method, uri, headers, &strat);
         self.dispatch(head, strat)
     }
 

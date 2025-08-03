@@ -29,8 +29,18 @@ impl<'b> Response<'b> {
         }
     }
 
-    pub fn parse(&mut self, _buf: &'b [u8]) -> Result<usize, HttpParsingError> {
-        todo!();
+    pub fn parse(&mut self, buf: &'b [u8]) -> Result<usize, HttpParsingError> {
+        let start = buf.len();
+        let (version, status, rest) = parse_response_status_line(buf)?;
+        // let rest = rest.get(2..).ok_or(HttpParsingError::UnexpectedEof)?; // skip \r\n
+        let (headers, rest) = parse_headers2(rest)?;
+
+        self.http_version = Some(version);
+        self.status = Some(status);
+        self.headers = headers;
+
+        // return buf offset
+        Ok(start - rest.len())
     }
 }
 
@@ -49,6 +59,7 @@ impl<'b> Request<'b> {
         let (method, rest) = parse_method(buf)?;
         let (uri, rest) = parse_uri(rest)?;
         let (version, rest) = parse_version(rest)?;
+        let rest = rest.get(2..).ok_or(HttpParsingError::UnexpectedEof)?; // skip \r\n
         let (headers, rest) = parse_headers2(rest)?;
 
         self.method = Some(method);
@@ -67,7 +78,7 @@ pub fn parse_headers2(buf: &[u8]) -> Result<(Headers, &[u8]), HttpParsingError> 
 
     let mut buf = buf;
     let mut i = 0;
-    while i < buf.len() - 1 {
+    while i < buf.len().saturating_sub(1) {
         if buf[i] == b'\r' && buf[i + 1] == b'\n' {
             let line = &buf[..i];
             if line.is_empty() {
@@ -125,40 +136,52 @@ fn read_crlf_line<R: BufRead>(r: &mut R, buf: &mut Vec<u8>) -> io::Result<bool> 
     Ok(true)
 }
 
-fn parse_response_status_line<R: BufRead>(
-    reader: &mut R,
-    buf: &mut Vec<u8>,
-) -> Result<Status, HttpParsingError> {
-    if !read_crlf_line(reader, buf)? {
-        return Err(HttpParsingError::UnexpectedEof);
-    }
-    // TODO: optimize
-    let line = std::str::from_utf8(buf).map_err(|_| HttpParsingError::MalformedStatusLine)?;
-    let mut parts = line.splitn(3, ' ');
-    let _http_version = parts.next().ok_or(HttpParsingError::MalformedStatusLine)?;
-    let code = parts
-        .next()
-        .ok_or(HttpParsingError::MalformedStatusLine)?
-        .parse::<u16>()
-        .map_err(|_| HttpParsingError::MalformedStatusLine)?;
-    let reason = parts
-        .next()
-        .ok_or(HttpParsingError::MalformedStatusLine)?
-        .to_string();
+fn parse_response_status_line(buf: &[u8]) -> Result<(u8, Status, &[u8]), HttpParsingError> {
+    use HttpParsingError::MalformedStatusLine;
 
-    if !(100..=999).contains(&code) {
-        return Err(HttpParsingError::MalformedStatusLine);
+    // Step 1: Parse HTTP version
+    let (version, rest) = parse_version(buf)?;
+
+    // Step 2: Skip single space
+    let rest = rest.get(1..).ok_or(MalformedStatusLine)?;
+
+    // Step 3: Parse status code (3-digit number)
+    let status_code_bytes = rest.get(..3).ok_or(MalformedStatusLine)?;
+    let code = std::str::from_utf8(status_code_bytes)
+        .ok()
+        .and_then(|s| s.parse::<u16>().ok())
+        .ok_or(MalformedStatusLine)?;
+
+    // Step 4: Skip space after status code
+    let rest = rest.get(3..).ok_or(MalformedStatusLine)?;
+    if rest.first() != Some(&b' ') {
+        return Err(MalformedStatusLine);
+    }
+    let rest = rest.get(1..).ok_or(MalformedStatusLine)?;
+
+    // Step 5: Read until CRLF for reason-phrase
+    let mut i = 0;
+    while i + 1 < rest.len() {
+        if rest[i] == b'\r' && rest[i + 1] == b'\n' {
+            let reason_bytes = &rest[..i];
+            let reason = std::str::from_utf8(reason_bytes)
+                .map_err(|_| MalformedStatusLine)?
+                .to_string();
+            let remaining = &rest[i + 2..];
+            return Ok((version, Status::owned(code, reason), remaining));
+        }
+        i += 1;
     }
 
-    Ok(Status::owned(code, reason))
+    Err(MalformedStatusLine)
 }
 
 #[inline]
 fn parse_version(buf: &[u8]) -> Result<(u8, &[u8]), HttpParsingError> {
     const PREFIX: &[u8] = b"HTTP/";
 
-    // HTTP/1.x\r\n takes 10 chars
-    let rest = buf.get(10..).ok_or(HttpParsingError::UnexpectedEof)?;
+    // HTTP/1.x takes 8 chars
+    let rest = buf.get(8..).ok_or(HttpParsingError::UnexpectedEof)?;
     if &buf[..PREFIX.len()] != PREFIX {
         return Err(HttpParsingError::UnsupportedHttpVersion);
     }

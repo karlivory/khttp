@@ -1,4 +1,4 @@
-use crate::{BodyReader, Headers, HttpParsingError, HttpPrinter, Method, Status};
+use crate::{BodyReader, Headers, HttpParsingError, HttpPrinter, Method, Response, Status};
 use std::error::Error;
 use std::fmt::Display;
 use std::io::{self, Read};
@@ -6,81 +6,91 @@ use std::net::TcpStream;
 
 pub struct Client {
     address: String,
+    req_buf: [u8; 8196],
 }
 
 impl Client {
     pub fn new(address: &str) -> Client {
         Self {
             address: address.to_string(),
+            req_buf: [0; 8196],
         }
     }
-    pub fn get(&self, uri: &str, headers: Headers) -> Result<ClientResponseHandle, ClientError> {
+    pub fn get(
+        &mut self,
+        uri: &str,
+        headers: &Headers,
+    ) -> Result<ClientResponseHandle, ClientError> {
         self.exchange(&Method::Get, uri, headers, &[][..])
     }
 
-    pub fn head(&self, uri: &str, headers: Headers) -> Result<ClientResponseHandle, ClientError> {
+    pub fn head(
+        &mut self,
+        uri: &str,
+        headers: &Headers,
+    ) -> Result<ClientResponseHandle, ClientError> {
         self.exchange(&Method::Head, uri, headers, &[][..])
     }
 
     pub fn put(
-        &self,
+        &mut self,
         uri: &str,
-        headers: Headers,
+        headers: &Headers,
         body: impl Read,
     ) -> Result<ClientResponseHandle, ClientError> {
         self.exchange(&Method::Put, uri, headers, body)
     }
 
     pub fn patch(
-        &self,
+        &mut self,
         uri: &str,
-        headers: Headers,
+        headers: &Headers,
         body: impl Read,
     ) -> Result<ClientResponseHandle, ClientError> {
         self.exchange(&Method::Patch, uri, headers, body)
     }
 
     pub fn post(
-        &self,
+        &mut self,
         uri: &str,
-        headers: Headers,
+        headers: &Headers,
         body: impl Read,
     ) -> Result<ClientResponseHandle, ClientError> {
         self.exchange(&Method::Post, uri, headers, body)
     }
 
     pub fn delete(
-        &self,
+        &mut self,
         uri: &str,
-        headers: Headers,
+        headers: &Headers,
         body: impl Read,
     ) -> Result<ClientResponseHandle, ClientError> {
         self.exchange(&Method::Delete, uri, headers, body)
     }
 
     pub fn options(
-        &self,
+        &mut self,
         uri: &str,
-        headers: Headers,
+        headers: &Headers,
         body: impl Read,
     ) -> Result<ClientResponseHandle, ClientError> {
         self.exchange(&Method::Options, uri, headers, body)
     }
 
     pub fn trace(
-        &self,
+        &mut self,
         uri: &str,
-        headers: Headers,
+        headers: &Headers,
         body: impl Read,
     ) -> Result<ClientResponseHandle, ClientError> {
         self.exchange(&Method::Trace, uri, headers, body)
     }
 
     pub fn exchange(
-        &self,
+        &mut self,
         method: &Method,
         uri: &str,
-        headers: Headers,
+        headers: &Headers,
         body: impl Read,
     ) -> Result<ClientResponseHandle, ClientError> {
         // establish connection
@@ -90,7 +100,7 @@ impl Client {
         stream.write(method, uri, headers, body)?;
 
         // read response
-        let response = stream.read()?;
+        let response = stream.read(&mut self.req_buf)?;
 
         Ok(response)
     }
@@ -108,22 +118,8 @@ pub struct ClientResponseHandle<'a> {
 }
 
 impl<'a> ClientResponseHandle<'a> {
-    pub fn get_body_reader(&mut self) -> &mut BodyReader<'a, TcpStream> {
+    pub fn body(&mut self) -> &mut BodyReader<'a, TcpStream> {
         &mut self.body
-    }
-
-    pub fn read_body(&mut self) -> io::Result<Vec<u8>> {
-        let mut buf = Vec::new();
-        self.body.read_to_end(&mut buf)?;
-        self.close_connection().ok();
-        Ok(buf)
-    }
-
-    pub fn read_body_to_string(&mut self) -> io::Result<String> {
-        let mut buf = String::new();
-        self.body.read_to_string(&mut buf)?;
-        self.close_connection().ok();
-        Ok(buf)
     }
 
     pub fn stream(&self) -> &TcpStream {
@@ -158,7 +154,7 @@ impl ClientRequestTcpStream {
         &mut self,
         method: &Method,
         uri: &str,
-        headers: Headers,
+        headers: &Headers,
         body: impl Read,
     ) -> Result<(), ClientError> {
         HttpPrinter::new(&self.stream)
@@ -167,8 +163,22 @@ impl ClientRequestTcpStream {
         Ok(())
     }
 
-    fn read<'r>(self) -> Result<ClientResponseHandle<'r>, ClientError> {
-        todo!();
+    fn read(mut self, buf: &mut [u8]) -> Result<ClientResponseHandle<'_>, ClientError> {
+        if let Ok(0) = self.stream.read(buf) {
+            return Err(ClientError::UnexpectedEof);
+        }
+        let mut response = Response::new();
+        let buf_offset = match response.parse(buf) {
+            Ok(o) => o,
+            Err(e) => return Err(ClientError::ParsingFailure(e)),
+        };
+        let body = BodyReader::from_request(&buf[buf_offset..], self.stream, &response.headers);
+
+        Ok(ClientResponseHandle {
+            headers: response.headers,
+            status: response.status.unwrap(),
+            body,
+        })
     }
 }
 
@@ -178,6 +188,7 @@ pub enum ClientError {
     ConnectionFailure(io::Error),
     WriteFailure(io::Error),
     ReadFailure(io::Error),
+    UnexpectedEof,
     ParsingFailure(HttpParsingError),
 }
 
@@ -197,6 +208,7 @@ impl Display for ClientError {
             WriteFailure(e) => write!(f, "Failed to write to tcp socket: {}", e),
             ReadFailure(e) => write!(f, "Failed to read from tcp socket: {}", e),
             ParsingFailure(e) => write!(f, "Failed to parse http response: {}", e),
+            UnexpectedEof => write!(f, "unexpected eof"),
         }
     }
 }

@@ -117,12 +117,12 @@ fn assert_print_response(expected: &[u8], status: Status, headers: Headers, body
 }
 
 fn assert_print_request(expected: &[u8], method: Method, uri: &str, headers: Headers, body: &str) {
-    let got = capture_request(method, uri, headers, Cursor::new(body));
+    let got = capture_request(method, uri, &headers, Cursor::new(body));
     let expected = String::from_utf8_lossy(expected);
     assert_eq!(got, expected);
 }
 
-fn capture_request(method: Method, uri: &str, headers: Headers, body: impl Read) -> String {
+fn capture_request(method: Method, uri: &str, headers: &Headers, body: impl Read) -> String {
     let mut w = MockWriter::new();
     {
         let mut printer = HttpPrinter::new(&mut w);

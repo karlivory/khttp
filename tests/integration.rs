@@ -17,23 +17,23 @@ fn simple_multi_test() {
     let h = start_server(4);
     thread::sleep(Duration::from_millis(10));
 
-    let client = Client::new(&format!("localhost:{}", TEST_PORT));
+    let mut client = Client::new(&format!("localhost:{}", TEST_PORT));
 
-    let response = client.get("/hello", Headers::new()).unwrap();
+    let response = client.get("/hello", Headers::empty()).unwrap();
     assert_status_and_body(response, 200, "Hello, World!");
 
     let response = client
-        .post("/api/uppercase", Headers::new(), Cursor::new("test123"))
+        .post("/api/uppercase", Headers::empty(), Cursor::new("test123"))
         .unwrap();
     assert_status_and_body(response, 201, "TEST123");
 
     let response = client
-        .post("/not-routed", Headers::new(), Cursor::new(""))
+        .post("/not-routed", Headers::empty(), Cursor::new(""))
         .unwrap();
     assert_status_and_body(response, 404, "");
 
     let response = client
-        .delete("/user/123", Headers::new(), Cursor::new(""))
+        .delete("/user/123", Headers::empty(), Cursor::new(""))
         .unwrap();
     assert_status_and_body(response, 400, "no user: 123");
 
@@ -95,6 +95,6 @@ fn assert_status_and_body(
     expected_body: &str,
 ) {
     assert_eq!(res.status.code, expected_status);
-    let body = res.read_body_to_string().unwrap();
+    let body = res.body().string().unwrap();
     assert_eq!(body, expected_body);
 }
