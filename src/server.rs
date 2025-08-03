@@ -191,7 +191,7 @@ pub struct ResponseHandle<'a> {
 
 impl ResponseHandle<'_> {
     pub fn ok(&mut self, headers: &Headers, body: impl Read) -> io::Result<()> {
-        self.send(&Status::of(200), headers, body)
+        self.send(&Status::OK, headers, body)
     }
 
     pub fn send(&mut self, status: &Status, headers: &Headers, body: impl Read) -> io::Result<()> {
