@@ -10,9 +10,7 @@
 //! (inspired by axum's benches.rs)
 
 use criterion::{BenchmarkId, Criterion};
-use khttp::{
-    Headers, Method, Parser, ResponseHandle, RouteFn, Router, Server, ServerBuilder, Status,
-};
+use khttp::{Headers, Method, ResponseHandle, RouteFn, Router, Server, ServerBuilder, Status};
 use std::{
     io::{self, BufRead, BufReader},
     net::TcpListener,
@@ -84,12 +82,12 @@ fn main() {
                 for b in 0..10 {
                     for c in 0..10 {
                         let p = format!("/foo-{a}/bar-{b}/baz-{c}");
-                        app.route(Method::Get, &p, |_c, r| r.ok(Headers::new(), &[][..]));
+                        app.route(Method::Get, &p, |_c, r| r.ok(&Headers::new(), &[][..]));
                     }
                 }
             }
             app.route(Method::Get, "/foo/bar/baz", |_c, r| {
-                r.ok(Headers::new(), &[][..])
+                r.ok(&Headers::new(), &[][..])
             });
             app.build()
         })),
@@ -193,8 +191,8 @@ fn main() {
             let raw = b"GET /foo/bar HTTP/1.1\r\nHost: example.com\r\n\r\n";
             group.bench_function(BenchmarkId::new("complex", "GET /foo/bar"), |b| {
                 b.iter(|| {
-                    let _ = Parser::new(std::hint::black_box(&raw[..]))
-                        .parse_request(&Some(128), &Some(128), &Some(128))
+                    khttp::Request::new()
+                        .parse(std::hint::black_box(&raw[..]))
                         .unwrap();
                 });
             });
@@ -202,14 +200,16 @@ fn main() {
     });
 
     fn httparse_make_allocations(req: httparse::Request) {
-        let full_uri = req.path.unwrap().to_string();
-        let http_version = req.version.unwrap().to_string();
-        assert!(!http_version.is_empty());
+        // let full_uri = req.path.unwrap();
+        // let http_version = req.version.unwrap();
         let mut headers = Headers::new();
         for header in req.headers {
-            // let value = std::str::from_utf8(header.value).unwrap();
+            if header.name.is_empty() {
+                break;
+            }
             headers.add(header.name, header.value);
         }
+
         // parse method
         let method = match req.method.unwrap().as_bytes() {
             b"GET" => Method::Get,
@@ -244,12 +244,27 @@ fn main() {
     });
 
     fn make_long_request() -> Vec<u8> {
-        let mut buf = b"\
-GET /really/long/path/that/keeps/going/on/and/on HTTP/1.1\r\n\
+        let mut buf = b"GET /really/long/path/that/keeps/going/on/and/on?".to_vec();
+
+        // Append ~200 bytes worth of query parameters
+        for i in 1..=20 {
+            let param = format!("k{}=value{}&", i, i); // e.g., k1=value1&
+            buf.extend_from_slice(param.as_bytes());
+        }
+
+        // Remove the trailing '&' (optional)
+        if let Some(last) = buf.last() {
+            if *last == b'&' {
+                buf.pop();
+            }
+        }
+
+        buf.extend_from_slice(
+            b" HTTP/1.1\r\n\
 Host: example.com\r\n\
 User-Agent: bench\r\n\
-Accept: */*\r\n"
-            .to_vec();
+Accept: */*\r\n",
+        );
 
         for i in 1..=20 {
             let header = format!("X-Custom-Header-{}: value_with_some_length_{}\r\n", i, i);
@@ -266,9 +281,12 @@ Accept: */*\r\n"
             let raw = make_long_request();
             group.bench_function(BenchmarkId::new("long", "GET /long"), |b| {
                 b.iter(|| {
-                    let _ = Parser::new(std::hint::black_box(&raw[..]))
-                        .parse_request(&None, &None, &None)
+                    khttp::Request::new()
+                        .parse(std::hint::black_box(&raw[..]))
                         .unwrap();
+                    // let _ = Parser::new(std::hint::black_box(&raw[..]))
+                    //     .parse_request(&None, &None, &None)
+                    //     .unwrap();
                 });
             });
         }),
@@ -454,28 +472,42 @@ fn get_khttp_app() -> ServerBuilder {
     Server::builder(format!("127.0.0.1:{port}")).unwrap()
 }
 
-fn get_base_headers() -> Headers {
+fn get_base_headers() -> Headers<'static> {
     // for fairness: same headers that axum responds with
     let now = chrono::Utc::now();
     let mut headers = Headers::new();
     let date_str = now.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
-    headers.set("date", date_str.as_bytes());
+    headers.set("date", date_str.into_bytes());
     headers.set(Headers::CONTENT_TYPE, b"text/plain; charset=utf-8");
     headers
 }
 
 fn respond_hello(res: &mut ResponseHandle) -> io::Result<()> {
     let msg = "Hello, World!";
-    res.ok(get_base_headers(), msg.as_bytes())
+    let now = chrono::Utc::now();
+    let mut headers = Headers::new();
+    let date_str = now.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+    headers.set("date", date_str.as_bytes());
+    headers.set(Headers::CONTENT_TYPE, b"text/plain; charset=utf-8");
+    res.ok(&headers, msg.as_bytes())
 }
 
 fn respond_longheader(res: &mut ResponseHandle) -> io::Result<()> {
     let msg = "hey";
-    let mut headers = get_base_headers();
-    for i in 0..50 {
-        headers.add(&format!("value{i}"), "hello".repeat(10).as_bytes());
-    }
-    res.ok(headers, msg.as_bytes())
+
+    let now = chrono::Utc::now();
+    let mut headers = Headers::new();
+    let date_str = now.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+    headers.set("date", date_str.as_bytes());
+    headers.set(Headers::CONTENT_TYPE, b"text/plain; charset=utf-8");
+
+    // let mut headers = get_base_headers();
+    // for i in 0..50 {
+    //     let n = format!("value{i}");
+    //     let a = "hello".repeat(10);
+    //     headers.add(&n, a.as_bytes());
+    // }
+    res.ok(&headers, msg.as_bytes())
 }
 
 use std::sync::OnceLock;
@@ -490,14 +522,29 @@ fn heavy_body() -> &'static [u8] {
 
 fn respond_heavy(res: &mut ResponseHandle) -> io::Result<()> {
     let msg = heavy_body();
-    let mut headers = get_base_headers();
+
+    let now = chrono::Utc::now();
+    let mut headers = Headers::new();
+    let date_str = now.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+    headers.set("date", date_str.as_bytes());
+    headers.set(Headers::CONTENT_TYPE, b"text/plain; charset=utf-8");
+
+    // let mut headers = get_base_headers();
     headers.set_content_length(Some(msg.len() as u64));
-    res.ok(headers, msg)
+    res.ok(&headers, msg)
 }
 
 fn respond_chunked(res: &mut ResponseHandle) -> io::Result<()> {
     let msg = heavy_body();
-    res.send_chunked(&Status::of(200), get_base_headers(), msg)
+
+    let now = chrono::Utc::now();
+    let mut headers = Headers::new();
+    let date_str = now.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+    headers.set("date", date_str.as_bytes());
+    headers.set(Headers::CONTENT_TYPE, b"text/plain; charset=utf-8");
+    headers.set_transfer_encoding_chunked();
+
+    res.send(&Status::of(200), &headers, msg)
 }
 
 fn ensure_rewrk() {

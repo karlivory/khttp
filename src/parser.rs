@@ -2,101 +2,109 @@ use crate::{Headers, Method, RequestUri, Status};
 use std::{
     error::Error,
     fmt::Display,
-    io::{self, BufRead, BufReader, Read},
+    io::{self, BufRead},
 };
 
-pub struct Parser<R: Read> {
-    reader: BufReader<R>,
+#[derive(Debug)]
+pub struct Response<'b> {
+    pub http_version: Option<u8>,
+    pub status: Option<Status>,
+    pub headers: Headers<'b>,
 }
 
 #[derive(Debug)]
-pub struct RequestParts<R: Read> {
-    pub headers: Headers,
-    pub method: Method,
-    pub uri: RequestUri,
-    pub reader: BufReader<R>,
-    pub http_version: u8,
+pub struct Request<'b> {
+    pub method: Option<Method>,
+    pub uri: Option<RequestUri<'b>>,
+    pub http_version: Option<u8>,
+    pub headers: Headers<'b>,
 }
 
-#[derive(Debug)]
-pub struct ResponseParts<R: Read> {
-    pub headers: Headers,
-    pub status: Status,
-    pub reader: BufReader<R>,
-}
-
-impl<R: Read> Parser<R> {
-    pub fn new(reader: R) -> Self {
-        Self {
-            reader: BufReader::new(reader),
+impl<'b> Response<'b> {
+    pub fn new() -> Response<'b> {
+        Response {
+            http_version: None,
+            status: None,
+            headers: Headers::new(),
         }
     }
 
-    pub fn parse_request(
-        mut self,
-        max_status_line_length: &Option<usize>,
-        max_header_line_length: &Option<usize>,
-        max_header_count: &Option<usize>,
-    ) -> Result<RequestParts<R>, HttpParsingError> {
-        let mut line_buf: Vec<u8> = Vec::with_capacity(256);
+    pub fn parse(&mut self, _buf: &'b [u8]) -> Result<usize, HttpParsingError> {
+        todo!();
+    }
+}
 
-        let (method, uri, http_version) = match max_status_line_length {
-            Some(limit) => parse_request_status_line(
-                &mut LimitedBufRead::new(&mut self.reader, *limit),
-                &mut line_buf,
-            )?,
-            None => parse_request_status_line(&mut self.reader, &mut line_buf)?,
-        };
-
-        let headers = match max_header_line_length {
-            Some(limit) => parse_headers(
-                &mut LimitedBufRead::new(&mut self.reader, *limit),
-                &mut line_buf,
-                max_header_count,
-            )?,
-            None => parse_headers(&mut self.reader, &mut line_buf, max_header_count)?,
-        };
-
-        Ok(RequestParts {
-            method,
-            uri,
-            http_version,
-            headers,
-            reader: self.reader,
-        })
+impl<'b> Request<'b> {
+    pub fn new() -> Request<'b> {
+        Request {
+            method: None,
+            uri: None,
+            http_version: None,
+            headers: Headers::new(),
+        }
     }
 
-    pub fn parse_response(
-        mut self,
-        max_status_line_length: &Option<usize>,
-        max_header_line_length: &Option<usize>,
-        max_header_count: &Option<usize>,
-    ) -> Result<ResponseParts<R>, HttpParsingError> {
-        let mut line_buf: Vec<u8> = Vec::with_capacity(256);
+    pub fn parse(&mut self, buf: &'b [u8]) -> Result<usize, HttpParsingError> {
+        let start = buf.len();
+        let (method, rest) = parse_method(buf)?;
+        let (uri, rest) = parse_uri(rest)?;
+        let (version, rest) = parse_version(rest)?;
+        let (headers, rest) = parse_headers2(rest)?;
 
-        let status = match max_status_line_length {
-            Some(limit) => parse_response_status_line(
-                &mut LimitedBufRead::new(&mut self.reader, *limit),
-                &mut line_buf,
-            )?,
-            None => parse_response_status_line(&mut self.reader, &mut line_buf)?,
-        };
+        self.method = Some(method);
+        self.uri = Some(uri);
+        self.http_version = Some(version);
+        self.headers = headers;
 
-        let headers = match max_header_line_length {
-            Some(limit) => parse_headers(
-                &mut LimitedBufRead::new(&mut self.reader, *limit),
-                &mut line_buf,
-                max_header_count,
-            )?,
-            None => parse_headers(&mut self.reader, &mut line_buf, max_header_count)?,
-        };
-
-        Ok(ResponseParts {
-            status,
-            headers,
-            reader: self.reader,
-        })
+        // return buf offset
+        Ok(start - rest.len())
     }
+}
+
+#[inline]
+pub fn parse_headers2(buf: &[u8]) -> Result<(Headers, &[u8]), HttpParsingError> {
+    let mut headers = Headers::new();
+
+    let mut buf = buf;
+    let mut i = 0;
+    while i < buf.len() - 1 {
+        if buf[i] == b'\r' && buf[i + 1] == b'\n' {
+            let line = &buf[..i];
+            if line.is_empty() {
+                return Ok((headers, &buf[2..]));
+            }
+
+            let (name, value) = parse_header_line2(line)?;
+            headers.add(name, value);
+
+            // Advance to next header line
+            buf = &buf[i + 2..];
+            i = 0;
+        } else {
+            i += 1;
+        }
+    }
+
+    Err(HttpParsingError::UnexpectedEof)
+}
+
+#[inline]
+fn parse_header_line2(line: &[u8]) -> Result<(&str, &[u8]), HttpParsingError> {
+    for (i, b) in line.iter().enumerate() {
+        if *b == b':' {
+            unsafe {
+                for c in line[..i].into_iter() {
+                    if !is_valid_header_field_byte(*c) {
+                        return Err(HttpParsingError::MalformedHeader);
+                    }
+                }
+                let name_str = std::str::from_utf8_unchecked(&line[..i]);
+                let value = &line[i + 1..].trim_ascii_start();
+                return Ok((name_str, value));
+            }
+        }
+    }
+    Err(HttpParsingError::MalformedHeader) // no ':' found
 }
 
 // -------------------------------------------------------------------------
@@ -145,38 +153,19 @@ fn parse_response_status_line<R: BufRead>(
     Ok(Status::owned(code, reason))
 }
 
-// request-line = method SP request-target SP HTTP-version
-// ref: https://datatracker.ietf.org/doc/html/rfc9112#name-request-line
-fn parse_request_status_line<R: BufRead>(
-    reader: &mut R,
-    buf: &mut Vec<u8>,
-) -> Result<(Method, RequestUri, u8), HttpParsingError> {
-    match read_crlf_line(reader, buf) {
-        Ok(true) => (),
-        Ok(false) => return Err(HttpParsingError::UnexpectedEof),
-        Err(e) if e.kind() == io::ErrorKind::Other => {
-            return Err(HttpParsingError::StatusLineTooLong);
-        }
-        Err(e) => return Err(e.into()),
-    }
-
-    let (method, rest) = parse_method(buf)?;
-    let (uri, rest) = parse_uri(rest)?;
-    let version = parse_version(rest)?;
-
-    Ok((method, uri, version))
-}
-
-fn parse_version(buf: &[u8]) -> Result<u8, HttpParsingError> {
+#[inline]
+fn parse_version(buf: &[u8]) -> Result<(u8, &[u8]), HttpParsingError> {
     const PREFIX: &[u8] = b"HTTP/";
 
-    if !buf.starts_with(PREFIX) {
-        return Err(HttpParsingError::MalformedStatusLine);
+    // HTTP/1.x\r\n takes 10 chars
+    let rest = buf.get(10..).ok_or(HttpParsingError::UnexpectedEof)?;
+    if &buf[..PREFIX.len()] != PREFIX {
+        return Err(HttpParsingError::UnsupportedHttpVersion);
     }
-    let version_number = &buf[PREFIX.len()..];
+    let version_number = &buf[PREFIX.len()..PREFIX.len() + 3];
     match version_number {
-        b"1" => Ok(0),
-        b"1.1" => Ok(1),
+        b"1.0" => Ok((0, rest)),
+        b"1.1" => Ok((1, rest)),
         _ => Err(HttpParsingError::UnsupportedHttpVersion),
     }
 }
@@ -218,6 +207,7 @@ pub fn is_valid_uri_byte(b: u8) -> bool {
     URI_BYTE_MASK[b as usize]
 }
 
+#[inline]
 fn parse_uri(buf: &[u8]) -> Result<(RequestUri, &[u8]), HttpParsingError> {
     use HttpParsingError::MalformedStatusLine;
 
@@ -225,13 +215,13 @@ fn parse_uri(buf: &[u8]) -> Result<(RequestUri, &[u8]), HttpParsingError> {
     let mut path_i_start = 0; // 0 → origin-form  (“/foo”)
     let mut path_i_end = 0; // exclusive; will be set later
 
-    // ──────────────── 1. classify first byte ───────────────────────────
+    // Step 1: classify first byte
     let first = *buf.first().ok_or(MalformedStatusLine)?;
     let origin_form = match first {
         b' ' => return Err(MalformedStatusLine),
         b'*' => {
             return Ok((
-                RequestUri::new(String::from("*"), 0, 0, 1),
+                RequestUri::new("*", 0, 0, 1),
                 buf.get(1..).ok_or(MalformedStatusLine)?,
             ));
         }
@@ -239,7 +229,7 @@ fn parse_uri(buf: &[u8]) -> Result<(RequestUri, &[u8]), HttpParsingError> {
         _ => false,
     };
 
-    // ──────────────── 2. advance to start of path ──────────────────────
+    // Step 2: advance to start of path
     let mut i = 0;
 
     if !origin_form {
@@ -271,30 +261,30 @@ fn parse_uri(buf: &[u8]) -> Result<(RequestUri, &[u8]), HttpParsingError> {
             i += 1;
         }
 
-        // no slash found → authority-form (“example.com:443”)
+        // no slash found → authority-form ("example.com:443")
         if path_i_start == 0 {
             // TODO: test this
             let uri = unsafe { std::str::from_utf8_unchecked(&buf[..i]) };
             return Ok((
-                RequestUri::new(uri.to_string(), 0, 0, 0),
+                RequestUri::new(uri, 0, 0, 0),
                 buf.get(i + 1..).ok_or(MalformedStatusLine)?,
             ));
         }
     }
 
-    // ──────────────── 3. scan path/query until the SP ──────────────────
+    // Step 3: scan path/query until the SP
     while i < buf.len() {
         let b = buf[i];
 
         match b {
             b' ' => {
                 if path_i_end == 0 {
-                    path_i_end = i; // set end if we never saw “?”
+                    path_i_end = i; // set end if we never saw '?'
                 }
                 break; // end of request-target
             }
             b'?' if path_i_end == 0 => {
-                // first ‘?’ marks end-of-path
+                // first '?' marks end-of-path
                 path_i_end = i;
             }
             _ => {
@@ -308,11 +298,10 @@ fn parse_uri(buf: &[u8]) -> Result<(RequestUri, &[u8]), HttpParsingError> {
     }
 
     if path_i_end == 0 {
-        // we never hit ‘ ’ → malformed
+        // we never hit SP -> malformed
         return Err(MalformedStatusLine);
     }
 
-    // ──────────────── 4. build &str and remainder slice ────────────────
     // SAFETY: every byte already validated as US-ASCII subset
     let uri = unsafe { std::str::from_utf8_unchecked(&buf[..i]) };
 
@@ -320,11 +309,12 @@ fn parse_uri(buf: &[u8]) -> Result<(RequestUri, &[u8]), HttpParsingError> {
     let rest = buf.get(i + 1..).ok_or(MalformedStatusLine)?;
 
     Ok((
-        RequestUri::new(uri.to_string(), scheme_i, path_i_start, path_i_end),
+        RequestUri::new(uri, scheme_i, path_i_start, path_i_end),
         rest,
     ))
 }
 
+#[inline]
 fn parse_method(buf: &[u8]) -> Result<(Method, &[u8]), HttpParsingError> {
     let mut i = 0;
 
@@ -363,42 +353,6 @@ fn parse_method(buf: &[u8]) -> Result<(Method, &[u8]), HttpParsingError> {
     Err(HttpParsingError::MalformedStatusLine)
 }
 
-pub fn parse_headers<R: BufRead>(
-    reader: &mut R,
-    buf: &mut Vec<u8>,
-    max_header_count: &Option<usize>,
-) -> Result<Headers, HttpParsingError> {
-    let mut headers = Headers::new();
-    let mut i = 0;
-
-    loop {
-        if let Some(limit) = max_header_count {
-            if i > *limit {
-                return Err(HttpParsingError::TooManyHeaders);
-            }
-            i += 1;
-        }
-
-        buf.clear();
-        match read_crlf_line(reader, buf) {
-            Ok(true) => {
-                if buf.is_empty() {
-                    return Ok(headers);
-                }
-
-                let (name, value) = parse_header_line(buf)?;
-                // safety: parse_header_line lowercases 'name'
-                unsafe { headers.add_unchecked(name, value) };
-            }
-            Ok(false) => return Err(HttpParsingError::UnexpectedEof),
-            Err(e) if e.kind() == io::ErrorKind::Other => {
-                return Err(HttpParsingError::HeaderLineTooLong);
-            }
-            Err(e) => return Err(HttpParsingError::IOError(e)),
-        }
-    }
-}
-
 fn parse_header_line(line: &mut [u8]) -> Result<(&str, &[u8]), HttpParsingError> {
     for (i, b) in line.iter_mut().enumerate() {
         if *b == b':' {
@@ -417,51 +371,6 @@ fn parse_header_line(line: &mut [u8]) -> Result<(&str, &[u8]), HttpParsingError>
         }
     }
     Err(HttpParsingError::MalformedHeader) // no ':' found
-}
-
-struct LimitedBufRead<'a, R: BufRead> {
-    inner: &'a mut R,
-    remaining: usize,
-}
-
-impl<'a, R: BufRead> LimitedBufRead<'a, R> {
-    fn new(inner: &'a mut R, max: usize) -> Self {
-        Self {
-            inner,
-            remaining: max,
-        }
-    }
-}
-
-impl<R: BufRead> BufRead for LimitedBufRead<'_, R> {
-    fn fill_buf(&mut self) -> io::Result<&[u8]> {
-        if self.remaining == 0 {
-            return Err(io::Error::new(io::ErrorKind::Other, ""));
-        }
-        let buf = self.inner.fill_buf()?;
-        if buf.len() > self.remaining {
-            return Err(io::Error::new(io::ErrorKind::Other, ""));
-        }
-        Ok(buf)
-    }
-
-    fn consume(&mut self, amt: usize) {
-        let used = std::cmp::min(amt, self.remaining);
-        self.remaining -= used;
-        self.inner.consume(amt);
-    }
-}
-
-impl<R: BufRead> Read for LimitedBufRead<'_, R> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        if self.remaining == 0 {
-            return Err(io::Error::new(io::ErrorKind::Other, ""));
-        }
-        let to_read = std::cmp::min(buf.len(), self.remaining);
-        let n = self.inner.read(&mut buf[..to_read])?;
-        self.remaining -= n;
-        Ok(n)
-    }
 }
 
 #[derive(Debug)]

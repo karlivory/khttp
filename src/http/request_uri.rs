@@ -1,13 +1,13 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RequestUri {
-    full: String,
+pub struct RequestUri<'a> {
+    full: &'a str,
     scheme_i: usize,
     path_i_start: usize,
     path_i_end: usize,
 }
 
-impl RequestUri {
-    pub fn new(uri: String, scheme_i: usize, path_i_start: usize, path_i_end: usize) -> Self {
+impl<'a> RequestUri<'a> {
+    pub fn new(uri: &'a str, scheme_i: usize, path_i_start: usize, path_i_end: usize) -> Self {
         RequestUri {
             full: uri,
             scheme_i,
@@ -21,7 +21,7 @@ impl RequestUri {
     }
 
     pub fn as_str(&self) -> &str {
-        self.full.as_str()
+        self.full
     }
 
     pub fn scheme(&self) -> Option<&str> {

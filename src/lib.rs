@@ -7,9 +7,9 @@ mod router;
 mod server;
 mod threadpool;
 
-pub use body_reader::{BodyReader, ChunkedReader};
+pub use body_reader::BodyReader;
 pub use http::{Headers, Method, RequestUri, Status};
-pub use parser::{HttpParsingError, Parser, RequestParts, ResponseParts};
+pub use parser::{HttpParsingError, Request, Response};
 pub use printer::HttpPrinter;
 pub use router::{HttpRouter, Router, RouterBuilder};
 pub use server::{

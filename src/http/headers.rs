@@ -1,68 +1,27 @@
-use std::collections::{HashMap, hash_map};
+use std::borrow::Cow;
 use std::fmt;
-use std::hash::{BuildHasherDefault, Hasher};
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum HeaderValue {
-    Single(Vec<u8>),
-    Multi(Vec<Vec<u8>>),
-}
-
-impl HeaderValue {
-    pub fn iter(&self) -> HeaderValueIter<'_> {
-        match self {
-            HeaderValue::Single(val) => HeaderValueIter::Single(Some(val.as_slice())),
-            HeaderValue::Multi(vals) => HeaderValueIter::Multi(vals.iter().map(|v| v.as_slice())),
-        }
-    }
-
-    pub fn last(&self) -> Option<&[u8]> {
-        match self {
-            HeaderValue::Single(val) => Some(val.as_slice()),
-            HeaderValue::Multi(vals) => vals.last().map(|v| v.as_slice()),
-        }
-    }
-}
-
-pub enum HeaderValueIter<'a> {
-    Single(Option<&'a [u8]>),
-    Multi(std::iter::Map<std::slice::Iter<'a, Vec<u8>>, fn(&Vec<u8>) -> &[u8]>),
-}
-
-impl<'a> Iterator for HeaderValueIter<'a> {
-    type Item = &'a [u8];
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            HeaderValueIter::Single(opt) => opt.take(),
-            HeaderValueIter::Multi(iter) => iter.next(),
-        }
-    }
-}
-
-impl<'a> IntoIterator for &'a HeaderValue {
-    type Item = &'a [u8];
-    type IntoIter = HeaderValueIter<'a>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
+use std::sync::LazyLock;
 
 #[derive(Debug, Default, Clone, PartialEq)]
-pub struct Headers {
-    headers: HashMap<String, HeaderValue, BuildHasherDefault<AsciiHasher>>,
+pub struct Headers<'a> {
+    headers: Vec<(Cow<'a, str>, Cow<'a, [u8]>)>,
     content_length: Option<u64>,
     chunked: bool,
-    transfer_encoding: Vec<Vec<u8>>,
+    transfer_encoding: Vec<Box<[u8]>>,
     connection_close: bool,
-    connection_values: Vec<Vec<u8>>,
+    connection_values: Vec<Box<[u8]>>,
 }
 
-impl Headers {
+pub static EMPTY_HEADERS: LazyLock<Headers<'static>> = LazyLock::new(Headers::new);
+
+impl<'a> Headers<'a> {
+    pub fn empty() -> &'static Headers<'static> {
+        &EMPTY_HEADERS
+    }
+
     pub fn new() -> Self {
         Self {
-            headers: HashMap::default(),
+            headers: Vec::with_capacity(16),
             content_length: None,
             transfer_encoding: Vec::new(),
             chunked: false,
@@ -71,7 +30,7 @@ impl Headers {
         }
     }
 
-    pub fn get_map(&self) -> &HashMap<String, HeaderValue, BuildHasherDefault<AsciiHasher>> {
+    pub fn get_all(&self) -> &[(Cow<'a, str>, Cow<'a, [u8]>)] {
         &self.headers
     }
 
@@ -79,147 +38,93 @@ impl Headers {
         self.headers.len()
     }
 
-    pub fn add(&mut self, name: &str, value: &[u8]) {
-        match name {
-            Self::CONTENT_LENGTH => {
-                if let Ok(s) = std::str::from_utf8(value) {
-                    self.content_length = s.trim().parse().ok();
-                }
-                return;
-            }
-            Self::TRANSFER_ENCODING => {
-                value
-                    .split(|&b| b == b',')
-                    .map(|v| v.trim_ascii_start())
-                    .for_each(|v| {
-                        if v.eq_ignore_ascii_case(b"chunked") {
-                            self.chunked = true;
-                        }
-                        self.transfer_encoding.push(v.to_vec());
-                    });
-                return;
-            }
-            Self::CONNECTION => {
-                value
-                    .split(|&b| b == b',')
-                    .map(|v| v.trim_ascii_start())
-                    .for_each(|v| {
-                        if v.eq_ignore_ascii_case(b"close") {
-                            self.connection_close = true;
-                        }
-                        self.connection_values.push(v.to_vec());
-                    });
-                return;
-            }
-            _ => (),
-        }
+    pub fn add<N, V>(&mut self, name: N, value: V)
+    where
+        N: Into<Cow<'a, str>>,
+        V: Into<Cow<'a, [u8]>>,
+    {
+        let name = name.into();
+        let value = value.into();
 
-        let key = name.to_ascii_lowercase();
-        match self.headers.entry(key) {
-            hash_map::Entry::Vacant(e) => {
-                e.insert(HeaderValue::Single(value.to_vec()));
-            }
-            hash_map::Entry::Occupied(mut e) => match e.get_mut() {
-                HeaderValue::Single(existing) => {
-                    let old = std::mem::take(existing);
-                    *e.get_mut() = HeaderValue::Multi(vec![old, value.to_vec()]);
-                }
-                HeaderValue::Multi(vec) => vec.push(value.to_vec()),
-            },
-        }
-    }
-
-    /// # Safety
-    /// Caller must ensure `name` is lowercase ASCII-US.
-    pub unsafe fn add_unchecked(&mut self, name: &str, value: &[u8]) {
-        match name {
-            Self::CONTENT_LENGTH => {
-                if let Ok(s) = std::str::from_utf8(value) {
-                    self.content_length = s.trim().parse().ok();
-                }
-                return;
-            }
-            Self::TRANSFER_ENCODING => {
-                value
-                    .split(|&b| b == b',')
-                    .map(|v| v.trim_ascii_start())
-                    .for_each(|v| {
-                        if v.eq_ignore_ascii_case(b"chunked") {
-                            self.chunked = true;
-                        }
-                        self.transfer_encoding.push(v.to_vec());
-                    });
-                return;
-            }
-            Self::CONNECTION => {
-                value
-                    .split(|&b| b == b',')
-                    .map(|v| v.trim_ascii_start())
-                    .for_each(|v| {
-                        if v.eq_ignore_ascii_case(b"close") {
-                            self.connection_close = true;
-                        }
-                        self.connection_values.push(v.to_vec());
-                    });
-                return;
-            }
-            _ => (),
-        }
-
-        match self.headers.entry(name.to_string()) {
-            hash_map::Entry::Vacant(e) => {
-                e.insert(HeaderValue::Single(value.to_vec()));
-            }
-            hash_map::Entry::Occupied(mut e) => match e.get_mut() {
-                HeaderValue::Single(existing) => {
-                    let old = std::mem::take(existing);
-                    *e.get_mut() = HeaderValue::Multi(vec![old, value.to_vec()]);
-                }
-                HeaderValue::Multi(vec) => vec.push(value.to_vec()),
-            },
-        }
-    }
-
-    pub fn get(&self, name: &str) -> Option<&[u8]> {
-        self.headers.get(&name.to_ascii_lowercase())?.last()
-    }
-
-    pub fn get_all(&self, name: &str) -> impl Iterator<Item = &[u8]> {
-        self.headers
-            .get(&name.to_ascii_lowercase())
-            .into_iter()
-            .flat_map(|hv| hv.iter())
-    }
-
-    pub fn set(&mut self, name: &str, value: &[u8]) {
-        let key = name.to_ascii_lowercase();
-        if key == Self::CONTENT_LENGTH {
-            if let Ok(s) = std::str::from_utf8(value) {
+        if name.eq_ignore_ascii_case(Self::CONTENT_LENGTH) {
+            if let Ok(s) = std::str::from_utf8(&value) {
                 self.content_length = s.trim().parse().ok();
             }
             return;
+        } else if name.eq_ignore_ascii_case(Self::TRANSFER_ENCODING) {
+            value
+                .split(|&b| b == b',')
+                .map(|v| v.trim_ascii_start())
+                .for_each(|v| {
+                    if v.eq_ignore_ascii_case(b"chunked") {
+                        self.chunked = true;
+                    }
+                    self.transfer_encoding.push(v.into());
+                });
+            return;
+        } else if name.eq_ignore_ascii_case(Self::CONNECTION) {
+            value
+                .split(|&b| b == b',')
+                .map(|v| v.trim_ascii_start())
+                .for_each(|v| {
+                    if v.eq_ignore_ascii_case(b"close") {
+                        self.connection_close = true;
+                    }
+                    self.connection_values.push(v.into());
+                });
+            return;
         }
+        self.headers.push((name, value));
+    }
+
+    pub fn get(&self, name: &str) -> Option<&[u8]> {
         self.headers
-            .insert(key, HeaderValue::Single(value.to_vec()));
+            .iter()
+            .rev()
+            .find(|(k, _)| k.as_ref().eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_ref())
     }
 
-    pub fn remove(&mut self, name: &str) -> Option<HeaderValue> {
-        let key = name.to_ascii_lowercase();
-        if key == Self::CONTENT_LENGTH {
-            self.content_length = None;
-            return None;
+    pub fn set<N, V>(&mut self, name: N, value: V)
+    where
+        N: Into<Cow<'a, str>>,
+        V: Into<Cow<'a, [u8]>>,
+    {
+        let name = name.into();
+        let value = value.into();
+
+        self.headers.retain(|(k, _)| !k.eq_ignore_ascii_case(&name));
+
+        if name.eq_ignore_ascii_case(Self::CONTENT_LENGTH) {
+            if let Ok(s) = std::str::from_utf8(&value) {
+                self.content_length = s.trim().parse().ok();
+            }
         }
-        self.headers.remove(&key)
+
+        self.headers.push((name, value));
     }
 
-    pub fn contains(&self, name: &str) -> bool {
-        self.headers.contains_key(&name.to_ascii_lowercase())
+    pub fn remove(&mut self, name: &str) -> Vec<Cow<'a, [u8]>> {
+        if name.eq_ignore_ascii_case(Self::CONTENT_LENGTH) {
+            self.content_length = None;
+        }
+
+        let mut removed = Vec::new();
+        self.headers.retain(|(k, v)| {
+            if k.eq_ignore_ascii_case(name) {
+                removed.push(v.clone());
+                false
+            } else {
+                true
+            }
+        });
+        removed
     }
 
-    pub const CONTENT_LENGTH: &str = "content-length";
-    pub const CONTENT_TYPE: &str = "content-type";
-    pub const TRANSFER_ENCODING: &str = "transfer-encoding";
-    pub const CONNECTION: &str = "connection";
+    pub const CONTENT_LENGTH: &'static str = "content-length";
+    pub const CONTENT_TYPE: &'static str = "content-type";
+    pub const TRANSFER_ENCODING: &'static str = "transfer-encoding";
+    pub const CONNECTION: &'static str = "connection";
 
     pub fn get_content_length(&self) -> Option<u64> {
         self.content_length
@@ -231,27 +136,25 @@ impl Headers {
 
     pub fn set_transfer_encoding_chunked(&mut self) {
         self.chunked = true;
-        self.transfer_encoding.push(b"chunked".to_vec());
     }
 
     pub fn is_transfer_encoding_chunked(&self) -> bool {
         self.chunked
     }
 
-    pub fn get_transfer_encoding(&self) -> &Vec<Vec<u8>> {
+    pub fn get_transfer_encoding(&self) -> &Vec<Box<[u8]>> {
         &self.transfer_encoding
     }
 
     pub fn set_connection_close(&mut self) {
         self.connection_close = true;
-        self.connection_values.push(b"close".to_vec());
     }
 
     pub fn is_connection_close(&self) -> bool {
         self.connection_close
     }
 
-    pub fn get_connection_values(&self) -> &Vec<Vec<u8>> {
+    pub fn get_connection_values(&self) -> &Vec<Box<[u8]>> {
         &self.connection_values
     }
 
@@ -262,19 +165,17 @@ impl Headers {
     }
 }
 
-impl fmt::Display for Headers {
+impl fmt::Display for Headers<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (key, value) in &self.headers {
-            for val in value.iter() {
-                writeln!(f, "{}: {}", key, String::from_utf8_lossy(val))?;
-            }
+        for (key, val) in &self.headers {
+            writeln!(f, "{}: {}", key, String::from_utf8_lossy(val))?;
         }
         Ok(())
     }
 }
 
-impl From<Vec<(&str, &[u8])>> for Headers {
-    fn from(vec: Vec<(&str, &[u8])>) -> Self {
+impl<'a> From<Vec<(Cow<'a, str>, Cow<'a, [u8]>)>> for Headers<'a> {
+    fn from(vec: Vec<(Cow<'a, str>, Cow<'a, [u8]>)>) -> Headers<'a> {
         let mut headers = Headers::new();
         for (k, v) in vec {
             headers.add(k, v);
@@ -283,29 +184,14 @@ impl From<Vec<(&str, &[u8])>> for Headers {
     }
 }
 
-impl From<&[(&str, &[&[u8]])]> for Headers {
-    fn from(slice: &[(&str, &[&[u8]])]) -> Self {
+impl<'a> From<&'a [(&str, &[&[u8]])]> for Headers<'a> {
+    fn from(slice: &'a [(&str, &[&[u8]])]) -> Self {
         let mut headers = Headers::new();
         for (k, vs) in slice {
             for v in *vs {
-                headers.add(k, v);
+                headers.add(*k, *v);
             }
         }
         headers
-    }
-}
-
-#[derive(Default)]
-pub struct AsciiHasher(u64);
-
-impl Hasher for AsciiHasher {
-    fn write(&mut self, bytes: &[u8]) {
-        for &b in bytes {
-            self.0 = self.0.wrapping_mul(31) ^ b as u64;
-        }
-    }
-
-    fn finish(&self) -> u64 {
-        self.0
     }
 }

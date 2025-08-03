@@ -51,18 +51,18 @@ fn start_server(n: u64) -> std::thread::JoinHandle<()> {
         let mut app = Server::builder(format!("127.0.0.1:{TEST_PORT}")).unwrap();
 
         app.route(Method::Get, "/hello", |_, res| {
-            res.ok(Headers::new(), &b"Hello, World!"[..])
+            res.ok(Headers::empty(), &b"Hello, World!"[..])
         });
 
         app.route(Method::Post, "/api/uppercase", |mut ctx, res| {
             let mut body = ctx.body().vec().unwrap();
             body.make_ascii_uppercase();
-            res.send(&Status::of(201), Headers::new(), &body[..])
+            res.send(&Status::of(201), Headers::empty(), &body[..])
         });
 
         app.route(Method::Delete, "/user/:id", |ctx, res| {
             let body = format!("no user: {}", ctx.route_params.get("id").unwrap());
-            res.send(&Status::of(400), Headers::new(), body.as_bytes())
+            res.send(&Status::of(400), Headers::empty(), body.as_bytes())
         });
 
         let counter = Arc::new(AtomicU64::new(0));

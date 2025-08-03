@@ -5,11 +5,10 @@ use std::net::TcpStream;
 use std::time::Duration;
 
 pub use khttp;
-use khttp::RequestParts;
-use khttp::Router;
+use khttp::Request;
 use khttp::{
-    ConnectionMeta, PreRoutingAction, RequestContext, ResponseHandle, RouteFn, Server,
-    ServerBuilder, StreamSetupAction,
+    ConnectionMeta, PreRoutingAction, RequestContext, ResponseHandle, Server, ServerBuilder,
+    StreamSetupAction,
 };
 use khttp::{Headers, Method, Status};
 
@@ -55,21 +54,21 @@ fn get_stream_setup_fn(
     }
 }
 fn trailing_slash_redirect()
--> impl Fn(RequestParts<TcpStream>, &ConnectionMeta, &mut ResponseHandle) -> PreRoutingAction
+-> impl Fn(&mut Request<'_>, &ConnectionMeta, &mut ResponseHandle) -> PreRoutingAction
 + Send
 + Sync
 + 'static {
-    move |parts, _, response| {
-        let original_path = parts.uri.path();
+    move |req, _, response| {
+        let original_path = req.uri.as_ref().unwrap().path();
         if original_path != "/" && original_path.ends_with('/') {
             let trimmed = original_path.trim_end_matches('/');
             let mut headers = Headers::new();
             headers.set("Location", trimmed.as_bytes());
-            let _ = response.send(&Status::of(301), headers, &[][..]);
+            let _ = response.send(&Status::of(301), &headers, &[][..]);
             return PreRoutingAction::Skip;
         }
 
-        PreRoutingAction::Proceed(parts)
+        PreRoutingAction::Proceed
     }
 }
 
@@ -83,7 +82,7 @@ impl FrameworkApp {
         let ip = &config.bind;
         let port = &config.port;
         let mut server = Server::builder(format!("{ip}:{port}")).expect("err: invalid addr");
-        server.set_pre_routing_hook(trailing_slash_redirect());
+        // server.set_pre_routing_hook(trailing_slash_redirect());
         server.set_thread_count(config.thread_count);
         server.set_stream_setup_hook(get_stream_setup_fn(&config));
         Self { server, config }

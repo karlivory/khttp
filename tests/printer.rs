@@ -104,7 +104,7 @@ fn test_request_with_te() {
 // UTILS
 // ---------------------------------------------------------------------
 
-fn headers_with_content_length(len: u64) -> Headers {
+fn headers_with_content_length(len: u64) -> Headers<'static> {
     let mut h = Headers::new();
     h.set_content_length(Some(len));
     h
@@ -138,7 +138,7 @@ fn capture_response(status: Status, headers: Headers, body: impl Read) -> String
     let mut w = MockWriter::new();
     {
         let mut printer = HttpPrinter::new(&mut w);
-        printer.write_response(&status, headers, body).unwrap();
+        printer.write_response(&status, &headers, body).unwrap();
         printer.flush().unwrap();
     }
     w.into_string()

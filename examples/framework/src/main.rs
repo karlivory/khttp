@@ -35,7 +35,7 @@ fn add_routes(app: &mut FrameworkApp) {
             let log = ctx.get::<Arc<Logger>>().unwrap();
             log.info("Connecting to db...");
             res.ok(
-                Headers::new(),
+                Headers::empty(),
                 format!("db = {}\n", db.connection_string).as_bytes(),
             )
         });
@@ -59,7 +59,7 @@ fn add_routes(app: &mut FrameworkApp) {
                     log.warn("Invalid or missing user id");
                     return res.send(
                         &Status::BAD_REQUEST,
-                        Headers::new(),
+                        Headers::empty(),
                         "invalid user id".as_bytes(),
                     );
                 }
@@ -70,7 +70,7 @@ fn add_routes(app: &mut FrameworkApp) {
                 panic!();
             }
 
-            res.ok(Headers::new(), format!("user: {}", user_id).as_bytes())
+            res.ok(Headers::empty(), format!("user: {}", user_id).as_bytes())
         });
 }
 
@@ -119,7 +119,7 @@ mod middlewares {
                 if ctx.request.headers.get("authorization") == Some(secret.as_bytes()) {
                     next(ctx, res)
                 } else {
-                    res.send(&Status::of(401), Headers::new(), &b"Unauthorized"[..])
+                    res.send(&Status::of(401), Headers::empty(), &b"Unauthorized"[..])
                 }
             })
         }
@@ -165,7 +165,7 @@ mod middlewares {
                     eprintln!("[panic] handler panicked: {msg}");
                     res.send(
                         &Status::of(500),
-                        Headers::new(),
+                        Headers::empty(),
                         &b"Internal Server Error"[..],
                     )
                 } else {

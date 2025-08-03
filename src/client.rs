@@ -1,4 +1,4 @@
-use crate::{BodyReader, Headers, HttpParsingError, HttpPrinter, Method, Parser, Status};
+use crate::{BodyReader, Headers, HttpParsingError, HttpPrinter, Method, Status};
 use std::error::Error;
 use std::fmt::Display;
 use std::io::{self, Read};
@@ -101,14 +101,14 @@ struct ClientRequestTcpStream {
 }
 
 // #[derive(Debug, Clone, PartialEq)]
-pub struct ClientResponseHandle {
-    pub headers: Headers,
+pub struct ClientResponseHandle<'a> {
+    pub headers: Headers<'a>,
     pub status: Status,
-    body: BodyReader<TcpStream>,
+    body: BodyReader<'a, TcpStream>,
 }
 
-impl ClientResponseHandle {
-    pub fn get_body_reader(&mut self) -> &mut BodyReader<TcpStream> {
+impl<'a> ClientResponseHandle<'a> {
+    pub fn get_body_reader(&mut self) -> &mut BodyReader<'a, TcpStream> {
         &mut self.body
     }
 
@@ -127,11 +127,11 @@ impl ClientResponseHandle {
     }
 
     pub fn stream(&self) -> &TcpStream {
-        self.body.inner().get_ref()
+        self.body.inner()
     }
 
     pub fn stream_mut(&mut self) -> &mut TcpStream {
-        self.body.inner_mut().get_mut()
+        self.body.inner_mut()
     }
 
     pub fn close_connection(&mut self) -> io::Result<()> {
@@ -139,7 +139,7 @@ impl ClientResponseHandle {
     }
 }
 
-impl Drop for ClientResponseHandle {
+impl Drop for ClientResponseHandle<'_> {
     fn drop(&mut self) {
         self.close_connection().ok();
     }
@@ -167,15 +167,8 @@ impl ClientRequestTcpStream {
         Ok(())
     }
 
-    fn read(self) -> Result<ClientResponseHandle, ClientError> {
-        let parts = Parser::new(self.stream).parse_response(&None, &None, &None)?; // TODO
-        let body = BodyReader::from(&parts.headers, parts.reader);
-        let response = ClientResponseHandle {
-            headers: parts.headers,
-            status: parts.status,
-            body,
-        };
-        Ok(response)
+    fn read<'r>(self) -> Result<ClientResponseHandle<'r>, ClientError> {
+        todo!();
     }
 }
 

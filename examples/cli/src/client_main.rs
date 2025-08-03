@@ -26,18 +26,16 @@ pub fn run(op: ClientOp) {
         Box::new(Cursor::new(body))
     };
 
-    for (k, v) in op.headers {
-        headers.add(&k, v.as_bytes());
+    for (k, v) in &op.headers {
+        headers.add(k, v.as_bytes());
     }
 
     match client.exchange(&op.method, &op.uri, headers, reader) {
         Ok(mut response) => {
             if op.verbose {
                 println!("{} {}", response.status.code, response.status.reason);
-                for (k, vs) in response.headers.get_map() {
-                    for v in vs {
-                        println!("{}: {}", k, String::from_utf8_lossy(v));
-                    }
+                for (k, v) in response.headers.get_all() {
+                    println!("{}: {}", k, String::from_utf8_lossy(v));
                 }
                 println!();
             }

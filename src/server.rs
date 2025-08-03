@@ -1,9 +1,7 @@
+use crate::parser::Request;
 use crate::router::RouterBuilder;
 use crate::threadpool::ThreadPool;
-use crate::{
-    BodyReader, Headers, HttpParsingError, HttpPrinter, HttpRouter, Method, Parser, RequestParts,
-    RequestUri, Router, Status,
-};
+use crate::{BodyReader, Headers, HttpPrinter, HttpRouter, Method, RequestUri, Router, Status};
 use std::collections::HashMap;
 use std::io::{self, Read};
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
@@ -11,23 +9,15 @@ use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
 const DEFAULT_THREAD_COUNT: usize = 20;
+const DEFAULT_MAX_REQUEST_HEAD: usize = 8192;
 
 pub type RouteFn =
     dyn Fn(RequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync + 'static;
 pub type StreamSetupFn = dyn Fn(io::Result<TcpStream>) -> StreamSetupAction + Send + Sync + 'static;
-pub type PreRoutingHookFn = dyn Fn(RequestParts<TcpStream>, &ConnectionMeta, &mut ResponseHandle) -> PreRoutingAction
+pub type PreRoutingHookFn = dyn Fn(&mut Request<'_>, &ConnectionMeta, &mut ResponseHandle) -> PreRoutingAction
     + Send
     + Sync
     + 'static;
-
-struct HandlerConfig {
-    fallback_route: Box<RouteFn>,
-    pre_routing_hook: Option<Box<PreRoutingHookFn>>,
-    // parser options
-    max_status_line_length: Option<usize>,
-    max_header_line_length: Option<usize>,
-    max_header_count: Option<usize>,
-}
 
 impl Server<Router<Box<RouteFn>>> {
     pub fn builder<A: ToSocketAddrs>(addr: A) -> io::Result<ServerBuilder> {
@@ -42,24 +32,30 @@ impl Server<Router<Box<RouteFn>>> {
 
         Ok(ServerBuilder {
             bind_addrs,
-            thread_count: DEFAULT_THREAD_COUNT,
             router: RouterBuilder::<Box<RouteFn>>::new(),
-            fallback_route: Box::new(|_, r| r.send(&Status::NOT_FOUND, Headers::new(), &[][..])),
+            fallback_route: Box::new(|_, r| r.send(&Status::NOT_FOUND, Headers::empty(), &[][..])),
+            thread_count: None,
             stream_setup_hook: None,
             pre_routing_hook: None,
-            max_status_line_length: None,
+            max_request_head: None,
             max_header_line_length: None,
             max_header_count: None,
         })
     }
 }
 
+struct HandlerConfig<R> {
+    fallback_route: Box<RouteFn>,
+    router: R,
+    pre_routing_hook: Option<Box<PreRoutingHookFn>>, // TODO: implement
+    max_request_head: usize,
+}
+
 pub struct Server<R> {
     bind_addrs: Vec<SocketAddr>,
     thread_count: usize,
-    router: Arc<R>,
     stream_setup_hook: Option<Box<StreamSetupFn>>,
-    handler_config: Arc<HandlerConfig>,
+    handler_config: Arc<HandlerConfig<R>>,
 }
 
 pub enum StreamSetupAction {
@@ -69,19 +65,19 @@ pub enum StreamSetupAction {
 }
 
 pub enum PreRoutingAction {
-    Proceed(RequestParts<TcpStream>),
+    Proceed,
     Skip,
     Disconnect(io::Result<()>),
 }
 
 pub struct ServerBuilder {
     bind_addrs: Vec<SocketAddr>,
-    thread_count: usize,
     router: RouterBuilder<Box<RouteFn>>,
     fallback_route: Box<RouteFn>,
     stream_setup_hook: Option<Box<StreamSetupFn>>,
     pre_routing_hook: Option<Box<PreRoutingHookFn>>,
-    max_status_line_length: Option<usize>,
+    thread_count: Option<usize>,
+    max_request_head: Option<usize>,
     max_header_line_length: Option<usize>,
     max_header_count: Option<usize>,
 }
@@ -95,7 +91,7 @@ impl ServerBuilder {
     }
 
     pub fn set_thread_count(&mut self, thread_count: usize) {
-        self.thread_count = thread_count;
+        self.thread_count = Some(thread_count);
     }
 
     pub fn set_stream_setup_hook<F>(&mut self, f: F)
@@ -107,7 +103,7 @@ impl ServerBuilder {
 
     pub fn set_pre_routing_hook<F>(&mut self, f: F)
     where
-        F: Fn(RequestParts<TcpStream>, &ConnectionMeta, &mut ResponseHandle) -> PreRoutingAction
+        F: Fn(&mut Request<'_>, &ConnectionMeta, &mut ResponseHandle) -> PreRoutingAction
             + Send
             + Sync
             + 'static,
@@ -123,7 +119,7 @@ impl ServerBuilder {
     }
 
     pub fn set_max_status_line_length(&mut self, value: Option<usize>) {
-        self.max_status_line_length = value;
+        self.max_request_head = value;
     }
 
     pub fn set_max_header_line_length(&mut self, value: Option<usize>) {
@@ -137,15 +133,13 @@ impl ServerBuilder {
     pub fn build(self) -> Server<Router<Box<RouteFn>>> {
         Server {
             bind_addrs: self.bind_addrs,
-            thread_count: self.thread_count,
-            router: Arc::new(self.router.build()),
+            thread_count: self.thread_count.unwrap_or(DEFAULT_THREAD_COUNT),
             stream_setup_hook: self.stream_setup_hook,
             handler_config: Arc::new(HandlerConfig {
+                router: self.router.build(),
                 fallback_route: self.fallback_route,
                 pre_routing_hook: self.pre_routing_hook,
-                max_status_line_length: self.max_status_line_length,
-                max_header_line_length: self.max_header_line_length,
-                max_header_count: self.max_header_count,
+                max_request_head: self.max_request_head.unwrap_or(DEFAULT_MAX_REQUEST_HEAD),
             }),
         }
     }
@@ -176,18 +170,17 @@ where
                 },
             };
 
-            let router = self.router.clone();
             let config = self.handler_config.clone();
 
             pool.execute(move || {
-                let _ = handle_connection(stream, &router, config);
+                let _ = handle_connection(stream, config);
             });
         }
         Ok(())
     }
 
     pub fn handle(&self, stream: TcpStream) -> io::Result<()> {
-        handle_connection(stream, &self.router, self.handler_config.clone())
+        handle_connection(stream, self.handler_config.clone())
     }
 }
 
@@ -197,21 +190,11 @@ pub struct ResponseHandle<'a> {
 }
 
 impl ResponseHandle<'_> {
-    pub fn ok(&mut self, headers: Headers, body: impl Read) -> io::Result<()> {
+    pub fn ok(&mut self, headers: &Headers, body: impl Read) -> io::Result<()> {
         self.send(&Status::of(200), headers, body)
     }
 
-    pub fn send_chunked(
-        &mut self,
-        status: &Status,
-        mut headers: Headers,
-        body: impl Read,
-    ) -> io::Result<()> {
-        headers.set_transfer_encoding_chunked();
-        self.send(status, headers, body)
-    }
-
-    pub fn send(&mut self, status: &Status, headers: Headers, body: impl Read) -> io::Result<()> {
+    pub fn send(&mut self, status: &Status, headers: &Headers, body: impl Read) -> io::Result<()> {
         if headers.is_connection_close() {
             self.keep_alive = false;
         }
@@ -234,26 +217,26 @@ impl ResponseHandle<'_> {
 }
 
 pub struct RequestContext<'a, 'r> {
-    pub headers: Headers,
+    pub headers: Headers<'a>,
     pub method: Method,
     pub route_params: &'r HashMap<&'a str, &'r str>,
-    pub uri: &'r RequestUri,
+    pub uri: &'r RequestUri<'r>,
     pub http_version: &'r u8,
     pub conn: &'r ConnectionMeta,
-    body: BodyReader<TcpStream>,
+    body: BodyReader<'a, TcpStream>,
 }
 
-impl RequestContext<'_, '_> {
-    pub fn body(&mut self) -> &mut BodyReader<TcpStream> {
+impl<'a> RequestContext<'a, '_> {
+    pub fn body(&mut self) -> &mut BodyReader<'a, TcpStream> {
         &mut self.body
     }
 
     pub fn get_stream(&self) -> &TcpStream {
-        self.body.inner().get_ref()
+        self.body.inner()
     }
 
     pub fn get_stream_mut(&mut self) -> &mut TcpStream {
-        self.body.inner_mut().get_mut()
+        self.body.inner_mut()
     }
 }
 
@@ -285,76 +268,108 @@ impl ConnectionMeta {
     }
 }
 
-fn handle_connection<R>(
-    mut stream: TcpStream,
-    router: &Arc<R>,
-    config: Arc<HandlerConfig>,
-) -> io::Result<()>
+fn handle_connection<R>(mut stream: TcpStream, config: Arc<HandlerConfig<R>>) -> io::Result<()>
 where
     R: HttpRouter<Route = Box<RouteFn>>,
 {
     let mut connection_meta = ConnectionMeta::new();
+    let mut write_stream = stream.try_clone()?;
     loop {
         connection_meta.increment();
-        let keep_alive = handle_one_request(&mut stream, router, &config, &connection_meta)?;
+        let keep_alive =
+            handle_one_request(&mut stream, &mut write_stream, &config, &connection_meta)?;
         if !keep_alive {
             return Ok(());
         }
     }
 }
 
+pub fn parse_request(buf: &[u8]) -> Option<(Method, RequestUri<'_>, Headers<'_>, usize)> {
+    let mut req = Request::new();
+    let buf_offset = match req.parse(buf) {
+        Ok(o) => o,
+        Err(_) => {
+            return None;
+        }
+    };
+    Some((
+        req.method.unwrap(),
+        req.uri.unwrap(),
+        req.headers,
+        buf_offset,
+    ))
+}
+
+// HACK: thread-local buffer to avoid allocs/zeroing per request.
+// safe since each thread handles exactly one request at a time
+fn with_uninit_buffer<'a, F>(max_size: usize, read_fn: F) -> io::Result<Option<&'a [u8]>>
+where
+    F: FnOnce(&mut [u8]) -> io::Result<usize>,
+{
+    const DEFAULT_REQUEST_BUFFER_SIZE: usize = 4096;
+    thread_local! {
+        static REQUEST_BUFFER: std::cell::RefCell<Vec<std::mem::MaybeUninit<u8>>> =
+            std::cell::RefCell::new(Vec::with_capacity(DEFAULT_REQUEST_BUFFER_SIZE));
+    }
+
+    REQUEST_BUFFER.with(|cell| {
+        let mut vec = cell.borrow_mut();
+
+        if vec.len() != max_size {
+            vec.resize_with(max_size, std::mem::MaybeUninit::uninit);
+        }
+
+        // SAFETY: We're only treating the slice as `[u8]` temporarily for writing.
+        let buf = unsafe { std::slice::from_raw_parts_mut(vec.as_mut_ptr() as *mut u8, max_size) };
+
+        let bytes_read = read_fn(buf)?;
+        if bytes_read == 0 {
+            return Ok(None); // EOF
+        }
+
+        // SAFETY: Only the first `bytes_read` bytes are guaranteed initialized
+        let ret = unsafe { std::slice::from_raw_parts(vec.as_ptr() as *const u8, bytes_read) };
+
+        Ok(Some(ret))
+    })
+}
+
 /// returns whether to keep the stream alive for the next request
 fn handle_one_request<R>(
-    stream: &mut TcpStream,
-    router: &Arc<R>,
-    config: &HandlerConfig,
+    read_stream: &mut TcpStream,
+    write_stream: &mut TcpStream,
+    config: &HandlerConfig<R>,
     connection_meta: &ConnectionMeta,
 ) -> io::Result<bool>
 where
     R: HttpRouter<Route = Box<RouteFn>>,
 {
-    let read_stream = stream.try_clone()?;
-    let mut parts = match Parser::new(read_stream).parse_request(
-        &config.max_status_line_length,
-        &config.max_header_line_length,
-        &config.max_header_count,
-    ) {
-        Ok(p) => p,
-        Err(HttpParsingError::IOError(e)) if e.kind() == io::ErrorKind::WouldBlock => {
-            return Ok(true);
-        }
-        Err(HttpParsingError::UnexpectedEof) => return Ok(false),
-        Err(_) => {
-            HttpPrinter::new(stream).write_response(&Status::of(400), Headers::new(), &[][..])?;
-            return Ok(false);
-        }
+    let buf = match with_uninit_buffer(config.max_request_head, |buf| read_stream.read(buf))? {
+        Some(b) => b,
+        None => return Ok(false), // eof
+    };
+    let (method, uri, headers, buf_offset) = match parse_request(&buf) {
+        Some(x) => x,
+        None => return Ok(false), // TODO: reply with 400?
     };
 
     let mut response = ResponseHandle {
-        stream,
+        stream: write_stream,
         keep_alive: true,
     };
 
-    if let Some(hook) = &config.pre_routing_hook {
-        parts = match (hook)(parts, connection_meta, &mut response) {
-            PreRoutingAction::Proceed(p) => p,
-            PreRoutingAction::Skip => return Ok(true),
-            PreRoutingAction::Disconnect(r) => return r.map(|_| false),
-        };
-    }
-
-    let matched = router.match_route(&parts.method, parts.uri.path());
+    let matched = config.router.match_route(&method, uri.path());
     let (handler, params) = match &matched {
         Some(r) => (r.route, &r.params),
         None => (&config.fallback_route, &*EMPTY_PARAMS),
     };
 
-    let body = BodyReader::from(&parts.headers, parts.reader);
+    let body = BodyReader::from_request(&buf[buf_offset..], read_stream, &headers);
     let ctx = RequestContext {
-        method: parts.method,
-        headers: parts.headers,
-        uri: &parts.uri,
-        http_version: &parts.http_version,
+        method,
+        headers,
+        uri: &uri,
+        http_version: &1,
         route_params: params,
         conn: connection_meta,
         body,
@@ -390,18 +405,17 @@ where
         if epfd == -1 {
             return Err(io::Error::last_os_error());
         }
-        let epfd = Arc::new(epfd);
 
         let listener_fd = listener.as_raw_fd();
         let mut ev = epoll_event {
             events: (EPOLLIN | EPOLLET) as u32,
             u64: listener_fd as u64,
         };
-        if unsafe { epoll_ctl(*epfd, EPOLL_CTL_ADD, listener_fd, &mut ev) } == -1 {
+        if unsafe { epoll_ctl(epfd, EPOLL_CTL_ADD, listener_fd, &mut ev) } == -1 {
             return Err(io::Error::last_os_error());
         }
 
-        struct Connection(TcpStream, ConnectionMeta);
+        struct Connection(TcpStream, TcpStream, ConnectionMeta);
 
         const MAX_FDS: usize = 1024; // TODO: should equal rlim_cur
         let connections: Arc<[AtomicPtr<Connection>]> = Arc::from(
@@ -414,7 +428,7 @@ where
         let mut events = vec![epoll_event { events: 0, u64: 0 }; 1024];
 
         loop {
-            let n = unsafe { epoll_wait(*epfd, events.as_mut_ptr(), 1024, -1) };
+            let n = unsafe { epoll_wait(epfd, events.as_mut_ptr(), 1024, -1) };
             if n == -1 {
                 return Err(io::Error::last_os_error());
             }
@@ -444,13 +458,18 @@ where
                                     u64: client_fd as u64,
                                 };
 
-                                if unsafe { epoll_ctl(*epfd, EPOLL_CTL_ADD, client_fd, &mut ev) }
+                                if unsafe { epoll_ctl(epfd, EPOLL_CTL_ADD, client_fd, &mut ev) }
                                     == -1
                                 {
                                     continue;
                                 }
+                                let write_stream = stream.try_clone().unwrap();
 
-                                let conn = Box::new(Connection(stream, ConnectionMeta::new()));
+                                let conn = Box::new(Connection(
+                                    stream,
+                                    write_stream,
+                                    ConnectionMeta::new(),
+                                ));
                                 let ptr = Box::into_raw(conn);
                                 connections[client_fd as usize].store(ptr, Ordering::SeqCst);
                             }
@@ -463,10 +482,8 @@ where
                         continue;
                     }
 
-                    let router = Arc::clone(&self.router);
                     let config = Arc::clone(&self.handler_config);
                     let connections = Arc::clone(&connections);
-                    let epfd = Arc::clone(&epfd);
 
                     pool.execute(move || {
                         let conn_ptr = connections[fd as usize].swap(null_mut(), Ordering::SeqCst);
@@ -476,12 +493,13 @@ where
 
                         // SAFETY: pointer is uniquely owned
                         let mut conn = unsafe { Box::from_raw(conn_ptr) };
-                        conn.1.increment();
+                        conn.2.increment();
 
                         // SAFETY: (danger?)
                         // if handle_one_request panics, then EPOLL_CTL_DEL is not called -> test/document
-                        let keep_alive = handle_one_request(&mut conn.0, &router, &config, &conn.1)
-                            .unwrap_or(false);
+                        let keep_alive =
+                            handle_one_request(&mut conn.0, &mut conn.1, &config, &conn.2)
+                                .unwrap_or(false);
 
                         if keep_alive {
                             let ptr = Box::into_raw(conn);
@@ -492,11 +510,11 @@ where
                                 u64: fd as u64,
                             };
                             unsafe {
-                                epoll_ctl(*epfd, EPOLL_CTL_MOD, fd, &mut ev);
+                                epoll_ctl(epfd, EPOLL_CTL_MOD, fd, &mut ev);
                             }
                         } else {
                             unsafe {
-                                epoll_ctl(*epfd, EPOLL_CTL_DEL, fd, std::ptr::null_mut());
+                                epoll_ctl(epfd, EPOLL_CTL_DEL, fd, null_mut());
                             }
                             // SAFETY: conn pointer is deallocated
                         }
