@@ -225,11 +225,11 @@ pub struct RequestContext<'a, 'r> {
     pub uri: &'r RequestUri<'r>,
     pub http_version: &'r u8,
     pub conn: &'r ConnectionMeta,
-    body: BodyReader<'a, TcpStream>,
+    body: BodyReader<'a, &'a mut TcpStream>,
 }
 
 impl<'a> RequestContext<'a, '_> {
-    pub fn body(&mut self) -> &mut BodyReader<'a, TcpStream> {
+    pub fn body(&mut self) -> &mut BodyReader<'a, &'a mut TcpStream> {
         &mut self.body
     }
 

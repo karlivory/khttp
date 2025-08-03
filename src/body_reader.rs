@@ -12,11 +12,11 @@ enum BodyEncoding<'a, R> {
     Fixed(FixedReader<'a, R>),
     Chunked(ChunkedReader<'a, R>),
     Eof(BufReader<StreamWithLeftover<'a, R>>),
-    Empty(&'a mut R),
+    Empty(R),
 }
 
 impl<'a, R: Read> BodyReader<'a, R> {
-    pub fn from_request(leftover: &'a [u8], stream: &'a mut R, headers: &Headers) -> Self {
+    pub fn from_request(leftover: &'a [u8], stream: R, headers: &Headers) -> Self {
         if let Some(content_len) = headers.get_content_length() {
             if content_len > 0 {
                 Self::new_fixed(leftover, stream, content_len as usize)
@@ -31,7 +31,7 @@ impl<'a, R: Read> BodyReader<'a, R> {
     }
 
     #[inline]
-    pub fn new_fixed(leftover: &'a [u8], stream: &'a mut R, content_length: usize) -> Self {
+    pub fn new_fixed(leftover: &'a [u8], stream: R, content_length: usize) -> Self {
         Self(BodyEncoding::Fixed(FixedReader::new(
             leftover,
             stream,
@@ -40,12 +40,12 @@ impl<'a, R: Read> BodyReader<'a, R> {
     }
 
     #[inline]
-    pub fn new_chunked(leftover: &'a [u8], stream: &'a mut R) -> Self {
+    pub fn new_chunked(leftover: &'a [u8], stream: R) -> Self {
         Self(BodyEncoding::Chunked(ChunkedReader::new(leftover, stream)))
     }
 
     #[inline]
-    pub fn new_eof(leftover: &'a [u8], stream: &'a mut R) -> Self {
+    pub fn new_eof(leftover: &'a [u8], stream: R) -> Self {
         Self(BodyEncoding::Eof(BufReader::with_capacity(
             BUF_SIZE,
             StreamWithLeftover::new(leftover, stream),
@@ -53,7 +53,7 @@ impl<'a, R: Read> BodyReader<'a, R> {
     }
 
     #[inline]
-    pub fn new_empty(stream: &'a mut R) -> Self {
+    pub fn new_empty(stream: R) -> Self {
         Self(BodyEncoding::Empty(stream))
     }
 
@@ -141,11 +141,11 @@ impl<R: Read> BufRead for BodyReader<'_, R> {
 struct StreamWithLeftover<'a, R> {
     leftover: &'a [u8],
     offset: usize,
-    stream: &'a mut R,
+    stream: R,
 }
 
 impl<'a, R> StreamWithLeftover<'a, R> {
-    fn new(leftover: &'a [u8], stream: &'a mut R) -> Self {
+    fn new(leftover: &'a [u8], stream: R) -> Self {
         Self {
             leftover,
             offset: 0,
@@ -154,11 +154,11 @@ impl<'a, R> StreamWithLeftover<'a, R> {
     }
 
     pub fn inner_mut(&mut self) -> &mut R {
-        self.stream
+        &mut self.stream
     }
 
     pub fn inner(&self) -> &R {
-        self.stream
+        &self.stream
     }
 }
 
@@ -185,7 +185,7 @@ struct FixedReader<'a, R> {
 }
 
 impl<'a, R: Read> FixedReader<'a, R> {
-    fn new(leftover: &'a [u8], stream: &'a mut R, len: usize) -> Self {
+    fn new(leftover: &'a [u8], stream: R, len: usize) -> Self {
         Self {
             inner: BufReader::with_capacity(BUF_SIZE, StreamWithLeftover::new(leftover, stream)),
             remaining: len,
@@ -248,7 +248,7 @@ enum ChunkState {
 }
 
 impl<'a, R: Read> ChunkedReader<'a, R> {
-    fn new(leftover: &'a [u8], stream: &'a mut R) -> Self {
+    fn new(leftover: &'a [u8], stream: R) -> Self {
         Self {
             inner: BufReader::with_capacity(BUF_SIZE, StreamWithLeftover::new(leftover, stream)),
             state: ChunkState::Size,
