@@ -86,18 +86,12 @@ impl<T> HttpRouter for Router<T> {
         };
 
         #[allow(clippy::type_complexity)]
-        let mut matched: Vec<(
-            u16,
-            Precedence,
-            &Vec<RouteSegment>,
-            &T,
-            HashMap<&str, &str>,
-        )> = Vec::new();
+        let mut matched: Vec<(u16, Precedence, &Vec<RouteSegment>, &T, RouteParams)> = Vec::new();
 
         let mut max_lml = 0u16;
         for (RouteEntry(pattern), route) in routes.iter() {
             let mut uri_iter = uri.split('/');
-            let mut params = HashMap::new();
+            let mut params = RouteParams::new();
             let mut ok = true;
             let mut lml = 0u16;
             let mut counting_prefix = true;
@@ -178,7 +172,28 @@ impl<T> HttpRouter for Router<T> {
 #[derive(Debug, Clone)]
 pub struct Match<'a, 'r, T> {
     pub route: &'a T,
-    pub params: HashMap<&'a str, &'r str>,
+    pub params: RouteParams<'a, 'r>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RouteParams<'a, 'r>(Vec<(&'a str, &'r str)>);
+
+impl<'a, 'r> RouteParams<'a, 'r> {
+    pub fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    pub fn get(&self, key: &str) -> Option<&'r str> {
+        self.0.iter().find_map(|(k, v)| (*k == key).then_some(*v))
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&'a str, &'r str)> + '_ {
+        self.0.iter().copied()
+    }
+
+    pub fn insert(&mut self, key: &'a str, val: &'r str) {
+        self.0.push((key, val));
+    }
 }
 
 #[derive(Debug, Clone, Eq)]

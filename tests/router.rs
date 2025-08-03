@@ -306,8 +306,8 @@ fn assert_match_params(
     assert_eq!(m.route.0, expected_idx, "URI: {}", uri);
     for (k, v) in expected_params {
         assert_eq!(
-            m.params.get(*k).unwrap(),
-            v,
+            m.params.get(k).unwrap(),
+            *v,
             "param '{}' mismatch for {}",
             k,
             uri

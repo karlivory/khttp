@@ -1,11 +1,10 @@
 use crate::parser::Request;
-use crate::router::RouterBuilder;
+use crate::router::{RouteParams, RouterBuilder};
 use crate::threadpool::ThreadPool;
 use crate::{BodyReader, Headers, HttpPrinter, HttpRouter, Method, RequestUri, Router, Status};
-use std::collections::HashMap;
 use std::io::{self, Read};
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use std::time::Instant;
 
 const DEFAULT_THREAD_COUNT: usize = 20;
@@ -219,7 +218,7 @@ impl ResponseHandle<'_> {
 pub struct RequestContext<'a, 'r> {
     pub headers: Headers<'a>,
     pub method: Method,
-    pub route_params: &'r HashMap<&'a str, &'r str>,
+    pub route_params: &'r RouteParams<'a, 'r>,
     pub uri: &'r RequestUri<'r>,
     pub http_version: &'r u8,
     pub conn: &'r ConnectionMeta,
@@ -239,8 +238,6 @@ impl<'a> RequestContext<'a, '_> {
         self.body.inner_mut()
     }
 }
-
-static EMPTY_PARAMS: LazyLock<HashMap<&str, &str>> = LazyLock::new(HashMap::new);
 
 pub struct ConnectionMeta {
     index: usize,
@@ -348,7 +345,7 @@ where
         Some(b) => b,
         None => return Ok(false), // eof
     };
-    let (method, uri, headers, buf_offset) = match parse_request(&buf) {
+    let (method, uri, headers, buf_offset) = match parse_request(buf) {
         Some(x) => x,
         None => return Ok(false), // TODO: reply with 400?
     };
@@ -361,7 +358,7 @@ where
     let matched = config.router.match_route(&method, uri.path());
     let (handler, params) = match &matched {
         Some(r) => (r.route, &r.params),
-        None => (&config.fallback_route, &*EMPTY_PARAMS),
+        None => (&config.fallback_route, &RouteParams::new()),
     };
 
     let body = BodyReader::from_request(&buf[buf_offset..], read_stream, &headers);
