@@ -15,7 +15,9 @@ fn main() {
 
     // GET http://localhost:8080 should respond with "Hello, World!"
     app.route(Get, "/", |_, r| {
-        r.ok(Headers::empty(), &b"Hello, World!"[..])
+        let mut headers = Headers::new();
+        headers.add("Server", b"khttp");
+        r.ok(&headers, &b"Hello, World!"[..])
     });
 
     app.build().serve_epoll().unwrap();
