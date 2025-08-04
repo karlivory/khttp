@@ -6,7 +6,7 @@ use std::{io, thread};
 use crate::args_parser::{ServerConfig, ServerOp};
 use khttp::Router;
 use khttp::{Headers, Method, Status};
-use khttp::{RequestContext, ResponseHandle, RouteFn, Server, ServerBuilder, StreamSetupAction};
+use khttp::{RequestContext, ResponseHandle, Server, ServerBuilder, StreamSetupAction};
 
 pub fn run(op: ServerOp) {
     match op {

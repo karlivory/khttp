@@ -263,14 +263,13 @@ fn assert_parse_request_ok(
     body: &str,
 ) {
     let buf = input.as_bytes();
-    let mut req = Request::new();
-    let n = req.parse(buf).expect("should parse");
-    assert_eq!(req.method.unwrap(), method);
-    assert_eq!(req.uri.unwrap().full(), uri);
+    let req = Request::parse(buf).expect("should parse");
+    assert_eq!(req.method, method);
+    assert_eq!(req.uri.full(), uri);
     assert_eq!(req.headers, Headers::from(headers));
 
     let mut body_reader = MockReader {
-        body: &buf[n..],
+        body: &buf[req.buf_offset..],
         read: false,
     };
     let mut actual = String::new();
@@ -280,8 +279,7 @@ fn assert_parse_request_ok(
 
 fn assert_parse_request_err(input: &str, expected: HttpParsingError) {
     let buf = input.as_bytes();
-    let mut req = Request::new();
-    let result = req.parse(buf);
+    let result = Request::parse(buf);
     assert_eq!(result.unwrap_err(), expected);
 }
 
@@ -293,15 +291,13 @@ fn assert_parse_response_ok(
     body: &str,
 ) {
     let buf = input.as_bytes();
-    let mut res = Response::new();
-    let n = res.parse(buf).expect("should parse");
-    let status = res.status.as_ref().unwrap();
-    assert_eq!(status.code, code);
-    assert_eq!(status.reason, reason);
+    let res = Response::parse(buf).expect("should parse");
+    assert_eq!(res.status.code, code);
+    assert_eq!(res.status.reason, reason);
     assert_eq!(res.headers, Headers::from(headers));
 
     let mut reader = MockReader {
-        body: &buf[n..],
+        body: &buf[res.buf_offset..],
         read: false,
     };
     let mut out = String::new();
@@ -311,8 +307,7 @@ fn assert_parse_response_ok(
 
 fn assert_parse_response_err(input: &str, expected: HttpParsingError) {
     let buf = input.as_bytes();
-    let mut res = Response::new();
-    let result = res.parse(buf);
+    let result = Response::parse(buf);
     assert_eq!(result.unwrap_err(), expected);
 }
 

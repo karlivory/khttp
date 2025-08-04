@@ -284,22 +284,6 @@ where
     }
 }
 
-pub fn parse_request(buf: &[u8]) -> Option<(Method, RequestUri<'_>, Headers<'_>, usize)> {
-    let mut req = Request::new();
-    let buf_offset = match req.parse(buf) {
-        Ok(o) => o,
-        Err(_) => {
-            return None;
-        }
-    };
-    Some((
-        req.method.unwrap(),
-        req.uri.unwrap(),
-        req.headers,
-        buf_offset,
-    ))
-}
-
 // HACK: thread-local buffer to avoid allocs/zeroing per request.
 // safe since each thread handles exactly one request at a time
 fn with_uninit_buffer<'a, F>(max_size: usize, read_fn: F) -> io::Result<Option<&'a [u8]>>
@@ -348,9 +332,9 @@ where
         Some(b) => b,
         None => return Ok(false), // eof
     };
-    let (method, uri, headers, buf_offset) = match parse_request(buf) {
-        Some(x) => x,
-        None => return Ok(false), // TODO: reply with 400?
+    let request = match Request::parse(buf) {
+        Ok(x) => x,
+        Err(_) => return Ok(false), // TODO: reply with 400?
     };
 
     let mut response = ResponseHandle {
@@ -358,17 +342,19 @@ where
         keep_alive: true,
     };
 
-    let matched = config.router.match_route(&method, uri.path());
+    let matched = config
+        .router
+        .match_route(&request.method, request.uri.path());
     let (handler, params) = match &matched {
         Some(r) => (r.route, &r.params),
         None => (&config.fallback_route, &RouteParams::new()),
     };
 
-    let body = BodyReader::from_request(&buf[buf_offset..], read_stream, &headers);
+    let body = BodyReader::from_request(&buf[request.buf_offset..], read_stream, &request.headers);
     let ctx = RequestContext {
-        method,
-        headers,
-        uri: &uri,
+        method: request.method,
+        headers: request.headers,
+        uri: &request.uri,
         http_version: &1,
         route_params: params,
         conn: connection_meta,

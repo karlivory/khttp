@@ -167,16 +167,15 @@ impl ClientRequestTcpStream {
         if let Ok(0) = self.stream.read(buf) {
             return Err(ClientError::UnexpectedEof);
         }
-        let mut response = Response::new();
-        let buf_offset = match response.parse(buf) {
+        let res = match Response::parse(buf) {
             Ok(o) => o,
             Err(e) => return Err(ClientError::ParsingFailure(e)),
         };
-        let body = BodyReader::from_request(&buf[buf_offset..], self.stream, &response.headers);
+        let body = BodyReader::from_request(&buf[res.buf_offset..], self.stream, &res.headers);
 
         Ok(ClientResponseHandle {
-            headers: response.headers,
-            status: response.status.unwrap(),
+            headers: res.headers,
+            status: res.status,
             body,
         })
     }

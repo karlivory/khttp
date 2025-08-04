@@ -7,67 +7,54 @@ use std::{
 
 #[derive(Debug)]
 pub struct Response<'b> {
-    pub http_version: Option<u8>,
-    pub status: Option<Status>,
+    pub http_version: u8,
+    pub status: Status,
     pub headers: Headers<'b>,
+    pub buf_offset: usize,
 }
 
 #[derive(Debug)]
 pub struct Request<'b> {
-    pub method: Option<Method>,
-    pub uri: Option<RequestUri<'b>>,
-    pub http_version: Option<u8>,
+    pub method: Method,
+    pub uri: RequestUri<'b>,
+    pub http_version: u8,
     pub headers: Headers<'b>,
+    pub buf_offset: usize,
 }
 
 impl<'b> Response<'b> {
-    pub fn new() -> Response<'b> {
-        Response {
-            http_version: None,
-            status: None,
-            headers: Headers::new(),
-        }
-    }
-
-    pub fn parse(&mut self, buf: &'b [u8]) -> Result<usize, HttpParsingError> {
+    pub fn parse(buf: &'b [u8]) -> Result<Response<'b>, HttpParsingError> {
         let start = buf.len();
-        let (version, status, rest) = parse_response_status_line(buf)?;
+        let (http_version, status, rest) = parse_response_status_line(buf)?;
         let (headers, rest) = parse_headers(rest)?;
 
-        self.http_version = Some(version);
-        self.status = Some(status);
-        self.headers = headers;
-
         // return buf offset
-        Ok(start - rest.len())
+        Ok(Response {
+            http_version,
+            status,
+            headers,
+            buf_offset: start - rest.len(),
+        })
     }
 }
 
 impl<'b> Request<'b> {
-    pub fn new() -> Request<'b> {
-        Request {
-            method: None,
-            uri: None,
-            http_version: None,
-            headers: Headers::new(),
-        }
-    }
-
-    pub fn parse(&mut self, buf: &'b [u8]) -> Result<usize, HttpParsingError> {
+    pub fn parse(buf: &'b [u8]) -> Result<Request<'b>, HttpParsingError> {
         let start = buf.len();
         let (method, rest) = parse_method(buf)?;
         let (uri, rest) = parse_uri(rest)?;
-        let (version, rest) = parse_version(rest)?;
+        let (http_version, rest) = parse_version(rest)?;
         let rest = rest.get(2..).ok_or(HttpParsingError::UnexpectedEof)?; // skip \r\n
         let (headers, rest) = parse_headers(rest)?;
 
-        self.method = Some(method);
-        self.uri = Some(uri);
-        self.http_version = Some(version);
-        self.headers = headers;
-
         // return buf offset
-        Ok(start - rest.len())
+        Ok(Request {
+            method,
+            uri,
+            http_version,
+            headers,
+            buf_offset: start - rest.len(),
+        })
     }
 }
 

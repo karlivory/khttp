@@ -191,9 +191,7 @@ fn main() {
             let raw = b"GET /foo/bar HTTP/1.1\r\nHost: example.com\r\n\r\n";
             group.bench_function(BenchmarkId::new("complex", "GET /foo/bar"), |b| {
                 b.iter(|| {
-                    khttp::Request::new()
-                        .parse(std::hint::black_box(&raw[..]))
-                        .unwrap();
+                    khttp::Request::parse(std::hint::black_box(&raw[..])).unwrap();
                 });
             });
         }),
@@ -281,12 +279,7 @@ Accept: */*\r\n",
             let raw = make_long_request();
             group.bench_function(BenchmarkId::new("long", "GET /long"), |b| {
                 b.iter(|| {
-                    khttp::Request::new()
-                        .parse(std::hint::black_box(&raw[..]))
-                        .unwrap();
-                    // let _ = Parser::new(std::hint::black_box(&raw[..]))
-                    //     .parse_request(&None, &None, &None)
-                    //     .unwrap();
+                    khttp::Request::parse(std::hint::black_box(&raw[..])).unwrap();
                 });
             });
         }),

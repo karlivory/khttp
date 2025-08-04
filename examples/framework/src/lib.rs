@@ -59,7 +59,7 @@ fn trailing_slash_redirect()
 + Sync
 + 'static {
     move |req, _, response| {
-        let original_path = req.uri.as_ref().unwrap().path();
+        let original_path = req.uri.path();
         if original_path != "/" && original_path.ends_with('/') {
             let trimmed = original_path.trim_end_matches('/');
             let mut headers = Headers::new();
