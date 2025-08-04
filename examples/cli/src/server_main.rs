@@ -4,7 +4,6 @@ use std::time::Duration;
 use std::{io, thread};
 
 use crate::args_parser::{ServerConfig, ServerOp};
-use khttp::Router;
 use khttp::{Headers, Method, Status};
 use khttp::{RequestContext, ResponseHandle, Server, ServerBuilder, StreamSetupAction};
 

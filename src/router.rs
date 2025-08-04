@@ -28,7 +28,7 @@ pub struct Router<T> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct RouteEntry(Vec<RouteSegment>);
+struct RouteEntry(Vec<RouteSegment>);
 
 impl<T> RouterBuilder<T> {
     pub fn new() -> Self {
@@ -196,8 +196,14 @@ impl<'a, 'r> RouteParams<'a, 'r> {
     }
 }
 
+impl Default for RouteParams<'_, '_> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone, Eq)]
-pub enum RouteSegment {
+enum RouteSegment {
     Literal(String),
     Param(String),
     Wildcard,
@@ -239,7 +245,7 @@ fn parse_route_segment(s: &str) -> RouteSegment {
     }
 }
 
-pub fn parse_route(mut route_str: &str) -> RouteEntry {
+fn parse_route(mut route_str: &str) -> RouteEntry {
     if route_str.starts_with("/") {
         route_str = &route_str[1..];
     }

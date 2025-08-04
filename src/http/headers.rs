@@ -12,6 +12,7 @@ pub struct Headers<'a> {
     connection_values: Vec<u8>,
 }
 
+static HEADERS_VEC_INIT_CAPACITY: usize = 16; // rough guess, could be benchmarked
 pub static EMPTY_HEADERS: LazyLock<Headers<'static>> = LazyLock::new(Headers::new);
 
 impl<'a> Headers<'a> {
@@ -21,7 +22,7 @@ impl<'a> Headers<'a> {
 
     pub fn new() -> Self {
         Self {
-            headers: Vec::with_capacity(16),
+            headers: Vec::with_capacity(HEADERS_VEC_INIT_CAPACITY),
             content_length: None,
             transfer_encoding: Vec::new(),
             chunked: false,
@@ -46,9 +47,10 @@ impl<'a> Headers<'a> {
         let name = name.into();
         let value = value.into();
 
+        // TODO: only trim OWS (SP/HTAB), trim_ascii* is too permissive
         if name.eq_ignore_ascii_case(Self::CONTENT_LENGTH) {
             if let Ok(s) = std::str::from_utf8(&value) {
-                self.content_length = s.trim().parse().ok();
+                self.content_length = s.trim_ascii().parse().ok();
             }
             return;
         } else if name.eq_ignore_ascii_case(Self::TRANSFER_ENCODING) {

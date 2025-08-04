@@ -113,14 +113,14 @@ struct ClientRequestTcpStream {
     stream: TcpStream,
 }
 
-pub struct ClientResponseHandle<'a> {
-    pub headers: Headers<'a>,
+pub struct ClientResponseHandle<'r> {
+    pub headers: Headers<'r>,
     pub status: Status,
-    body: BodyReader<'a, TcpStream>,
+    body: BodyReader<'r, TcpStream>,
 }
 
-impl<'a> ClientResponseHandle<'a> {
-    pub fn body(&mut self) -> &mut BodyReader<'a, TcpStream> {
+impl<'r> ClientResponseHandle<'r> {
+    pub fn body(&mut self) -> &mut BodyReader<'r, TcpStream> {
         &mut self.body
     }
 
@@ -136,7 +136,7 @@ impl<'a> ClientResponseHandle<'a> {
         self.stream_mut().shutdown(std::net::Shutdown::Both)
     }
 
-    pub fn into_parts(self) -> (Status, Headers<'a>, BodyReader<'a, TcpStream>) {
+    pub fn into_parts(self) -> (Status, Headers<'r>, BodyReader<'r, TcpStream>) {
         (self.status, self.headers, self.body)
     }
 }

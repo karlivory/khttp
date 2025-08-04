@@ -191,14 +191,14 @@ const fn make_header_field_byte_mask() -> [bool; 256] {
 static HEADER_FIELD_BYTE_MASK: [bool; 256] = make_header_field_byte_mask();
 
 #[inline(always)]
-pub fn is_valid_header_field_byte(b: u8) -> bool {
+fn is_valid_header_field_byte(b: u8) -> bool {
     HEADER_FIELD_BYTE_MASK[b as usize]
 }
 
 static URI_BYTE_MASK: [bool; 256] = make_uri_byte_mask();
 
 #[inline(always)]
-pub fn is_valid_uri_byte(b: u8) -> bool {
+fn is_valid_uri_byte(b: u8) -> bool {
     URI_BYTE_MASK[b as usize]
 }
 

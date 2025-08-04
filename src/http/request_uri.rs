@@ -16,10 +16,6 @@ impl<'a> RequestUri<'a> {
         }
     }
 
-    pub fn full(&self) -> &str {
-        &self.full
-    }
-
     pub fn as_str(&self) -> &str {
         self.full
     }

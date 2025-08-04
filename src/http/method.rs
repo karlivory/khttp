@@ -46,7 +46,7 @@ impl Method {
             Method::Custom(s) => s.as_str(),
         }
     }
-    pub fn index(&self) -> usize {
+    pub(crate) fn index(&self) -> usize {
         match self {
             Method::Get => 0,
             Method::Post => 1,

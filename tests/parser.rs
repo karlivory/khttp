@@ -265,7 +265,7 @@ fn assert_parse_request_ok(
     let buf = input.as_bytes();
     let req = Request::parse(buf).expect("should parse");
     assert_eq!(req.method, method);
-    assert_eq!(req.uri.full(), uri);
+    assert_eq!(req.uri.as_str(), uri);
     assert_eq!(req.headers, Headers::from(headers));
 
     let mut body_reader = MockReader {
