@@ -6,6 +6,7 @@ use std::mem::MaybeUninit;
 use std::net::TcpStream;
 
 static MAX_RESPONSE_HEAD: usize = 8196;
+
 pub struct Client {
     address: String,
     req_buf: MaybeUninit<[u8; MAX_RESPONSE_HEAD]>,
@@ -112,7 +113,6 @@ struct ClientRequestTcpStream {
     stream: TcpStream,
 }
 
-// #[derive(Debug, Clone, PartialEq)]
 pub struct ClientResponseHandle<'a> {
     pub headers: Headers<'a>,
     pub status: Status,
@@ -135,11 +135,9 @@ impl<'a> ClientResponseHandle<'a> {
     pub fn close_connection(&mut self) -> io::Result<()> {
         self.stream_mut().shutdown(std::net::Shutdown::Both)
     }
-}
 
-impl Drop for ClientResponseHandle<'_> {
-    fn drop(&mut self) {
-        self.close_connection().ok();
+    pub fn into_parts(self) -> (Status, Headers<'a>, BodyReader<'a, TcpStream>) {
+        (self.status, self.headers, self.body)
     }
 }
 
@@ -173,6 +171,7 @@ impl ClientRequestTcpStream {
 
         // safety: we're gonna read n<=MAX_RESPONSE_HEAD bytes, and only use those
         let buf = unsafe { std::slice::from_raw_parts_mut(buf_ptr, MAX_RESPONSE_HEAD) };
+
         let n = match self.stream.read(buf) {
             Ok(0) => return Err(ClientError::UnexpectedEof),
             Ok(n) => n,

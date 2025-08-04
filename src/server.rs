@@ -219,16 +219,16 @@ impl ResponseHandle<'_> {
 }
 
 pub struct RequestContext<'a, 'r> {
-    pub headers: Headers<'a>,
     pub method: Method,
-    pub route_params: &'r RouteParams<'a, 'r>,
     pub uri: &'r RequestUri<'r>,
+    pub headers: Headers<'a>,
+    pub route_params: &'r RouteParams<'a, 'r>,
     pub http_version: &'r u8,
     pub conn: &'r ConnectionMeta,
     body: BodyReader<'a, &'a mut TcpStream>,
 }
 
-impl<'a> RequestContext<'a, '_> {
+impl<'a, 'r> RequestContext<'a, 'r> {
     pub fn body(&mut self) -> &mut BodyReader<'a, &'a mut TcpStream> {
         &mut self.body
     }
@@ -239,6 +239,28 @@ impl<'a> RequestContext<'a, '_> {
 
     pub fn get_stream_mut(&mut self) -> &mut TcpStream {
         self.body.inner_mut()
+    }
+
+    pub fn into_parts(
+        self,
+    ) -> (
+        Method,
+        &'r RequestUri<'r>,
+        Headers<'a>,
+        &'r RouteParams<'a, 'r>,
+        &'r u8,
+        &'r ConnectionMeta,
+        BodyReader<'a, &'a mut TcpStream>,
+    ) {
+        (
+            self.method,
+            self.uri,
+            self.headers,
+            self.route_params,
+            self.http_version,
+            self.conn,
+            self.body,
+        )
     }
 }
 
