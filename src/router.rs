@@ -9,32 +9,31 @@ use std::{
 pub trait HttpRouter {
     type Route;
 
-    fn match_route<'a, 'r>(
-        &'a self,
-        method: &Method,
-        path: &'r str,
-    ) -> Option<Match<'a, 'r, Self::Route>>;
+    fn match_route<'a, 'r>(&'a self, method: &Method, path: &'r str) -> Match<'a, 'r, Self::Route>;
 }
 
 #[derive(Default)]
 pub struct RouterBuilder<T> {
     standard_methods: [HashMap<RouteEntry, T>; 8],
     extensions: HashMap<String, HashMap<RouteEntry, T>>,
+    fallback_route: T,
 }
 
 pub struct Router<T> {
     standard_methods: [Vec<(RouteEntry, T)>; 8],
     extensions: HashMap<String, Vec<(RouteEntry, T)>>,
+    fallback_route: T,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct RouteEntry(Vec<RouteSegment>);
 
 impl<T> RouterBuilder<T> {
-    pub fn new() -> Self {
+    pub fn new(fallback_route: T) -> Self {
         Self {
             standard_methods: from_fn(|_| HashMap::new()),
             extensions: HashMap::new(),
+            fallback_route,
         }
     }
     pub fn add_route(&mut self, method: &Method, path: &str, route: T) {
@@ -47,6 +46,10 @@ impl<T> RouterBuilder<T> {
                 .insert(route_entry, route),
             _ => self.standard_methods[method.index()].insert(route_entry, route),
         };
+    }
+
+    pub fn set_fallback_route(&mut self, route: T) {
+        self.fallback_route = route;
     }
 
     pub fn build(self) -> Router<T> {
@@ -64,6 +67,7 @@ impl<T> RouterBuilder<T> {
         Router {
             standard_methods,
             extensions,
+            fallback_route: self.fallback_route,
         }
     }
 }
@@ -75,13 +79,16 @@ impl<T> HttpRouter for Router<T> {
         &'a self,
         method: &Method,
         mut uri: &'r str,
-    ) -> Option<Match<'a, 'r, Self::Route>> {
+    ) -> Match<'a, 'r, Self::Route> {
         if uri.starts_with("/") {
             uri = &uri[1..];
         }
 
         let routes = match method {
-            Method::Custom(x) => self.extensions.get(x)?,
+            Method::Custom(x) => match self.extensions.get(x) {
+                Some(r) => r,
+                None => return Match::no_params(&self.fallback_route),
+            },
             _ => &self.standard_methods[method.index()],
         };
 
@@ -146,7 +153,7 @@ impl<T> HttpRouter for Router<T> {
                         .iter()
                         .all(|s| matches!(s, RouteSegment::Literal(_)))
                 {
-                    return Some(Match { route, params });
+                    return Match::new(route, params);
                 }
 
                 max_lml = max(max_lml, lml);
@@ -157,15 +164,12 @@ impl<T> HttpRouter for Router<T> {
 
         matched.retain(|(l, _, _, _, _)| *l == max_lml);
         if matched.is_empty() {
-            return None;
+            return Match::no_params(&self.fallback_route);
         }
 
         matched.sort_by(|a, b| b.1.cmp(&a.1));
         let (_, _, _, best_route, params) = matched.remove(0);
-        Some(Match {
-            route: best_route,
-            params,
-        })
+        Match::new(best_route, params)
     }
 }
 
@@ -173,6 +177,19 @@ impl<T> HttpRouter for Router<T> {
 pub struct Match<'a, 'r, T> {
     pub route: &'a T,
     pub params: RouteParams<'a, 'r>,
+}
+
+impl<'a, 'r, T> Match<'a, 'r, T> {
+    pub fn new(route: &'a T, params: RouteParams<'a, 'r>) -> Self {
+        Match { route, params }
+    }
+
+    pub fn no_params(route: &'a T) -> Self {
+        Match {
+            route,
+            params: RouteParams::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -31,8 +31,9 @@ impl Server<Router<Box<RouteFn>>> {
 
         Ok(ServerBuilder {
             bind_addrs,
-            router: RouterBuilder::<Box<RouteFn>>::new(),
-            fallback_route: Box::new(|_, r| r.send(&Status::NOT_FOUND, Headers::empty(), &[][..])),
+            router: RouterBuilder::<Box<RouteFn>>::new(Box::new(|_, r| {
+                r.send(&Status::NOT_FOUND, Headers::empty(), &[][..])
+            })),
             thread_count: None,
             stream_setup_hook: None,
             pre_routing_hook: None,
@@ -43,7 +44,6 @@ impl Server<Router<Box<RouteFn>>> {
 }
 
 struct HandlerConfig<R> {
-    fallback_route: Box<RouteFn>,
     router: R,
     pre_routing_hook: Option<Box<PreRoutingHookFn>>, // TODO: implement
     max_request_head: usize,
@@ -71,7 +71,6 @@ pub enum PreRoutingAction {
 pub struct ServerBuilder {
     bind_addrs: Vec<SocketAddr>,
     router: RouterBuilder<Box<RouteFn>>,
-    fallback_route: Box<RouteFn>,
     stream_setup_hook: Option<Box<StreamSetupFn>>,
     pre_routing_hook: Option<Box<PreRoutingHookFn>>,
     thread_count: Option<usize>,
@@ -116,7 +115,7 @@ impl ServerBuilder {
     where
         F: Fn(RequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync + 'static,
     {
-        self.fallback_route = Box::new(f);
+        self.router.set_fallback_route(Box::new(f));
         self
     }
 
@@ -137,7 +136,6 @@ impl ServerBuilder {
             stream_setup_hook: self.stream_setup_hook,
             handler_config: Arc::new(HandlerConfig {
                 router: self.router.build(),
-                fallback_route: self.fallback_route,
                 pre_routing_hook: self.pre_routing_hook,
                 max_request_head: self
                     .max_request_head_size
@@ -156,7 +154,6 @@ impl ServerBuilder {
             stream_setup_hook: self.stream_setup_hook,
             handler_config: Arc::new(HandlerConfig {
                 router,
-                fallback_route: self.fallback_route,
                 pre_routing_hook: self.pre_routing_hook,
                 max_request_head: self
                     .max_request_head_size
@@ -383,13 +380,9 @@ where
         keep_alive: true,
     };
 
-    let matched = config
+    let matched_route = config
         .router
         .match_route(&request.method, request.uri.path());
-    let (handler, params) = match matched {
-        Some(r) => (r.route, r.params),
-        None => (&config.fallback_route, RouteParams::new()),
-    };
 
     let body = BodyReader::from_request(&buf[request.buf_offset..], read_stream, &request.headers);
     let ctx = RequestContext {
@@ -397,13 +390,13 @@ where
         headers: request.headers,
         uri: &request.uri,
         http_version: request.http_version,
-        route_params: &params,
+        route_params: &matched_route.params,
         conn: connection_meta,
         body,
     };
 
     let client_requested_close = ctx.headers.is_connection_close();
-    (handler)(ctx, &mut response)?;
+    (matched_route.route)(ctx, &mut response)?;
 
     if client_requested_close {
         return Ok(false);

@@ -277,7 +277,7 @@ type MockRouterBuilder = RouterBuilder<(usize, &'static str)>;
 type MockRouter = Router<(usize, &'static str)>;
 
 fn new_router() -> MockRouterBuilder {
-    MockRouterBuilder::new()
+    MockRouterBuilder::new((404, "/404"))
 }
 
 fn add_routes(router: &mut MockRouterBuilder, method: &Method, routes: &[(&'static str, usize)]) {
@@ -287,9 +287,7 @@ fn add_routes(router: &mut MockRouterBuilder, method: &Method, routes: &[(&'stat
 }
 
 fn assert_match(router: &MockRouter, method: &Method, uri: &str, expected_idx: usize) {
-    let m = router
-        .match_route(method, uri)
-        .unwrap_or_else(|| panic!("expected match for URI {}", uri));
+    let m = router.match_route(method, uri);
     assert_eq!(m.route.0, expected_idx, "URI: {}", uri);
 }
 
@@ -300,9 +298,7 @@ fn assert_match_params(
     expected_idx: usize,
     expected_params: &[(&str, &str)],
 ) {
-    let m = router
-        .match_route(method, uri)
-        .unwrap_or_else(|| panic!("expected match for URI {}", uri));
+    let m = router.match_route(method, uri);
     assert_eq!(m.route.0, expected_idx, "URI: {}", uri);
     for (k, v) in expected_params {
         assert_eq!(
@@ -317,7 +313,7 @@ fn assert_match_params(
 
 fn assert_404(router: &MockRouter, method: &Method, uri: &str) {
     assert!(
-        router.match_route(method, uri).is_none(),
+        router.match_route(method, uri).route.0 == 404,
         "expected 404 for URI {}",
         uri
     );

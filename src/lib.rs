@@ -11,7 +11,7 @@ pub use body_reader::BodyReader;
 pub use http::{Headers, Method, RequestUri, Status};
 pub use parser::{HttpParsingError, Request, Response};
 pub use printer::HttpPrinter;
-pub use router::{HttpRouter, Router, RouterBuilder};
+pub use router::{HttpRouter, Match, RouteParams, Router, RouterBuilder};
 pub use server::{
     ConnectionMeta, PreRoutingAction, PreRoutingHookFn, RequestContext, ResponseHandle, RouteFn,
     Server, ServerBuilder, StreamSetupAction, StreamSetupFn,
