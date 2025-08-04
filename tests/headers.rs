@@ -10,6 +10,26 @@ fn test_add_and_get() {
 }
 
 #[test]
+fn test_replace() {
+    let mut headers = Headers::new();
+    headers.add("Some-Header", b"old value");
+    headers.replace("Some-Header", b"new value");
+
+    let value = std::str::from_utf8(headers.get("some-header").unwrap()).unwrap();
+    assert_eq!(value, "new value");
+}
+
+#[test]
+fn test_remove() {
+    let mut headers = Headers::new();
+    headers.add("Some-Header", b"value 1");
+    headers.add("Some-Header", b"value 2");
+    assert!(headers.get("some-header").is_some());
+    headers.remove("Some-Header");
+    assert!(headers.get("some-header").is_none());
+}
+
+#[test]
 fn test_transfer_encoding_is_set() {
     let mut headers = Headers::new();
     headers.set_transfer_encoding_chunked();

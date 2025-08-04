@@ -470,8 +470,8 @@ fn get_base_headers() -> Headers<'static> {
     let now = chrono::Utc::now();
     let mut headers = Headers::new();
     let date_str = now.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
-    headers.set("date", date_str.into_bytes());
-    headers.set(Headers::CONTENT_TYPE, b"text/plain; charset=utf-8");
+    headers.replace("date", date_str.into_bytes());
+    headers.replace(Headers::CONTENT_TYPE, b"text/plain; charset=utf-8");
     headers
 }
 
@@ -480,8 +480,8 @@ fn respond_hello(res: &mut ResponseHandle) -> io::Result<()> {
     let now = chrono::Utc::now();
     let mut headers = Headers::new();
     let date_str = now.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
-    headers.set("date", date_str.as_bytes());
-    headers.set(Headers::CONTENT_TYPE, b"text/plain; charset=utf-8");
+    headers.replace("date", date_str.as_bytes());
+    headers.replace(Headers::CONTENT_TYPE, b"text/plain; charset=utf-8");
     res.ok(&headers, msg.as_bytes())
 }
 
@@ -491,8 +491,8 @@ fn respond_longheader(res: &mut ResponseHandle) -> io::Result<()> {
     let now = chrono::Utc::now();
     let mut headers = Headers::new();
     let date_str = now.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
-    headers.set("date", date_str.as_bytes());
-    headers.set(Headers::CONTENT_TYPE, b"text/plain; charset=utf-8");
+    headers.replace("date", date_str.as_bytes());
+    headers.replace(Headers::CONTENT_TYPE, b"text/plain; charset=utf-8");
 
     // let mut headers = get_base_headers();
     // for i in 0..50 {
@@ -519,8 +519,8 @@ fn respond_heavy(res: &mut ResponseHandle) -> io::Result<()> {
     let now = chrono::Utc::now();
     let mut headers = Headers::new();
     let date_str = now.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
-    headers.set("date", date_str.as_bytes());
-    headers.set(Headers::CONTENT_TYPE, b"text/plain; charset=utf-8");
+    headers.replace("date", date_str.as_bytes());
+    headers.replace(Headers::CONTENT_TYPE, b"text/plain; charset=utf-8");
 
     // let mut headers = get_base_headers();
     headers.set_content_length(Some(msg.len() as u64));
@@ -533,8 +533,8 @@ fn respond_chunked(res: &mut ResponseHandle) -> io::Result<()> {
     let now = chrono::Utc::now();
     let mut headers = Headers::new();
     let date_str = now.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
-    headers.set("date", date_str.as_bytes());
-    headers.set(Headers::CONTENT_TYPE, b"text/plain; charset=utf-8");
+    headers.replace("date", date_str.as_bytes());
+    headers.replace(Headers::CONTENT_TYPE, b"text/plain; charset=utf-8");
     headers.set_transfer_encoding_chunked();
 
     res.send(&Status::of(200), &headers, msg)

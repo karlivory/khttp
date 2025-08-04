@@ -212,7 +212,7 @@ fn add_content_length_header(buf: &mut Vec<u8>, value: u64) {
 
 #[inline]
 fn add_headers<R: Read>(buf: &mut Vec<u8>, headers: &Headers, strat: &BodyStrategy<R>) {
-    for (name, value) in headers.get_all() {
+    for (name, value) in headers.iter() {
         buf.extend_from_slice(name.as_bytes());
         buf.extend_from_slice(b": ");
         buf.extend_from_slice(value);

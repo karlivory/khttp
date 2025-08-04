@@ -21,7 +21,7 @@ fn main() {
 
     app.route(Get, "/**", |_, r| {
         let mut headers = Headers::new();
-        headers.set("Content-Type", b"text/html; charset=utf-8");
+        headers.add("Content-Type", b"text/html; charset=utf-8");
         r.ok(&headers, INDEX_HTML)
     });
 

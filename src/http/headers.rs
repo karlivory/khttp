@@ -31,8 +31,12 @@ impl<'a> Headers<'a> {
         }
     }
 
-    pub fn get_all(&self) -> &[(Cow<'a, str>, Cow<'a, [u8]>)] {
-        &self.headers
+    pub fn iter(&self) -> std::slice::Iter<'_, (Cow<'a, str>, Cow<'a, [u8]>)> {
+        self.headers.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, (Cow<'a, str>, Cow<'a, [u8]>)> {
+        self.headers.iter_mut()
     }
 
     pub fn get_count(&self) -> usize {
@@ -96,7 +100,13 @@ impl<'a> Headers<'a> {
             .map(|(_, v)| v.as_ref())
     }
 
-    pub fn set<N, V>(&mut self, name: N, value: V)
+    pub fn get_all(&self, name: &str) -> impl Iterator<Item = &(Cow<'a, str>, Cow<'a, [u8]>)> {
+        self.headers
+            .iter()
+            .filter(move |(k, _)| k.as_ref().eq_ignore_ascii_case(name))
+    }
+
+    pub fn replace<N, V>(&mut self, name: N, value: V)
     where
         N: Into<Cow<'a, str>>,
         V: Into<Cow<'a, [u8]>>,
@@ -104,32 +114,22 @@ impl<'a> Headers<'a> {
         let name = name.into();
         let value = value.into();
 
-        self.headers.retain(|(k, _)| !k.eq_ignore_ascii_case(&name));
-
-        if name.eq_ignore_ascii_case(Self::CONTENT_LENGTH) {
-            if let Ok(s) = std::str::from_utf8(&value) {
-                self.content_length = s.trim().parse().ok();
-            }
-        }
-
-        self.headers.push((name, value));
+        self.remove(name.as_ref());
+        self.add(name, value);
     }
 
-    pub fn remove(&mut self, name: &str) -> Vec<Cow<'a, [u8]>> {
+    pub fn remove(&mut self, name: &str) {
         if name.eq_ignore_ascii_case(Self::CONTENT_LENGTH) {
             self.content_length = None;
+        } else if name.eq_ignore_ascii_case(Self::TRANSFER_ENCODING) {
+            self.chunked = false;
+            self.transfer_encoding.clear();
+        } else if name.eq_ignore_ascii_case(Self::CONNECTION) {
+            self.connection_close = false; // back to default
+            self.connection_values.clear();
         }
 
-        let mut removed = Vec::new();
-        self.headers.retain(|(k, v)| {
-            if k.eq_ignore_ascii_case(name) {
-                removed.push(v.clone());
-                false
-            } else {
-                true
-            }
-        });
-        removed
+        self.headers.retain(|(k, _)| !k.eq_ignore_ascii_case(name));
     }
 
     pub const CONTENT_LENGTH: &'static str = "content-length";
@@ -184,6 +184,24 @@ impl<'a> Headers<'a> {
         self.get("expect")
             .map(|val| val.eq_ignore_ascii_case(b"100-continue"))
             .unwrap_or(false)
+    }
+}
+
+impl<'a> IntoIterator for &'a Headers<'a> {
+    type Item = &'a (Cow<'a, str>, Cow<'a, [u8]>);
+    type IntoIter = std::slice::Iter<'a, (Cow<'a, str>, Cow<'a, [u8]>)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut Headers<'a> {
+    type Item = &'a mut (Cow<'a, str>, Cow<'a, [u8]>);
+    type IntoIter = std::slice::IterMut<'a, (Cow<'a, str>, Cow<'a, [u8]>)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.headers.iter_mut()
     }
 }
 

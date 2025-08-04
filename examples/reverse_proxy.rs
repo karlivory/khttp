@@ -14,7 +14,7 @@ fn main() {
 
 fn proxy_handler(ctx: RequestContext, res: &mut ResponseHandle) -> std::io::Result<()> {
     let (method, uri, mut headers, _, _, _, request_body) = ctx.into_parts();
-    headers.set("Host", UPSTREAM.as_bytes());
+    headers.replace("Host", UPSTREAM.as_bytes());
 
     let mut client = Client::new(&format!("{}:{}", UPSTREAM, UPSTREAM_PORT));
     let response = match client.exchange(&method, uri.path(), &headers, request_body) {

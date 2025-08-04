@@ -9,13 +9,13 @@ pub fn run(op: ClientOp) {
 
     let mut headers = Headers::new();
 
-    headers.set("Host", op.host.as_bytes());
-    headers.set("User-Agent", b"khttp-cli/0.1");
-    headers.set("Accept", b"*/*");
+    headers.replace("Host", op.host.as_bytes());
+    headers.replace("User-Agent", b"khttp-cli/0.1");
+    headers.replace("Accept", b"*/*");
 
     let body = op.body.unwrap_or_default();
     if !body.is_empty() && headers.get(Headers::CONTENT_TYPE).is_none() {
-        headers.set(Headers::CONTENT_TYPE, b"text/plain");
+        headers.replace(Headers::CONTENT_TYPE, b"text/plain");
     }
 
     headers.set_content_length(Some(body.len() as u64));
@@ -34,7 +34,7 @@ pub fn run(op: ClientOp) {
         Ok(mut response) => {
             if op.verbose {
                 println!("{} {}", response.status.code, response.status.reason);
-                for (k, v) in response.headers.get_all() {
+                for (k, v) in response.headers.iter() {
                     println!("{}: {}", k, String::from_utf8_lossy(v));
                 }
                 println!();
