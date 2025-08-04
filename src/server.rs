@@ -145,6 +145,25 @@ impl ServerBuilder {
             }),
         }
     }
+
+    pub fn build_with_router<R>(self, router: R) -> Server<R>
+    where
+        R: HttpRouter,
+    {
+        Server {
+            bind_addrs: self.bind_addrs,
+            thread_count: self.thread_count.unwrap_or(DEFAULT_THREAD_COUNT),
+            stream_setup_hook: self.stream_setup_hook,
+            handler_config: Arc::new(HandlerConfig {
+                router,
+                fallback_route: self.fallback_route,
+                pre_routing_hook: self.pre_routing_hook,
+                max_request_head: self
+                    .max_request_head_size
+                    .unwrap_or(DEFAULT_MAX_REQUEST_HEAD),
+            }),
+        }
+    }
 }
 
 impl<R> Server<R>
@@ -186,8 +205,8 @@ where
     }
 }
 
-pub struct ResponseHandle<'a> {
-    stream: &'a mut TcpStream,
+pub struct ResponseHandle<'r> {
+    stream: &'r mut TcpStream,
     keep_alive: bool,
 }
 
@@ -218,18 +237,18 @@ impl ResponseHandle<'_> {
     }
 }
 
-pub struct RequestContext<'a, 'r> {
+pub struct RequestContext<'r> {
     pub method: Method,
     pub uri: &'r RequestUri<'r>,
-    pub headers: Headers<'a>,
-    pub route_params: &'r RouteParams<'a, 'r>,
-    pub http_version: &'r u8,
+    pub headers: Headers<'r>,
+    pub route_params: &'r RouteParams<'r, 'r>,
+    pub http_version: u8,
     pub conn: &'r ConnectionMeta,
-    body: BodyReader<'a, &'a mut TcpStream>,
+    body: BodyReader<'r, &'r mut TcpStream>,
 }
 
-impl<'a, 'r> RequestContext<'a, 'r> {
-    pub fn body(&mut self) -> &mut BodyReader<'a, &'a mut TcpStream> {
+impl<'r> RequestContext<'r> {
+    pub fn body(&mut self) -> &mut BodyReader<'r, &'r mut TcpStream> {
         &mut self.body
     }
 
@@ -246,11 +265,11 @@ impl<'a, 'r> RequestContext<'a, 'r> {
     ) -> (
         Method,
         &'r RequestUri<'r>,
-        Headers<'a>,
-        &'r RouteParams<'a, 'r>,
-        &'r u8,
+        Headers<'r>,
+        &'r RouteParams<'r, 'r>,
+        u8,
         &'r ConnectionMeta,
-        BodyReader<'a, &'a mut TcpStream>,
+        BodyReader<'r, &'r mut TcpStream>,
     ) {
         (
             self.method,
@@ -367,9 +386,9 @@ where
     let matched = config
         .router
         .match_route(&request.method, request.uri.path());
-    let (handler, params) = match &matched {
-        Some(r) => (r.route, &r.params),
-        None => (&config.fallback_route, &RouteParams::new()),
+    let (handler, params) = match matched {
+        Some(r) => (r.route, r.params),
+        None => (&config.fallback_route, RouteParams::new()),
     };
 
     let body = BodyReader::from_request(&buf[request.buf_offset..], read_stream, &request.headers);
@@ -377,8 +396,8 @@ where
         method: request.method,
         headers: request.headers,
         uri: &request.uri,
-        http_version: &1,
-        route_params: params,
+        http_version: request.http_version,
+        route_params: &params,
         conn: connection_meta,
         body,
     };
