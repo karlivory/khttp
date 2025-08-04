@@ -2,7 +2,7 @@ use crate::{Headers, Method, RequestUri, Status};
 use std::{
     error::Error,
     fmt::Display,
-    io::{self, BufRead},
+    io::{self},
 };
 
 #[derive(Debug)]
@@ -32,8 +32,7 @@ impl<'b> Response<'b> {
     pub fn parse(&mut self, buf: &'b [u8]) -> Result<usize, HttpParsingError> {
         let start = buf.len();
         let (version, status, rest) = parse_response_status_line(buf)?;
-        // let rest = rest.get(2..).ok_or(HttpParsingError::UnexpectedEof)?; // skip \r\n
-        let (headers, rest) = parse_headers2(rest)?;
+        let (headers, rest) = parse_headers(rest)?;
 
         self.http_version = Some(version);
         self.status = Some(status);
@@ -60,7 +59,7 @@ impl<'b> Request<'b> {
         let (uri, rest) = parse_uri(rest)?;
         let (version, rest) = parse_version(rest)?;
         let rest = rest.get(2..).ok_or(HttpParsingError::UnexpectedEof)?; // skip \r\n
-        let (headers, rest) = parse_headers2(rest)?;
+        let (headers, rest) = parse_headers(rest)?;
 
         self.method = Some(method);
         self.uri = Some(uri);
@@ -73,7 +72,7 @@ impl<'b> Request<'b> {
 }
 
 #[inline]
-pub fn parse_headers2(buf: &[u8]) -> Result<(Headers, &[u8]), HttpParsingError> {
+fn parse_headers(buf: &[u8]) -> Result<(Headers, &[u8]), HttpParsingError> {
     let mut headers = Headers::new();
 
     let mut buf = buf;
@@ -85,7 +84,7 @@ pub fn parse_headers2(buf: &[u8]) -> Result<(Headers, &[u8]), HttpParsingError> 
                 return Ok((headers, &buf[2..]));
             }
 
-            let (name, value) = parse_header_line2(line)?;
+            let (name, value) = parse_header_line(line)?;
             headers.add(name, value);
 
             // Advance to next header line
@@ -100,11 +99,11 @@ pub fn parse_headers2(buf: &[u8]) -> Result<(Headers, &[u8]), HttpParsingError> 
 }
 
 #[inline]
-fn parse_header_line2(line: &[u8]) -> Result<(&str, &[u8]), HttpParsingError> {
+fn parse_header_line(line: &[u8]) -> Result<(&str, &[u8]), HttpParsingError> {
     for (i, b) in line.iter().enumerate() {
         if *b == b':' {
             unsafe {
-                for c in line[..i].into_iter() {
+                for c in line[..i].iter() {
                     if !is_valid_header_field_byte(*c) {
                         return Err(HttpParsingError::MalformedHeader);
                     }
@@ -121,20 +120,6 @@ fn parse_header_line2(line: &[u8]) -> Result<(&str, &[u8]), HttpParsingError> {
 // -------------------------------------------------------------------------
 // Utils
 // -------------------------------------------------------------------------
-
-fn read_crlf_line<R: BufRead>(r: &mut R, buf: &mut Vec<u8>) -> io::Result<bool> {
-    let n = r.read_until(b'\n', buf)?;
-    if n == 0 {
-        return Ok(false);
-    }
-
-    if buf.ends_with(b"\r\n") {
-        buf.truncate(buf.len() - 2);
-    } else if buf.ends_with(b"\n") {
-        buf.truncate(buf.len() - 1);
-    }
-    Ok(true)
-}
 
 fn parse_response_status_line(buf: &[u8]) -> Result<(u8, Status, &[u8]), HttpParsingError> {
     use HttpParsingError::MalformedStatusLine;
@@ -374,26 +359,6 @@ fn parse_method(buf: &[u8]) -> Result<(Method, &[u8]), HttpParsingError> {
     }
 
     Err(HttpParsingError::MalformedStatusLine)
-}
-
-fn parse_header_line(line: &mut [u8]) -> Result<(&str, &[u8]), HttpParsingError> {
-    for (i, b) in line.iter_mut().enumerate() {
-        if *b == b':' {
-            // parse header name: check if ASCII-US, then normalize to lowercase
-            for c in line[..i].iter_mut() {
-                if !is_valid_header_field_byte(*c) {
-                    return Err(HttpParsingError::MalformedHeader);
-                }
-                c.make_ascii_lowercase();
-            }
-            // safety: every char in name_str is us-ascii
-            let name_str = unsafe { std::str::from_utf8_unchecked(&line[..i]) };
-
-            let value = &line[i + 1..].trim_ascii_start();
-            return Ok((name_str, value));
-        }
-    }
-    Err(HttpParsingError::MalformedHeader) // no ':' found
 }
 
 #[derive(Debug)]

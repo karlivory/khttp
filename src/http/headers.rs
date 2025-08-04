@@ -7,9 +7,9 @@ pub struct Headers<'a> {
     headers: Vec<(Cow<'a, str>, Cow<'a, [u8]>)>,
     content_length: Option<u64>,
     chunked: bool,
-    transfer_encoding: Vec<Box<[u8]>>,
+    transfer_encoding: Vec<u8>,
     connection_close: bool,
-    connection_values: Vec<Box<[u8]>>,
+    connection_values: Vec<u8>,
 }
 
 pub static EMPTY_HEADERS: LazyLock<Headers<'static>> = LazyLock::new(Headers::new);
@@ -57,9 +57,13 @@ impl<'a> Headers<'a> {
                 .map(|v| v.trim_ascii_start())
                 .for_each(|v| {
                     if v.eq_ignore_ascii_case(b"chunked") {
-                        self.chunked = true;
+                        self.set_transfer_encoding_chunked();
+                    } else {
+                        if !self.transfer_encoding.is_empty() {
+                            self.transfer_encoding.extend_from_slice(b", ");
+                        }
+                        self.transfer_encoding.extend_from_slice(v);
                     }
-                    self.transfer_encoding.push(v.into());
                 });
             return;
         } else if name.eq_ignore_ascii_case(Self::CONNECTION) {
@@ -68,12 +72,17 @@ impl<'a> Headers<'a> {
                 .map(|v| v.trim_ascii_start())
                 .for_each(|v| {
                     if v.eq_ignore_ascii_case(b"close") {
-                        self.connection_close = true;
+                        self.set_connection_close();
+                    } else {
+                        if !self.connection_values.is_empty() {
+                            self.connection_values.extend_from_slice(b", ");
+                        }
+                        self.connection_values.extend_from_slice(v);
                     }
-                    self.connection_values.push(v.into());
                 });
             return;
         }
+
         self.headers.push((name, value));
     }
 
@@ -136,25 +145,36 @@ impl<'a> Headers<'a> {
 
     pub fn set_transfer_encoding_chunked(&mut self) {
         self.chunked = true;
+
+        if self.transfer_encoding.is_empty() {
+            self.transfer_encoding.extend_from_slice(b"chunked");
+        } else {
+            self.transfer_encoding.extend_from_slice(b", chunked");
+        }
     }
 
     pub fn is_transfer_encoding_chunked(&self) -> bool {
         self.chunked
     }
 
-    pub fn get_transfer_encoding(&self) -> &Vec<Box<[u8]>> {
+    pub fn get_transfer_encoding(&self) -> &[u8] {
         &self.transfer_encoding
     }
 
     pub fn set_connection_close(&mut self) {
         self.connection_close = true;
+        if self.connection_values.is_empty() {
+            self.connection_values.extend_from_slice(b"close");
+        } else {
+            self.connection_values.extend_from_slice(b", close");
+        }
     }
 
     pub fn is_connection_close(&self) -> bool {
         self.connection_close
     }
 
-    pub fn get_connection_values(&self) -> &Vec<Box<[u8]>> {
+    pub fn get_connection_values(&self) -> &[u8] {
         &self.connection_values
     }
 
@@ -184,13 +204,11 @@ impl<'a> From<Vec<(Cow<'a, str>, Cow<'a, [u8]>)>> for Headers<'a> {
     }
 }
 
-impl<'a> From<&'a [(&str, &[&[u8]])]> for Headers<'a> {
-    fn from(slice: &'a [(&str, &[&[u8]])]) -> Self {
+impl<'a> From<&'a [(&str, &[u8])]> for Headers<'a> {
+    fn from(slice: &'a [(&str, &[u8])]) -> Self {
         let mut headers = Headers::new();
-        for (k, vs) in slice {
-            for v in *vs {
-                headers.add(*k, *v);
-            }
+        for (k, v) in slice {
+            headers.add(*k, *v);
         }
         headers
     }

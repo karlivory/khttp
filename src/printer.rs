@@ -89,7 +89,7 @@ impl<W: Write> HttpPrinter<W> {
             BodyStrategy::Fast(buf, _) => self.write_fast(&buf),
             BodyStrategy::Streaming(reader, _) => self.write_streaming(reader),
             BodyStrategy::Chunked { reader } => self.write_chunked(reader),
-            BodyStrategy::ChunkedWithPrefix { prefix, reader } => {
+            BodyStrategy::AutoChunked { prefix, reader } => {
                 self.write_chunk(&prefix)?;
                 self.write_chunked(reader)
             }
@@ -105,7 +105,7 @@ enum BodyStrategy<R: Read> {
     Fast(Vec<u8>, u64),
     Streaming(R, u64),
     Chunked { reader: R },
-    ChunkedWithPrefix { prefix: Vec<u8>, reader: R },
+    AutoChunked { prefix: Vec<u8>, reader: R },
 }
 
 fn decide_body_strategy<R: Read>(headers: &Headers, mut body: R) -> io::Result<BodyStrategy<R>> {
@@ -133,7 +133,7 @@ fn decide_body_strategy<R: Read>(headers: &Headers, mut body: R) -> io::Result<B
         let cl = prefix.len();
         Ok(BodyStrategy::Fast(prefix, cl as u64))
     } else {
-        Ok(BodyStrategy::ChunkedWithPrefix {
+        Ok(BodyStrategy::AutoChunked {
             prefix,
             reader: body,
         })
@@ -166,24 +166,9 @@ fn build_response_head<R: Read>(
     head.extend_from_slice(CRLF);
 
     // headers
-    add_headers(&mut head, headers);
-    match strat {
-        BodyStrategy::Fast(_, cl) => {
-            add_content_length(&mut head, *cl);
-        }
-        BodyStrategy::Streaming(_, cl) => {
-            add_content_length(&mut head, *cl);
-        }
-        BodyStrategy::Chunked { .. } | BodyStrategy::ChunkedWithPrefix { .. } => {
-            let encodings = headers.get_transfer_encoding();
-            if !encodings.is_empty() {
-                add_transfer_encoding_header(&mut head, encodings);
-            } else {
-                head.extend_from_slice(TRANSFER_ENCODING_HEADER_CHUNKED);
-                head.extend_from_slice(CRLF);
-            }
-        }
-    }
+    add_headers(&mut head, headers, strat);
+
+    // finalize
     head.extend_from_slice(CRLF);
     head
 }
@@ -205,24 +190,9 @@ fn build_request_head<R: Read>(
     head.extend_from_slice(CRLF);
 
     // headers
-    add_headers(&mut head, headers);
-    match strat {
-        BodyStrategy::Fast(_, cl) => {
-            add_content_length(&mut head, *cl);
-        }
-        BodyStrategy::Streaming(_, cl) => {
-            add_content_length(&mut head, *cl);
-        }
-        BodyStrategy::Chunked { .. } | BodyStrategy::ChunkedWithPrefix { .. } => {
-            let encodings = headers.get_transfer_encoding();
-            if !encodings.is_empty() {
-                add_transfer_encoding_header(&mut head, encodings);
-            } else {
-                head.extend_from_slice(TRANSFER_ENCODING_HEADER_CHUNKED);
-                head.extend_from_slice(CRLF);
-            }
-        }
-    }
+    add_headers(&mut head, headers, strat);
+
+    // finalize
     head.extend_from_slice(CRLF);
     head
 }
@@ -233,48 +203,53 @@ const TRANSFER_ENCODING_HEADER_CHUNKED: &[u8] = b"transfer-encoding: chunked";
 const CONNECTION_HEADER: &[u8] = b"connection: close";
 
 #[inline]
-fn add_content_length(buf: &mut Vec<u8>, value: u64) {
+fn add_content_length_header(buf: &mut Vec<u8>, value: u64) {
     buf.extend_from_slice(CONTENT_LENGTH_HEADER);
     let mut num_buf = [0u8; 20]; // enough to hold any u64 in base 10
     let len = u64_to_ascii_buf(value, &mut num_buf);
     buf.extend_from_slice(&num_buf[..len]);
-    buf.extend_from_slice(CRLF);
 }
 
 #[inline]
-fn add_transfer_encoding_header(buf: &mut Vec<u8>, transfer_encoding: &[Box<[u8]>]) {
-    buf.extend_from_slice(TRANSFER_ENCODING_HEADER);
-    for (i, encoding) in transfer_encoding.iter().enumerate() {
-        if i > 0 {
-            buf.extend_from_slice(b", ");
-        }
-        buf.extend_from_slice(encoding);
-    }
-    buf.extend_from_slice(CRLF);
-}
-
-#[inline]
-fn add_headers(buf: &mut Vec<u8>, headers: &Headers) {
+fn add_headers<R: Read>(buf: &mut Vec<u8>, headers: &Headers, strat: &BodyStrategy<R>) {
     for (name, value) in headers.get_all() {
-        // for v in values {
         buf.extend_from_slice(name.as_bytes());
         buf.extend_from_slice(b": ");
         buf.extend_from_slice(value);
         buf.extend_from_slice(CRLF);
-        // }
     }
-    // // set "connection"
+    // // set "connection" header
     let connection = headers.get_connection_values();
     if !connection.is_empty() {
         buf.extend_from_slice(CONNECTION_HEADER);
-        for (i, value) in connection.iter().enumerate() {
-            if i > 0 {
-                buf.extend_from_slice(b", ");
-            }
-            buf.extend_from_slice(value);
-        }
+        buf.extend_from_slice(connection);
         buf.extend_from_slice(CRLF);
     }
+    // // set framing headers ("Transfer-Encoding" OR "Content-Length")
+    match strat {
+        BodyStrategy::Fast(_, cl) => {
+            add_content_length_header(buf, *cl);
+        }
+        BodyStrategy::Streaming(_, cl) => {
+            add_content_length_header(buf, *cl);
+        }
+        BodyStrategy::Chunked { .. } => {
+            let encodings = headers.get_transfer_encoding();
+            debug_assert!(!encodings.is_empty());
+            buf.extend_from_slice(TRANSFER_ENCODING_HEADER);
+            buf.extend_from_slice(encodings);
+        }
+        BodyStrategy::AutoChunked { .. } => {
+            debug_assert!(!headers.is_transfer_encoding_chunked());
+            buf.extend_from_slice(TRANSFER_ENCODING_HEADER_CHUNKED);
+            let encodings = headers.get_transfer_encoding();
+            if !encodings.is_empty() {
+                buf.extend_from_slice(b", ");
+                buf.extend_from_slice(encodings);
+            }
+        }
+    }
+    buf.extend_from_slice(CRLF);
 }
 
 // -------------------------------------------------------------------------
