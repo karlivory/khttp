@@ -2,18 +2,20 @@ use crate::{BodyReader, Headers, HttpParsingError, HttpPrinter, Method, Response
 use std::error::Error;
 use std::fmt::Display;
 use std::io::{self, Read};
+use std::mem::MaybeUninit;
 use std::net::TcpStream;
 
+static MAX_RESPONSE_HEAD: usize = 8196;
 pub struct Client {
     address: String,
-    req_buf: [u8; 8196],
+    req_buf: MaybeUninit<[u8; MAX_RESPONSE_HEAD]>,
 }
 
 impl Client {
     pub fn new(address: &str) -> Client {
         Self {
             address: address.to_string(),
-            req_buf: [0; 8196],
+            req_buf: MaybeUninit::uninit(),
         }
     }
     pub fn get(
@@ -163,15 +165,24 @@ impl ClientRequestTcpStream {
         Ok(())
     }
 
-    fn read(mut self, buf: &mut [u8]) -> Result<ClientResponseHandle<'_>, ClientError> {
-        if let Ok(0) = self.stream.read(buf) {
-            return Err(ClientError::UnexpectedEof);
-        }
-        let res = match Response::parse(buf) {
+    fn read(
+        mut self,
+        buf: &mut MaybeUninit<[u8; MAX_RESPONSE_HEAD]>,
+    ) -> Result<ClientResponseHandle<'_>, ClientError> {
+        let buf_ptr = buf.as_mut_ptr() as *mut u8;
+
+        // safety: we're gonna read n<=MAX_RESPONSE_HEAD bytes, and only use those
+        let buf = unsafe { std::slice::from_raw_parts_mut(buf_ptr, MAX_RESPONSE_HEAD) };
+        let n = match self.stream.read(buf) {
+            Ok(0) => return Err(ClientError::UnexpectedEof),
+            Ok(n) => n,
+            Err(e) => return Err(ClientError::ReadFailure(e)),
+        };
+        let res = match Response::parse(&buf[..n]) {
             Ok(o) => o,
             Err(e) => return Err(ClientError::ParsingFailure(e)),
         };
-        let body = BodyReader::from_request(&buf[res.buf_offset..], self.stream, &res.headers);
+        let body = BodyReader::from_request(&buf[res.buf_offset..n], self.stream, &res.headers);
 
         Ok(ClientResponseHandle {
             headers: res.headers,
