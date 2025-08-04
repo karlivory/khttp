@@ -5,7 +5,7 @@ use std::time::Duration;
 
 pub fn run(op: ClientOp) {
     let address = format!("{}:{}", op.host, op.port);
-    let client = Client::new(&address);
+    let mut client = Client::new(&address);
 
     let mut headers = Headers::new();
 
@@ -30,7 +30,7 @@ pub fn run(op: ClientOp) {
         headers.add(k, v.as_bytes());
     }
 
-    match client.exchange(&op.method, &op.uri, headers, reader) {
+    match client.exchange(&op.method, &op.uri, &headers, reader) {
         Ok(mut response) => {
             if op.verbose {
                 println!("{} {}", response.status.code, response.status.reason);
@@ -39,7 +39,7 @@ pub fn run(op: ClientOp) {
                 }
                 println!();
             }
-            let body = response.read_body_to_string().unwrap_or_default();
+            let body = response.body().string().unwrap_or_default();
             print!("{}", body);
         }
         Err(e) => handle_error(e),
