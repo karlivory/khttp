@@ -41,6 +41,7 @@ impl<'b> Response<'b> {
     }
 }
 
+#[inline]
 fn parse_response_status_code(buf: &[u8]) -> Result<u16, HttpParsingError> {
     use HttpParsingError::MalformedStatusLine;
     let hundreds = match buf.first().ok_or(MalformedStatusLine)? {
@@ -59,6 +60,7 @@ fn parse_response_status_code(buf: &[u8]) -> Result<u16, HttpParsingError> {
     Ok((hundreds - b'0') as u16 * 100 + (tens - b'0') as u16 * 10 + (ones - b'0') as u16)
 }
 
+#[inline]
 fn parse_response_status(buf: &[u8]) -> Result<(Status, &[u8]), HttpParsingError> {
     let code = parse_response_status_code(buf)?;
     // check SP
