@@ -186,10 +186,38 @@ fn main() {
     });
 
     parser_benches.push(ParserBench {
+        full: "parser:response",
+        bench: Box::new(|group| {
+            let raw = b"HTTP/1.1 200 OK\r\nHost: example.com\r\n\r\n";
+            group.bench_function(BenchmarkId::new("parser:response", "GET /foo/bar"), |b| {
+                b.iter(|| {
+                    khttp::Response::parse(std::hint::black_box(&raw[..])).unwrap();
+                });
+            });
+        }),
+    });
+
+    parser_benches.push(ParserBench {
+        full: "httparse:response",
+        bench: Box::new(|group| {
+            let raw = b"HTTP/1.1 200 OK\r\nHost: example.com\r\n\r\n";
+            group.bench_function(BenchmarkId::new("httparse:response", "GET /foo/bar"), |b| {
+                b.iter(|| {
+                    let mut headers = [httparse::EMPTY_HEADER; 25];
+                    let mut resp = httparse::Response::new(&mut headers);
+                    let _ = resp.parse(std::hint::black_box(&raw[..])).unwrap();
+
+                    httparse_alloc_response(resp);
+                });
+            });
+        }),
+    });
+
+    parser_benches.push(ParserBench {
         full: "parser:simple",
         bench: Box::new(|group| {
             let raw = b"GET /foo/bar HTTP/1.1\r\nHost: example.com\r\n\r\n";
-            group.bench_function(BenchmarkId::new("complex", "GET /foo/bar"), |b| {
+            group.bench_function(BenchmarkId::new("parser:simple", "GET /foo/bar"), |b| {
                 b.iter(|| {
                     khttp::Request::parse(std::hint::black_box(&raw[..])).unwrap();
                 });
@@ -197,81 +225,22 @@ fn main() {
         }),
     });
 
-    fn httparse_make_allocations(req: httparse::Request) {
-        // let full_uri = req.path.unwrap();
-        // let http_version = req.version.unwrap();
-        let mut headers = Headers::new();
-        for header in req.headers {
-            if header.name.is_empty() {
-                break;
-            }
-            headers.add(header.name, header.value);
-        }
-
-        // parse method
-        let method = match req.method.unwrap().as_bytes() {
-            b"GET" => Method::Get,
-            b"POST" => Method::Post,
-            b"HEAD" => Method::Head,
-            b"PUT" => Method::Put,
-            b"PATCH" => Method::Patch,
-            b"DELETE" => Method::Delete,
-            b"OPTIONS" => Method::Options,
-            b"TRACE" => Method::Trace,
-            _ => {
-                unimplemented!();
-            }
-        };
-    }
-
     parser_benches.push(ParserBench {
         full: "httparse:simple",
         bench: Box::new(|group| {
             let raw = b"GET /foo/bar HTTP/1.1\r\nHost: example.com\r\n\r\n";
-            group.bench_function(BenchmarkId::new("httparse", "GET /foo/bar"), |b| {
+            group.bench_function(BenchmarkId::new("httparse:simple", "GET /foo/bar"), |b| {
                 b.iter(|| {
                     let mut headers = [httparse::EMPTY_HEADER; 25];
                     let mut req = httparse::Request::new(&mut headers);
                     let _ = req.parse(std::hint::black_box(&raw[..])).unwrap();
 
                     // (make the allocations, to keep the parser comparison apples-to-apples)
-                    httparse_make_allocations(req);
+                    httparse_alloc_request(req);
                 });
             });
         }),
     });
-
-    fn make_long_request() -> Vec<u8> {
-        let mut buf = b"GET /really/long/path/that/keeps/going/on/and/on?".to_vec();
-
-        // Append ~200 bytes worth of query parameters
-        for i in 1..=20 {
-            let param = format!("k{}=value{}&", i, i); // e.g., k1=value1&
-            buf.extend_from_slice(param.as_bytes());
-        }
-
-        // Remove the trailing '&' (optional)
-        if let Some(last) = buf.last() {
-            if *last == b'&' {
-                buf.pop();
-            }
-        }
-
-        buf.extend_from_slice(
-            b" HTTP/1.1\r\n\
-Host: example.com\r\n\
-User-Agent: bench\r\n\
-Accept: */*\r\n",
-        );
-
-        for i in 1..=20 {
-            let header = format!("X-Custom-Header-{}: value_with_some_length_{}\r\n", i, i);
-            buf.extend_from_slice(header.as_bytes());
-        }
-
-        buf.extend_from_slice(b"\r\n");
-        buf
-    }
 
     parser_benches.push(ParserBench {
         full: "parser:long",
@@ -298,7 +267,7 @@ Accept: */*\r\n",
                     assert!(req.version.is_some());
 
                     // (make the allocations, to keep the parser comparison apples-to-apples)
-                    httparse_make_allocations(req);
+                    httparse_alloc_request(req);
                 });
             });
         }),
@@ -365,7 +334,7 @@ fn run_server_bench(sb: ServerBench) {
     let port = match sb.kind {
         ServerKind::Khttp(make_srv) => {
             let srv = make_srv();
-            let port = srv.port().unwrap();
+            let port = srv.bind_addrs().first().map(|a| a.port()).unwrap();
             thread::spawn(move || srv.serve_epoll());
             port
         }
@@ -374,6 +343,7 @@ fn run_server_bench(sb: ServerBench) {
             use tokio::runtime::Runtime;
 
             // bind using std to get a free port
+            let port = get_free_port();
             let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind axum");
             std_listener.set_nonblocking(true).unwrap();
             let port = std_listener.local_addr().unwrap().port();
@@ -454,10 +424,11 @@ fn match_token(token: &str, group: &str, name: &str) -> bool {
 }
 
 fn get_free_port() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
-    let p = listener.local_addr().unwrap().port();
-    drop(listener);
-    p
+    TcpListener::bind("127.0.0.1:0")
+        .expect("no free port?")
+        .local_addr()
+        .unwrap()
+        .port() // listener is dropped
 }
 
 fn get_khttp_app() -> ServerBuilder {
@@ -476,38 +447,22 @@ fn get_base_headers() -> Headers<'static> {
 }
 
 fn respond_hello(res: &mut ResponseHandle) -> io::Result<()> {
-    let msg = "Hello, World!";
-    let now = chrono::Utc::now();
-    let mut headers = Headers::new();
-    let date_str = now.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
-    headers.replace("date", date_str.as_bytes());
-    headers.replace(Headers::CONTENT_TYPE, b"text/plain; charset=utf-8");
-    res.ok(&headers, msg.as_bytes())
+    res.ok(&get_base_headers(), "Hello, World!".as_bytes())
 }
 
 fn respond_longheader(res: &mut ResponseHandle) -> io::Result<()> {
-    let msg = "hey";
-
-    let now = chrono::Utc::now();
-    let mut headers = Headers::new();
-    let date_str = now.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
-    headers.replace("date", date_str.as_bytes());
-    headers.replace(Headers::CONTENT_TYPE, b"text/plain; charset=utf-8");
-
-    // let mut headers = get_base_headers();
-    // for i in 0..50 {
-    //     let n = format!("value{i}");
-    //     let a = "hello".repeat(10);
-    //     headers.add(&n, a.as_bytes());
-    // }
-    res.ok(&headers, msg.as_bytes())
+    let mut headers = get_base_headers();
+    for i in 0..50 {
+        let n = format!("value{i}");
+        let a = "hello".repeat(10);
+        headers.add(n, a.into_bytes());
+    }
+    res.ok(&headers, "hey".as_bytes())
 }
 
-use std::sync::OnceLock;
-
-static HEAVY: OnceLock<Vec<u8>> = OnceLock::new();
-
 fn heavy_body() -> &'static [u8] {
+    use std::sync::OnceLock;
+    static HEAVY: OnceLock<Vec<u8>> = OnceLock::new();
     HEAVY
         .get_or_init(|| b"Hello, World!".repeat(100_000))
         .as_slice()
@@ -515,29 +470,48 @@ fn heavy_body() -> &'static [u8] {
 
 fn respond_heavy(res: &mut ResponseHandle) -> io::Result<()> {
     let msg = heavy_body();
-
-    let now = chrono::Utc::now();
-    let mut headers = Headers::new();
-    let date_str = now.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
-    headers.replace("date", date_str.as_bytes());
-    headers.replace(Headers::CONTENT_TYPE, b"text/plain; charset=utf-8");
-
-    // let mut headers = get_base_headers();
+    let mut headers = get_base_headers();
     headers.set_content_length(Some(msg.len() as u64));
     res.ok(&headers, msg)
 }
 
 fn respond_chunked(res: &mut ResponseHandle) -> io::Result<()> {
     let msg = heavy_body();
-
-    let now = chrono::Utc::now();
-    let mut headers = Headers::new();
-    let date_str = now.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
-    headers.replace("date", date_str.as_bytes());
-    headers.replace(Headers::CONTENT_TYPE, b"text/plain; charset=utf-8");
+    let mut headers = get_base_headers();
     headers.set_transfer_encoding_chunked();
-
     res.send(&Status::of(200), &headers, msg)
+}
+
+fn make_long_request() -> Vec<u8> {
+    let mut buf = b"GET /really/long/path/that/keeps/going/on/and/on?".to_vec();
+
+    // Append ~200 bytes worth of query parameters
+    for i in 1..=20 {
+        let param = format!("k{}=value{}&", i, i); // e.g., k1=value1&
+        buf.extend_from_slice(param.as_bytes());
+    }
+
+    // Remove the trailing '&' (optional)
+    if let Some(last) = buf.last() {
+        if *last == b'&' {
+            buf.pop();
+        }
+    }
+
+    buf.extend_from_slice(
+        b" HTTP/1.1\r\n\
+Host: example.com\r\n\
+User-Agent: bench\r\n\
+Accept: */*\r\n",
+    );
+
+    for i in 1..=20 {
+        let header = format!("X-Custom-Header-{}: value_with_some_length_{}\r\n", i, i);
+        buf.extend_from_slice(header.as_bytes());
+    }
+
+    buf.extend_from_slice(b"\r\n");
+    buf
 }
 
 fn ensure_rewrk() {
@@ -550,4 +524,42 @@ fn ensure_rewrk() {
     if !status.success() {
         panic!("rewrk is not installed. See https://github.com/lnx-search/rewrk");
     }
+}
+
+fn httparse_alloc_response(resp: httparse::Response) {
+    let mut headers = Headers::new();
+    for header in resp.headers {
+        if header.name.is_empty() {
+            break;
+        }
+        headers.add(header.name, header.value);
+    }
+    // let status = Status::borrowed(resp.code.unwrap(), resp.reason.unwrap());
+}
+
+fn httparse_alloc_request(req: httparse::Request) {
+    // let full_uri = req.path.unwrap();
+    // let http_version = req.version.unwrap();
+    let mut headers = Headers::new();
+    for header in req.headers {
+        if header.name.is_empty() {
+            break;
+        }
+        headers.add(header.name, header.value);
+    }
+
+    // parse method
+    let method = match req.method.unwrap().as_bytes() {
+        b"GET" => Method::Get,
+        b"POST" => Method::Post,
+        b"HEAD" => Method::Head,
+        b"PUT" => Method::Put,
+        b"PATCH" => Method::Patch,
+        b"DELETE" => Method::Delete,
+        b"OPTIONS" => Method::Options,
+        b"TRACE" => Method::Trace,
+        _ => {
+            unimplemented!();
+        }
+    };
 }

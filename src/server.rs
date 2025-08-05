@@ -167,8 +167,8 @@ impl<R> Server<R>
 where
     R: HttpRouter<Route = Box<RouteFn>> + Send + Sync + 'static,
 {
-    pub fn port(&self) -> Option<u16> {
-        self.bind_addrs.first().map(|a| a.port())
+    pub fn bind_addrs(&self) -> &Vec<SocketAddr> {
+        &self.bind_addrs
     }
 
     pub fn serve(self) -> io::Result<()> {
