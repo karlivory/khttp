@@ -1,22 +1,32 @@
 use khttp::{Client, Headers, RequestContext, ResponseHandle, Server, Status};
 
-// hard-coded upstream
-static UPSTREAM: &str = "httpbin.org";
-static UPSTREAM_PORT: usize = 80;
-
 fn main() {
-    let mut app = Server::builder("127.0.0.1:9000").unwrap();
+    let mut args = std::env::args().skip(1); // skip program name
+    let host = args
+        .next()
+        .unwrap_or_else(|| exit("missing argument: host"));
+    let port = args
+        .next()
+        .unwrap_or_else(|| exit("missing argument: port"))
+        .parse::<u16>()
+        .unwrap_or_else(|_| exit("invalid port"));
 
     // route all paths and methods to proxy handler
-    app.fallback_route(proxy_handler);
+    let mut app = Server::builder("127.0.0.1:9000").unwrap();
+    app.fallback_route(move |c, r| proxy(&host, port, c, r));
     app.build().serve().unwrap();
 }
 
-fn proxy_handler(ctx: RequestContext, res: &mut ResponseHandle) -> std::io::Result<()> {
+fn proxy(
+    host: &str,
+    port: u16,
+    ctx: RequestContext,
+    res: &mut ResponseHandle,
+) -> std::io::Result<()> {
     let (method, uri, mut headers, _, _, _, request_body) = ctx.into_parts();
-    headers.replace("Host", UPSTREAM.as_bytes());
+    headers.replace("Host", host.as_bytes());
 
-    let mut client = Client::new(&format!("{}:{}", UPSTREAM, UPSTREAM_PORT));
+    let mut client = Client::new(&format!("{}:{}", host, port));
     let response = match client.exchange(&method, uri.path(), &headers, request_body) {
         Ok(r) => r,
         Err(e) => {
@@ -27,4 +37,13 @@ fn proxy_handler(ctx: RequestContext, res: &mut ResponseHandle) -> std::io::Resu
 
     let (status, headers, response_body) = response.into_parts();
     res.send(&status, &headers, response_body)
+}
+
+fn exit(message: &str) -> ! {
+    eprintln!("ERROR! {}", message);
+    eprintln!("usage: reverse_proxy [HOST] [PORT]");
+    eprintln!("\nexamples:");
+    eprintln!("   reverse_proxy httpbin.org 80");
+    eprintln!("   reverse_proxy localhost 8080");
+    std::process::exit(1);
 }
