@@ -32,25 +32,25 @@ fn get_stream_setup_fn(
     move |s| {
         let s = match s {
             Ok(s) => s,
-            Err(_) => return StreamSetupAction::Skip,
+            Err(_) => return StreamSetupAction::Drop,
         };
         if let Some(timeout) = read_timeout {
             match s.set_read_timeout(Some(Duration::from_millis(timeout))) {
                 Ok(_) => (),
-                Err(_) => return StreamSetupAction::Skip,
+                Err(_) => return StreamSetupAction::Drop,
             };
         }
         if let Some(timeout) = write_timeout {
             match s.set_write_timeout(Some(Duration::from_millis(timeout))) {
                 Ok(_) => (),
-                Err(_) => return StreamSetupAction::Skip,
+                Err(_) => return StreamSetupAction::Drop,
             }
         }
         match s.set_nodelay(tcp_nodelay) {
             Ok(_) => (),
-            Err(_) => return StreamSetupAction::Skip,
+            Err(_) => return StreamSetupAction::Drop,
         }
-        StreamSetupAction::Accept(s)
+        StreamSetupAction::Proceed(s)
     }
 }
 fn trailing_slash_redirect()
@@ -65,7 +65,7 @@ fn trailing_slash_redirect()
             let mut headers = Headers::new();
             headers.replace("Location", trimmed.as_bytes());
             let _ = response.send(&Status::of(301), &headers, &[][..]);
-            return PreRoutingAction::Skip;
+            return PreRoutingAction::Drop;
         }
 
         PreRoutingAction::Proceed

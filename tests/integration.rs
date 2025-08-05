@@ -80,7 +80,7 @@ fn request_limiter(
         Ok(stream) => {
             let seen = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if seen < n {
-                StreamSetupAction::Accept(stream)
+                StreamSetupAction::Proceed(stream)
             } else {
                 StreamSetupAction::StopAccepting
             }

@@ -13,7 +13,7 @@ const DEFAULT_MAX_REQUEST_HEAD: usize = 8192;
 pub type RouteFn =
     dyn Fn(RequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync + 'static;
 pub type StreamSetupFn = dyn Fn(io::Result<TcpStream>) -> StreamSetupAction + Send + Sync + 'static;
-pub type PreRoutingHookFn = dyn Fn(&mut Request<'_>, &ConnectionMeta, &mut ResponseHandle) -> PreRoutingAction
+pub type PreRoutingHookFn = dyn Fn(&mut Request<'_>, &mut ResponseHandle, &ConnectionMeta) -> PreRoutingAction
     + Send
     + Sync
     + 'static;
@@ -57,15 +57,14 @@ pub struct Server<R> {
 }
 
 pub enum StreamSetupAction {
-    Accept(TcpStream),
-    Skip,
+    Proceed(TcpStream),
+    Drop,
     StopAccepting,
 }
 
 pub enum PreRoutingAction {
     Proceed,
-    Skip,
-    Disconnect(io::Result<()>),
+    Drop,
 }
 
 pub struct ServerBuilder {
@@ -102,7 +101,7 @@ impl ServerBuilder {
 
     pub fn pre_routing_hook<F>(&mut self, f: F) -> &mut Self
     where
-        F: Fn(&mut Request<'_>, &ConnectionMeta, &mut ResponseHandle) -> PreRoutingAction
+        F: Fn(&mut Request<'_>, &mut ResponseHandle, &ConnectionMeta) -> PreRoutingAction
             + Send
             + Sync
             + 'static,
@@ -178,8 +177,8 @@ where
         for stream in listener.incoming() {
             let stream = match &self.stream_setup_hook {
                 Some(hook) => match (hook)(stream) {
-                    StreamSetupAction::Accept(s) => s,
-                    StreamSetupAction::Skip => continue,
+                    StreamSetupAction::Proceed(s) => s,
+                    StreamSetupAction::Drop => continue,
                     StreamSetupAction::StopAccepting => break,
                 },
                 None => match stream {
@@ -370,7 +369,7 @@ where
         Some(b) => b,
         None => return Ok(false), // eof
     };
-    let request = match Request::parse(buf) {
+    let mut request = match Request::parse(buf) {
         Ok(x) => x,
         Err(_) => return Ok(false), // TODO: reply with 400?
     };
@@ -379,6 +378,13 @@ where
         stream: write_stream,
         keep_alive: true,
     };
+
+    if let Some(hook) = &config.pre_routing_hook {
+        match (hook)(&mut request, &mut response, connection_meta) {
+            PreRoutingAction::Proceed => {}
+            PreRoutingAction::Drop => return Ok(response.keep_alive),
+        }
+    }
 
     let matched_route = config
         .router
@@ -462,8 +468,8 @@ where
                             Ok((mut stream, _)) => {
                                 if let Some(hook) = &self.stream_setup_hook {
                                     stream = match (hook)(Ok(stream)) {
-                                        StreamSetupAction::Accept(s) => s,
-                                        StreamSetupAction::Skip => continue,
+                                        StreamSetupAction::Proceed(s) => s,
+                                        StreamSetupAction::Drop => continue,
                                         StreamSetupAction::StopAccepting => return Ok(()),
                                     }
                                 }
