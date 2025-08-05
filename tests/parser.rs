@@ -251,6 +251,13 @@ fn test_response_status_code_non_numeric() {
     );
 }
 
+#[test]
+fn test_extended_latin_reason_not_allowed() {
+    let e_acute = '\u{00E9}'; // accented e
+    let response = format!("HTTP/1.1 200 Ol{e_acute}\r\n\r\n");
+    assert_parse_response_err(response.as_str(), HttpParsingError::MalformedStatusLine);
+}
+
 // ---------------------------------------------------------------------
 // UTILS
 // ---------------------------------------------------------------------

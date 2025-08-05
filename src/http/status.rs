@@ -1,13 +1,13 @@
 use std::{borrow::Cow, fmt};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Status {
+pub struct Status<'a> {
     pub code: u16,
-    pub reason: Cow<'static, str>,
+    pub reason: Cow<'a, str>,
 }
 
-impl Status {
-    pub const fn borrowed(code: u16, reason: &'static str) -> Self {
+impl<'a> Status<'a> {
+    pub const fn borrowed(code: u16, reason: &'a str) -> Self {
         Self {
             code,
             reason: Cow::Borrowed(reason),
@@ -28,18 +28,18 @@ impl Status {
     }
 }
 
-impl fmt::Display for Status {
+impl fmt::Display for Status<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} {}", self.code, self.reason)
     }
 }
 
-impl From<u16> for Status {
+impl From<u16> for Status<'_> {
     fn from(code: u16) -> Self {
         Self::of(code)
     }
 }
-impl PartialEq<u16> for Status {
+impl PartialEq<u16> for Status<'_> {
     fn eq(&self, other: &u16) -> bool {
         self.code == *other
     }
@@ -47,9 +47,9 @@ impl PartialEq<u16> for Status {
 
 macro_rules! define_statuses {
     ($( $code:literal => $ident:ident, $reason:expr );* $(;)?) => {
-        impl Status {
+        impl<'a> Status<'a> {
             $(
-                pub const $ident: Status = Status::borrowed($code, $reason);
+                pub const $ident: Status<'a> = Status::borrowed($code, $reason);
             )*
 
             pub const fn of(code: u16) -> Self {

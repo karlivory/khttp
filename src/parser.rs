@@ -8,7 +8,7 @@ use std::{
 #[derive(Debug)]
 pub struct Response<'b> {
     pub http_version: u8,
-    pub status: Status,
+    pub status: Status<'b>,
     pub headers: Headers<'b>,
     pub buf_offset: usize,
 }
@@ -25,7 +25,10 @@ pub struct Request<'b> {
 impl<'b> Response<'b> {
     pub fn parse(buf: &'b [u8]) -> Result<Response<'b>, HttpParsingError> {
         let start = buf.len();
-        let (http_version, status, rest) = parse_response_status_line(buf)?;
+        let (http_version, rest) = parse_version(buf)?;
+        // Step 2: Skip single space
+        let rest = rest.get(1..).ok_or(HttpParsingError::MalformedStatusLine)?;
+        let (status, rest) = parse_response_status(rest)?;
         let (headers, rest) = parse_headers(rest)?;
 
         // return buf offset
@@ -36,6 +39,52 @@ impl<'b> Response<'b> {
             buf_offset: start - rest.len(),
         })
     }
+}
+
+fn parse_response_status_code(buf: &[u8]) -> Result<u16, HttpParsingError> {
+    use HttpParsingError::MalformedStatusLine;
+    let hundreds = match buf.first().ok_or(MalformedStatusLine)? {
+        x if (*x >= b'0' && *x <= b'9') => *x,
+        _ => return Err(MalformedStatusLine),
+    };
+    let tens = match buf.get(1).ok_or(MalformedStatusLine)? {
+        x if (*x >= b'0' && *x <= b'9') => *x,
+        _ => return Err(MalformedStatusLine),
+    };
+    let ones = match buf.get(2).ok_or(MalformedStatusLine)? {
+        x if (*x >= b'0' && *x <= b'9') => *x,
+        _ => return Err(MalformedStatusLine),
+    };
+
+    Ok((hundreds - b'0') as u16 * 100 + (tens - b'0') as u16 * 10 + (ones - b'0') as u16)
+}
+
+fn parse_response_status(buf: &[u8]) -> Result<(Status, &[u8]), HttpParsingError> {
+    let code = parse_response_status_code(buf)?;
+    // check SP
+    if buf.get(3).ok_or(HttpParsingError::MalformedStatusLine)? != &b' ' {
+        return Err(HttpParsingError::MalformedStatusLine);
+    }
+
+    let buf = buf.get(4..).ok_or(HttpParsingError::MalformedStatusLine)?;
+    let mut i = 0;
+    while i + 1 < buf.len() {
+        let c = buf[i];
+        if c == b'\r' && buf[i + 1] == b'\n' {
+            // safety: we just validated that all chars in buf[..i] are utf8
+            let reason = unsafe { std::str::from_utf8_unchecked(&buf[..i]) };
+            let rest = buf
+                .get(i + 2..) // skip \r\n
+                .ok_or(HttpParsingError::MalformedStatusLine)?;
+            return Ok((Status::borrowed(code, reason), rest));
+        }
+        if !(c == b'\t' || c == b' ' || (0x21..=0x7E).contains(&c)) {
+            // NB! extended Latin-1 is not allowed because not utf-8
+            return Err(HttpParsingError::MalformedStatusLine);
+        }
+        i += 1;
+    }
+    Err(HttpParsingError::MalformedStatusLine)
 }
 
 impl<'b> Request<'b> {
@@ -107,46 +156,6 @@ fn parse_header_line(line: &[u8]) -> Result<(&str, &[u8]), HttpParsingError> {
 // -------------------------------------------------------------------------
 // Utils
 // -------------------------------------------------------------------------
-
-fn parse_response_status_line(buf: &[u8]) -> Result<(u8, Status, &[u8]), HttpParsingError> {
-    use HttpParsingError::MalformedStatusLine;
-
-    // Step 1: Parse HTTP version
-    let (version, rest) = parse_version(buf)?;
-
-    // Step 2: Skip single space
-    let rest = rest.get(1..).ok_or(MalformedStatusLine)?;
-
-    // Step 3: Parse status code (3-digit number)
-    let status_code_bytes = rest.get(..3).ok_or(MalformedStatusLine)?;
-    let code = std::str::from_utf8(status_code_bytes)
-        .ok()
-        .and_then(|s| s.parse::<u16>().ok())
-        .ok_or(MalformedStatusLine)?;
-
-    // Step 4: Skip space after status code
-    let rest = rest.get(3..).ok_or(MalformedStatusLine)?;
-    if rest.first() != Some(&b' ') {
-        return Err(MalformedStatusLine);
-    }
-    let rest = rest.get(1..).ok_or(MalformedStatusLine)?;
-
-    // Step 5: Read until CRLF for reason-phrase
-    let mut i = 0;
-    while i + 1 < rest.len() {
-        if rest[i] == b'\r' && rest[i + 1] == b'\n' {
-            let reason_bytes = &rest[..i];
-            let reason = std::str::from_utf8(reason_bytes)
-                .map_err(|_| MalformedStatusLine)?
-                .to_string();
-            let remaining = &rest[i + 2..];
-            return Ok((version, Status::owned(code, reason), remaining));
-        }
-        i += 1;
-    }
-
-    Err(MalformedStatusLine)
-}
 
 #[inline]
 fn parse_version(buf: &[u8]) -> Result<(u8, &[u8]), HttpParsingError> {
