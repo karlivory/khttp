@@ -44,6 +44,7 @@ impl<W: Write> HttpPrinter<W> {
         self.dispatch(head, strat)
     }
 
+    #[inline]
     pub fn write_100_continue(&mut self) -> io::Result<()> {
         self.writer.write_all(RESPONSE_100_CONTINUE)?;
         self.writer.flush()

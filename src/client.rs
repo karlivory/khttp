@@ -19,75 +19,6 @@ impl Client {
             req_buf: MaybeUninit::uninit(),
         }
     }
-    pub fn get(
-        &mut self,
-        uri: &str,
-        headers: &Headers,
-    ) -> Result<ClientResponseHandle, ClientError> {
-        self.exchange(&Method::Get, uri, headers, &[][..])
-    }
-
-    pub fn head(
-        &mut self,
-        uri: &str,
-        headers: &Headers,
-    ) -> Result<ClientResponseHandle, ClientError> {
-        self.exchange(&Method::Head, uri, headers, &[][..])
-    }
-
-    pub fn put(
-        &mut self,
-        uri: &str,
-        headers: &Headers,
-        body: impl Read,
-    ) -> Result<ClientResponseHandle, ClientError> {
-        self.exchange(&Method::Put, uri, headers, body)
-    }
-
-    pub fn patch(
-        &mut self,
-        uri: &str,
-        headers: &Headers,
-        body: impl Read,
-    ) -> Result<ClientResponseHandle, ClientError> {
-        self.exchange(&Method::Patch, uri, headers, body)
-    }
-
-    pub fn post(
-        &mut self,
-        uri: &str,
-        headers: &Headers,
-        body: impl Read,
-    ) -> Result<ClientResponseHandle, ClientError> {
-        self.exchange(&Method::Post, uri, headers, body)
-    }
-
-    pub fn delete(
-        &mut self,
-        uri: &str,
-        headers: &Headers,
-        body: impl Read,
-    ) -> Result<ClientResponseHandle, ClientError> {
-        self.exchange(&Method::Delete, uri, headers, body)
-    }
-
-    pub fn options(
-        &mut self,
-        uri: &str,
-        headers: &Headers,
-        body: impl Read,
-    ) -> Result<ClientResponseHandle, ClientError> {
-        self.exchange(&Method::Options, uri, headers, body)
-    }
-
-    pub fn trace(
-        &mut self,
-        uri: &str,
-        headers: &Headers,
-        body: impl Read,
-    ) -> Result<ClientResponseHandle, ClientError> {
-        self.exchange(&Method::Trace, uri, headers, body)
-    }
 
     pub fn exchange(
         &mut self,
@@ -221,3 +152,37 @@ impl Display for ClientError {
         }
     }
 }
+
+macro_rules! define_method {
+    ($name:ident, $method:ident, no_body) => {
+        impl Client {
+            pub fn $name(
+                &mut self,
+                uri: &str,
+                headers: &Headers,
+            ) -> Result<ClientResponseHandle, ClientError> {
+                self.exchange(&Method::$method, uri, headers, &[][..])
+            }
+        }
+    };
+    ($name:ident, $method:ident, body) => {
+        impl Client {
+            pub fn $name(
+                &mut self,
+                uri: &str,
+                headers: &Headers,
+                body: impl Read,
+            ) -> Result<ClientResponseHandle, ClientError> {
+                self.exchange(&Method::$method, uri, headers, body)
+            }
+        }
+    };
+}
+define_method!(get, Get, no_body);
+define_method!(head, Head, no_body);
+define_method!(post, Post, body);
+define_method!(put, Put, body);
+define_method!(patch, Patch, body);
+define_method!(delete, Delete, body);
+define_method!(options, Options, body);
+define_method!(trace, Trace, body);

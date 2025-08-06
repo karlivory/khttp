@@ -215,13 +215,11 @@ impl ResponseHandle<'_> {
         if headers.is_connection_close() {
             self.keep_alive = false;
         }
-        let mut p = HttpPrinter::new(&mut self.stream);
-        p.write_response(status, headers, body)
+        HttpPrinter::new(&mut self.stream).write_response(status, headers, body)
     }
 
     pub fn send_100_continue(&mut self) -> io::Result<()> {
-        let mut p = HttpPrinter::new(&mut self.stream);
-        p.write_100_continue()
+        HttpPrinter::new(&mut self.stream).write_100_continue()
     }
 
     pub fn get_stream(&mut self) -> &TcpStream {
