@@ -26,3 +26,7 @@ optional = true
 
 [workspace]
 members = [".", "examples/*"]
+
+[[example]]
+name = "reverse_proxy"
+required-features = ["client"]
