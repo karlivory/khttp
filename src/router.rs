@@ -1,51 +1,47 @@
 use crate::Method;
-use std::{
-    array::from_fn,
-    cmp::max,
-    collections::HashMap,
-    hash::{Hash, Hasher},
-};
+use std::{array::from_fn, cmp::max, collections::HashMap};
 
 pub trait HttpRouter {
     type Route;
-
     fn match_route<'a, 'r>(&'a self, method: &Method, path: &'r str) -> Match<'a, 'r, Self::Route>;
 }
 
-#[derive(Default)]
 pub struct RouterBuilder<T> {
-    standard_methods: [HashMap<RouteEntry, T>; 8],
-    extensions: HashMap<String, HashMap<RouteEntry, T>>,
-    fallback_route: T,
-}
-
-pub struct Router<T> {
-    standard_methods: [Vec<(RouteEntry, T)>; 8],
+    methods: [Vec<(RouteEntry, T)>; 8],
     extensions: HashMap<String, Vec<(RouteEntry, T)>>,
     fallback_route: T,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct RouteEntry(Vec<RouteSegment>);
+pub struct Router<T> {
+    methods: [Vec<(RouteEntry, T)>; 8],
+    extensions: HashMap<String, Vec<(RouteEntry, T)>>,
+    fallback_route: T,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RouteEntry {
+    pattern: Vec<RouteSegment>,
+    literal: bool, // -> whether the route patterns contains only literals
+}
 
 impl<T> RouterBuilder<T> {
     pub fn new(fallback_route: T) -> Self {
         Self {
-            standard_methods: from_fn(|_| HashMap::new()),
+            methods: from_fn(|_| Vec::new()),
             extensions: HashMap::new(),
             fallback_route,
         }
     }
+
     pub fn add_route(&mut self, method: &Method, path: &str, route: T) {
         let route_entry = parse_route(path);
-        match method {
-            Method::Custom(x) => self
-                .extensions
-                .entry(x.clone())
-                .or_default()
-                .insert(route_entry, route),
-            _ => self.standard_methods[method.index()].insert(route_entry, route),
+        let routes = match method {
+            Method::Custom(x) => self.extensions.entry(x.clone()).or_default(),
+            _ => &mut self.methods[method.index()],
         };
+
+        routes.retain(|(k, _)| k != &route_entry);
+        routes.push((route_entry, route));
     }
 
     pub fn set_fallback_route(&mut self, route: T) {
@@ -53,20 +49,9 @@ impl<T> RouterBuilder<T> {
     }
 
     pub fn build(self) -> Router<T> {
-        let mut standard_methods: [Vec<(RouteEntry, T)>; 8] = Default::default();
-
-        for (i, map) in self.standard_methods.into_iter().enumerate() {
-            standard_methods[i] = map.into_iter().collect();
-        }
-        let extensions: HashMap<String, Vec<(RouteEntry, T)>> = self
-            .extensions
-            .into_iter()
-            .map(|(x, y)| (x, y.into_iter().collect()))
-            .collect();
-
         Router {
-            standard_methods,
-            extensions,
+            methods: self.methods,
+            extensions: self.extensions,
             fallback_route: self.fallback_route,
         }
     }
@@ -80,7 +65,7 @@ impl<T> HttpRouter for Router<T> {
         method: &Method,
         mut uri: &'r str,
     ) -> Match<'a, 'r, Self::Route> {
-        if uri.starts_with("/") {
+        if uri.starts_with('/') {
             uri = &uri[1..];
         }
 
@@ -89,14 +74,13 @@ impl<T> HttpRouter for Router<T> {
                 Some(r) => r,
                 None => return Match::no_params(&self.fallback_route),
             },
-            _ => &self.standard_methods[method.index()],
+            _ => &self.methods[method.index()],
         };
 
-        #[allow(clippy::type_complexity)]
-        let mut matched: Vec<(u16, Precedence, &Vec<RouteSegment>, &T, RouteParams)> = Vec::new();
+        let mut matched: Vec<(u16, Precedence, &[RouteSegment], &T, RouteParams)> = Vec::new();
 
         let mut max_lml = 0u16;
-        for (RouteEntry(pattern), route) in routes.iter() {
+        for (RouteEntry { pattern, literal }, route) in routes.iter() {
             let mut uri_iter = uri.split('/');
             let mut params = RouteParams::new();
             let mut ok = true;
@@ -148,12 +132,8 @@ impl<T> HttpRouter for Router<T> {
             }
 
             if ok {
-                if lml as usize == pattern.len()
-                    && pattern
-                        .iter()
-                        .all(|s| matches!(s, RouteSegment::Literal(_)))
-                {
-                    return Match::new(route, params);
+                if lml as usize == pattern.len() && *literal {
+                    return Match::new(route, params); // perfect match
                 }
 
                 max_lml = max(max_lml, lml);
@@ -204,8 +184,8 @@ impl<'a, 'r> RouteParams<'a, 'r> {
         self.0.iter().find_map(|(k, v)| (*k == key).then_some(*v))
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&'a str, &'r str)> + '_ {
-        self.0.iter().copied()
+    pub fn iter(&self) -> impl Iterator<Item = &(&'a str, &'r str)> + '_ {
+        self.0.iter()
     }
 
     pub fn insert(&mut self, key: &'a str, val: &'r str) {
@@ -227,20 +207,6 @@ enum RouteSegment {
     DoubleWildcard,
 }
 
-impl Hash for RouteSegment {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        match self {
-            RouteSegment::Literal(s) => {
-                core::mem::discriminant(self).hash(state);
-                s.hash(state);
-            }
-            RouteSegment::Wildcard | RouteSegment::DoubleWildcard | RouteSegment::Param(_) => {
-                core::mem::discriminant(self).hash(state);
-            }
-        }
-    }
-}
-
 impl PartialEq for RouteSegment {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -253,6 +219,17 @@ impl PartialEq for RouteSegment {
     }
 }
 
+fn parse_route(mut route_str: &str) -> RouteEntry {
+    if route_str.starts_with('/') {
+        route_str = &route_str[1..];
+    }
+    let pattern: Vec<RouteSegment> = route_str.split('/').map(parse_route_segment).collect();
+    let literal = pattern
+        .iter()
+        .all(|x| matches!(x, RouteSegment::Literal(_)));
+    RouteEntry { pattern, literal }
+}
+
 fn parse_route_segment(s: &str) -> RouteSegment {
     match s {
         "*" => RouteSegment::Wildcard,
@@ -260,14 +237,6 @@ fn parse_route_segment(s: &str) -> RouteSegment {
         _ if s.starts_with(':') => RouteSegment::Param(s[1..].to_string()),
         x => RouteSegment::Literal(x.to_string()),
     }
-}
-
-fn parse_route(mut route_str: &str) -> RouteEntry {
-    if route_str.starts_with("/") {
-        route_str = &route_str[1..];
-    }
-    let segments = route_str.split('/').map(parse_route_segment).collect();
-    RouteEntry(segments)
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
