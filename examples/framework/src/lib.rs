@@ -29,8 +29,8 @@ fn get_stream_setup_fn(
     let write_timeout = config.tcp_write_timeout;
     let tcp_nodelay = config.tcp_nodelay;
 
-    move |s| {
-        let s = match s {
+    move |stream| {
+        let s = match stream {
             Ok(s) => s,
             Err(_) => return StreamSetupAction::Drop,
         };
@@ -54,12 +54,12 @@ fn get_stream_setup_fn(
     }
 }
 fn trailing_slash_redirect()
--> impl Fn(&mut Request<'_>, &ConnectionMeta, &mut ResponseHandle) -> PreRoutingAction
+-> impl Fn(&mut Request<'_>, &mut ResponseHandle, &ConnectionMeta) -> PreRoutingAction
 + Send
 + Sync
 + 'static {
-    move |req, _, response| {
-        let original_path = req.uri.path();
+    move |request, response, _| {
+        let original_path = request.uri.path();
         if original_path != "/" && original_path.ends_with('/') {
             let trimmed = original_path.trim_end_matches('/');
             let mut headers = Headers::new();
@@ -82,7 +82,7 @@ impl FrameworkApp {
         let ip = &config.bind;
         let port = &config.port;
         let mut server = Server::builder(format!("{ip}:{port}")).expect("err: invalid addr");
-        // server.set_pre_routing_hook(trailing_slash_redirect());
+        server.pre_routing_hook(trailing_slash_redirect());
         server.thread_count(config.thread_count);
         server.stream_setup_hook(get_stream_setup_fn(&config));
         Self { server, config }
@@ -116,16 +116,16 @@ impl FrameworkApp {
 fn print_startup_banner(config: &ServerConfig) {
     println!(
         r#"
- _  ___    _ _______ _______ _____
-| |/ / |  | |__   __|__   __|  __ \
-| ' /| |__| |  | |     | |  | |__) |
-|  < |  __  |  | |     | |  |  ___/
-| . \| |  | |  | |     | |  | |
-|_|\_\_|  |_|  |_|     |_|  |_|
+   _  ___    _ _______ _______ _____
+  | |/ / |  | |__   __|__   __|  __ \
+  | ' /| |__| |  | |     | |  | |__) |
+  |  < |  __  |  | |     | |  |  ___/
+  | . \| |  | |  | |     | |  | |
+  |_|\_\_|  |_|  |_|     |_|  |_|
 
- KHTTP :: Minimal HTTP/1.1 Server Framework
+ KHTTP: minimal HTTP/1.1 server framework
  Running on http://{}:{}
- Threads: {}
+ Worker thread count: {}
 ────────────────────────────────────────────
 "#,
         config.bind, config.port, config.thread_count,
