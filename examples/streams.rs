@@ -43,37 +43,19 @@ fn main() {
     app.build().serve_epoll().unwrap();
 }
 
-pub struct MapBytes<R, F> {
-    inner: R,
-    map_fn: F,
-}
-
-impl<R: Read, F: Fn(u8) -> u8> Read for MapBytes<R, F> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let n = self.inner.read(buf)?;
-        for b in &mut buf[..n] {
-            *b = (self.map_fn)(*b);
-        }
-        Ok(n)
-    }
-}
-
-pub trait ReadExt: Read + Sized {
-    fn map_bytes<F>(self, f: F) -> MapBytes<Self, F>
+trait ReadExt: Read + Sized {
+    fn map_bytes<F>(self, map_fn: F) -> MapBytes<Self, F>
     where
         F: Fn(u8) -> u8,
     {
         MapBytes {
             inner: self,
-            map_fn: f,
+            map_fn,
         }
     }
 
-    fn tee<W: Write>(self, w: W) -> Tee<Self, W> {
-        Tee {
-            inner: self,
-            sink: w,
-        }
+    fn tee<W: Write>(self, sink: W) -> Tee<Self, W> {
+        Tee { inner: self, sink }
     }
 
     fn rot13(self) -> MapBytes<Self, fn(u8) -> u8> {
@@ -89,9 +71,24 @@ pub trait ReadExt: Read + Sized {
     // }
 }
 
+struct MapBytes<R, F> {
+    inner: R,
+    map_fn: F,
+}
+
+impl<R: Read, F: Fn(u8) -> u8> Read for MapBytes<R, F> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        for b in &mut buf[..n] {
+            *b = (self.map_fn)(*b);
+        }
+        Ok(n)
+    }
+}
+
 impl<R: Read> ReadExt for R {}
 
-pub struct Tee<R, W> {
+struct Tee<R, W> {
     inner: R,
     sink: W,
 }

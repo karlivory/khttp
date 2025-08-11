@@ -32,6 +32,7 @@ impl From<u16> for Status<'_> {
         Self::of(code)
     }
 }
+
 impl PartialEq<u16> for Status<'_> {
     fn eq(&self, other: &u16) -> bool {
         self.code == *other

@@ -11,13 +11,11 @@ const DEFAULT_THREAD_COUNT: usize = 20;
 const DEFAULT_MAX_REQUEST_HEAD: usize = 8192;
 const DEFAULT_EPOLL_QUEUE_MAXEVENTS: usize = 1024;
 
-pub type RouteFn =
-    dyn Fn(RequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync + 'static;
-pub type StreamSetupFn = dyn Fn(io::Result<TcpStream>) -> StreamSetupAction + Send + Sync + 'static;
+pub type RouteFn = dyn Fn(RequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync;
+pub type StreamSetupFn = dyn Fn(io::Result<TcpStream>) -> StreamSetupAction + Send + Sync;
 pub type PreRoutingHookFn = dyn Fn(&mut Request<'_>, &mut ResponseHandle, &ConnectionMeta) -> PreRoutingAction
     + Send
-    + Sync
-    + 'static;
+    + Sync;
 
 impl Server<Router<Box<RouteFn>>> {
     pub fn builder<A: ToSocketAddrs>(addr: A) -> io::Result<ServerBuilder> {
@@ -47,7 +45,7 @@ impl Server<Router<Box<RouteFn>>> {
 
 struct HandlerConfig<R> {
     router: R,
-    pre_routing_hook: Option<Box<PreRoutingHookFn>>, // TODO: implement
+    pre_routing_hook: Option<Box<PreRoutingHookFn>>,
     max_request_head: usize,
 }
 
@@ -364,7 +362,7 @@ where
     })
 }
 
-/// returns whether to keep the stream alive for the next request
+/// Returns "keep-alive" (whether to keep the connection alive for the next request).
 fn handle_one_request<R>(
     read_stream: &mut TcpStream,
     write_stream: &mut TcpStream,
