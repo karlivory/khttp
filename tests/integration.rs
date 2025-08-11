@@ -17,7 +17,7 @@ fn simple_multi_test() {
     let h = start_server(4);
     thread::sleep(Duration::from_millis(10));
 
-    let mut client = Client::new(&format!("localhost:{}", TEST_PORT));
+    let mut client = Client::new(format!("localhost:{}", TEST_PORT));
 
     let response = client.get("/hello", Headers::empty()).unwrap();
     assert_status_and_body(response, 200, "Hello, World!");

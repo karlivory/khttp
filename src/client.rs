@@ -3,19 +3,23 @@ use std::error::Error;
 use std::fmt::Display;
 use std::io::{self, Read};
 use std::mem::MaybeUninit;
-use std::net::TcpStream;
+use std::net::{TcpStream, ToSocketAddrs};
 
 static MAX_RESPONSE_HEAD: usize = 8196;
 
-pub struct Client {
-    address: String,
+#[derive(Clone)]
+pub struct Client<A> {
+    address: A,
     req_buf: MaybeUninit<[u8; MAX_RESPONSE_HEAD]>,
 }
 
-impl Client {
-    pub fn new(address: &str) -> Client {
+impl<A> Client<A>
+where
+    A: ToSocketAddrs,
+{
+    pub fn new(address: A) -> Client<A> {
         Self {
-            address: address.to_string(),
+            address,
             req_buf: MaybeUninit::uninit(),
         }
     }
@@ -73,7 +77,10 @@ impl<'r> ClientResponseHandle<'r> {
 }
 
 impl ClientRequestTcpStream {
-    fn new(host: &str) -> Result<Self, ClientError> {
+    fn new<A>(host: A) -> Result<Self, ClientError>
+    where
+        A: ToSocketAddrs,
+    {
         let stream = TcpStream::connect(host);
         match stream {
             Ok(stream) => Ok(ClientRequestTcpStream { stream }),
@@ -155,7 +162,10 @@ impl Display for ClientError {
 
 macro_rules! define_method {
     ($name:ident, $method:ident, no_body) => {
-        impl Client {
+        impl<A> Client<A>
+        where
+            A: ToSocketAddrs,
+        {
             pub fn $name(
                 &mut self,
                 uri: &str,
@@ -166,7 +176,10 @@ macro_rules! define_method {
         }
     };
     ($name:ident, $method:ident, body) => {
-        impl Client {
+        impl<A> Client<A>
+        where
+            A: ToSocketAddrs,
+        {
             pub fn $name(
                 &mut self,
                 uri: &str,

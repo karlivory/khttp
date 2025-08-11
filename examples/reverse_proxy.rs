@@ -26,7 +26,7 @@ fn proxy(
     let (method, uri, mut headers, _, _, _, request_body) = ctx.into_parts();
     headers.replace("Host", host.as_bytes());
 
-    let mut client = Client::new(&format!("{}:{}", host, port));
+    let mut client = Client::new(format!("{}:{}", host, port));
     let response = match client.exchange(&method, uri.path(), &headers, request_body) {
         Ok(r) => r,
         Err(e) => {
