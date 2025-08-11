@@ -32,8 +32,8 @@ impl Server<Router<Box<RouteFn>>> {
 
         Ok(ServerBuilder {
             bind_addrs,
-            router: RouterBuilder::<Box<RouteFn>>::new(Box::new(|_, r| {
-                r.send(&Status::NOT_FOUND, Headers::empty(), &[][..])
+            router: RouterBuilder::new(Box::new(|_, r| {
+                r.send(&Status::NOT_FOUND, Headers::empty(), std::io::empty())
             })),
             thread_count: None,
             stream_setup_hook: None,

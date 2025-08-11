@@ -171,7 +171,7 @@ macro_rules! define_method {
                 uri: &str,
                 headers: &Headers,
             ) -> Result<ClientResponseHandle, ClientError> {
-                self.exchange(&Method::$method, uri, headers, &[][..])
+                self.exchange(&Method::$method, uri, headers, std::io::empty())
             }
         }
     };
