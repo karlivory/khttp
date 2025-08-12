@@ -23,7 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#[inline(always)]
+#[inline]
 pub fn get_date_now() -> [u8; DATE_LEN] {
     DATE_CACHE.with(|cell| {
         let mut cache = cell.borrow_mut();
@@ -36,14 +36,14 @@ pub fn get_date_now() -> [u8; DATE_LEN] {
     })
 }
 
-#[inline(always)]
+#[inline]
 pub fn get_date_from_secs(seconds: i64) -> [u8; DATE_LEN] {
     let mut buf = BASE;
     format_http_date(&mut buf, seconds);
     buf
 }
 
-#[inline(always)]
+#[inline]
 pub fn get_date_now_uncached() -> [u8; DATE_LEN] {
     let mut buf = BASE;
     format_http_date(&mut buf, now_unix_sec());
@@ -67,14 +67,14 @@ thread_local! {
     };
 }
 
-#[inline(always)]
+#[inline]
 fn divmod_i64(n: i64, d: i64) -> (i64, i64) {
     let q = n.div_euclid(d);
     let r = n.rem_euclid(d);
     (q, r)
 }
 
-#[inline(always)]
+#[inline]
 fn now_unix_sec() -> i64 {
     // Prefer coarse clock (Linux) -> cheaper, 1s granularity is enough
     #[cfg(target_os = "linux")]
@@ -105,7 +105,7 @@ unsafe extern "C" {
     fn clock_gettime(clk_id: i32, tp: *mut Timespec) -> i32;
 }
 
-#[inline(always)]
+#[inline]
 fn format_http_date(buf: &mut [u8; DATE_LEN], secs_since_epoch: i64) {
     *buf = BASE;
 
@@ -198,13 +198,13 @@ fn format_http_date(buf: &mut [u8; DATE_LEN], secs_since_epoch: i64) {
     write_2d(&mut buf[29..31], sec);
 }
 
-#[inline(always)]
+#[inline]
 fn write_2d(buf: &mut [u8], v: u8) {
     buf[0] = b'0' + (v / 10);
     buf[1] = b'0' + (v % 10);
 }
 
-#[inline(always)]
+#[inline]
 fn write_4d(buf: &mut [u8], v: u16) {
     buf[0] = b'0' + ((v / 1000) as u8);
     buf[1] = b'0' + ((v / 100 % 10) as u8);
