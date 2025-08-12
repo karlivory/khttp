@@ -1,4 +1,5 @@
-// This file contains code adapted from github.com/seanmonstar/httparse
+// Code is *heavily* adapted from:
+// https://github.com/seanmonstar/httparse/blob/36147265105338185f49ceac51a9bea83941a1ec/src/simd/swar.rs
 //
 // Copyright (c) 2015-2025 Sean McArthur
 //
@@ -78,11 +79,15 @@ fn swar_match_uri_vectored(buf: &[u8]) -> usize {
 
     while i + BLOCK_SIZE <= len {
         let x = unsafe { core::ptr::read_unaligned(buf.as_ptr().add(i) as *const usize) };
-        // same test as before: 33..=255 && != 127
+        // 33 <= (x != 127) <= 255
         const M: u8 = 0x21;
+        // uniform block full of exclamation mark (!) (33).
         const BM: usize = uniform_block(M);
+        // uniform block full of 1.
         const ONE: usize = uniform_block(0x01);
+        // uniform block full of DEL (127).
         const DEL: usize = uniform_block(0x7f);
+        // uniform block full of 128.
         const M128: usize = uniform_block(128);
 
         let lt = x.wrapping_sub(BM) & !x;
