@@ -28,6 +28,20 @@ impl<'a, R: Read> BodyReader<'a, R> {
         }
     }
 
+    pub fn from_response(leftover: &'a [u8], stream: R, headers: &Headers) -> Self {
+        if let Some(content_len) = headers.get_content_length() {
+            if content_len > 0 {
+                Self::new_fixed(leftover, stream, content_len as usize)
+            } else {
+                Self::new_empty(stream)
+            }
+        } else if headers.is_transfer_encoding_chunked() {
+            Self::new_chunked(leftover, stream)
+        } else {
+            Self::new_eof(leftover, stream)
+        }
+    }
+
     #[inline]
     pub fn new_fixed(leftover: &'a [u8], stream: R, content_length: usize) -> Self {
         Self(BodyEncoding::Fixed(FixedReader::new(

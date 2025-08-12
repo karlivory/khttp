@@ -119,7 +119,7 @@ impl ClientRequestTcpStream {
             Ok(o) => o,
             Err(e) => return Err(ClientError::ParsingFailure(e)),
         };
-        let body = BodyReader::from_request(&buf[res.buf_offset..n], self.stream, &res.headers);
+        let body = BodyReader::from_response(&buf[res.buf_offset..n], self.stream, &res.headers);
 
         Ok(ClientResponseHandle {
             headers: res.headers,
