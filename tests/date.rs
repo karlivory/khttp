@@ -1,6 +1,6 @@
 use khttp::date::get_date_from_secs;
 
-const DATE_LEN: usize = 35;
+const DATE_LEN: usize = 37;
 fn to_string(bytes: [u8; DATE_LEN]) -> String {
     String::from_utf8(bytes.to_vec()).expect("http-date must be ASCII")
 }
@@ -53,9 +53,8 @@ fn http_date_known_vectors() {
 
     for &(secs, expected) in cases {
         let got = to_string(get_date_from_secs(secs));
-        assert_eq!(got, expected, "bad format for {secs}");
-        assert_eq!(got.len(), DATE_LEN, "length mismatch for {secs}");
+        assert_eq!(&got[..35], expected, "bad format for {secs}");
         assert!(got.starts_with("date: "), "missing prefix for {secs}");
-        assert!(got.ends_with(" GMT"), "missing GMT suffix for {secs}");
+        assert!(got.ends_with(" GMT\r\n"), "missing GMT suffix for {secs}");
     }
 }

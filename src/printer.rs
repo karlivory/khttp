@@ -1,7 +1,6 @@
 use crate::{Headers, Method, Status};
 use std::io::{self, BufWriter, Read, Write};
 
-const HTTP_VERSION: &[u8] = b"HTTP/1.1";
 const CRLF: &[u8] = b"\r\n";
 const PROBE_MAX: usize = 8 * 1024;
 const RESPONSE_100_CONTINUE: &[u8] = b"HTTP/1.1 100 Continue\r\n\r\n";
@@ -29,7 +28,9 @@ impl<W: Write> HttpPrinter<W> {
     ) -> io::Result<()> {
         let strat = decide_body_strategy(headers, body)?;
         let head = build_response_head(status, headers, &strat);
-        self.dispatch(head, strat)
+        self.writer.write_all(&head)?;
+        self.dispatch(strat)?;
+        self.flush()
     }
 
     pub fn write_request<R: Read>(
@@ -41,7 +42,9 @@ impl<W: Write> HttpPrinter<W> {
     ) -> io::Result<()> {
         let strat = decide_body_strategy(headers, body)?;
         let head = build_request_head(method, uri, headers, &strat);
-        self.dispatch(head, strat)
+        self.writer.write_all(&head)?;
+        self.dispatch(strat)?;
+        self.flush()
     }
 
     #[inline]
@@ -84,8 +87,7 @@ impl<W: Write> HttpPrinter<W> {
     }
 
     #[inline]
-    fn dispatch<R: Read>(&mut self, head: Vec<u8>, strat: BodyStrategy<R>) -> io::Result<()> {
-        self.writer.write_all(&head)?;
+    fn dispatch<R: Read>(&mut self, strat: BodyStrategy<R>) -> io::Result<()> {
         match strat {
             BodyStrategy::Fast(buf, _) => self.write_fast(&buf),
             BodyStrategy::Streaming(reader, _) => self.write_streaming(reader),
@@ -159,10 +161,8 @@ fn build_response_head<R: Read>(
     let mut head = get_head_vector(headers.get_count());
 
     // status line
-    head.extend_from_slice(HTTP_VERSION);
-    head.extend_from_slice(b" ");
-    head.extend_from_slice(&u16_to_ascii_3digits(status.code));
-    head.extend_from_slice(b" ");
+    head.extend_from_slice(b"HTTP/1.1 ");
+    head.extend_from_slice(&u16_to_ascii(status.code));
     head.extend_from_slice(status.reason.as_bytes());
     head.extend_from_slice(CRLF);
 
@@ -187,8 +187,7 @@ fn build_request_head<R: Read>(
     head.extend_from_slice(b" ");
     head.extend_from_slice(uri.as_bytes());
     head.extend_from_slice(b" ");
-    head.extend_from_slice(HTTP_VERSION);
-    head.extend_from_slice(CRLF);
+    head.extend_from_slice(b"HTTP/1.1\r\n");
 
     // headers
     add_headers(&mut head, headers, strat);
@@ -229,7 +228,7 @@ fn add_headers<R: Read>(buf: &mut Vec<u8>, headers: &Headers, strat: &BodyStrate
     if headers.is_with_date_header() {
         let date_buf = crate::date::get_date_now();
         buf.extend_from_slice(&date_buf);
-        buf.extend_from_slice(CRLF);
+        // buf.extend_from_slice(CRLF);
     }
     // // set framing headers ("Transfer-Encoding" OR "Content-Length")
     match strat {
@@ -280,7 +279,7 @@ fn u64_to_ascii_buf(mut n: u64, buf: &mut [u8; 20]) -> usize {
     len
 }
 
-fn u16_to_ascii_3digits(n: u16) -> [u8; 3] {
+fn u16_to_ascii(n: u16) -> [u8; 4] {
     let hundreds = n / 100;
     let tens = (n / 10) % 10;
     let ones = n % 10;
@@ -289,6 +288,7 @@ fn u16_to_ascii_3digits(n: u16) -> [u8; 3] {
         b'0' + (hundreds as u8),
         b'0' + (tens as u8),
         b'0' + (ones as u8),
+        b' ',
     ]
 }
 

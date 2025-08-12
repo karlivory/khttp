@@ -38,20 +38,20 @@ pub fn get_date_now() -> [u8; DATE_LEN] {
 
 #[inline]
 pub fn get_date_from_secs(seconds: i64) -> [u8; DATE_LEN] {
-    let mut buf = BASE;
+    let mut buf = HEADER_TEMPLATE;
     format_http_date(&mut buf, seconds);
     buf
 }
 
 #[inline]
 pub fn get_date_now_uncached() -> [u8; DATE_LEN] {
-    let mut buf = BASE;
+    let mut buf = HEADER_TEMPLATE;
     format_http_date(&mut buf, now_unix_sec());
     buf
 }
 
-const BASE: [u8; 35] = *b"date: Mon, 00 Jan 0000 00:00:00 GMT";
-const DATE_LEN: usize = BASE.len();
+const HEADER_TEMPLATE: [u8; 37] = *b"date: Mon, 00 Jan 0000 00:00:00 GMT\r\n";
+const DATE_LEN: usize = HEADER_TEMPLATE.len();
 
 struct DateCache {
     buf: [u8; DATE_LEN],
@@ -61,7 +61,7 @@ struct DateCache {
 thread_local! {
     static DATE_CACHE: core::cell::RefCell<DateCache> = const {
         core::cell::RefCell::new(DateCache {
-            buf: BASE,
+            buf: HEADER_TEMPLATE,
             last_sec: i64::MIN, // force first update
         })
     };
@@ -107,7 +107,7 @@ unsafe extern "C" {
 
 #[inline]
 fn format_http_date(buf: &mut [u8; DATE_LEN], secs_since_epoch: i64) {
-    *buf = BASE;
+    *buf = HEADER_TEMPLATE;
 
     const SECS_PER_MIN: i64 = 60;
     const SECS_PER_HOUR: i64 = 3600;
