@@ -1,31 +1,68 @@
 #![cfg(feature = "epoll")]
 use super::{ConnectionMeta, RouteFn, Server, StreamSetupAction};
-use crate::server::handle_one_request;
-use crate::threadpool::ThreadPool;
+use crate::server::{HandlerConfig, handle_one_request};
+use crate::threadpool::{Task, ThreadPool};
 use crate::{HttpRouter, ResponseHandle};
-use std::io::{self};
+use libc::{
+    EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLL_CTL_MOD, EPOLLET, EPOLLIN, EPOLLONESHOT, epoll_create1,
+    epoll_ctl, epoll_event, epoll_wait,
+};
+use std::io;
+use std::net::{TcpListener, TcpStream};
+use std::os::unix::io::{AsRawFd, RawFd};
+use std::sync::Arc;
+
+struct Connection {
+    read_stream: TcpStream,
+    response: ResponseHandle,
+    meta: ConnectionMeta,
+    fd: RawFd,
+}
+
+struct EpollJob<R> {
+    conn_ptr: u64,
+    epfd: RawFd,
+    handler_config: Arc<HandlerConfig<R>>,
+}
+
+impl<R> Task for EpollJob<R>
+where
+    R: HttpRouter<Route = Box<RouteFn>> + Send + Sync + 'static,
+{
+    #[inline]
+    fn run(self) {
+        unsafe {
+            let mut conn = Box::from_raw(self.conn_ptr as *mut Connection);
+            conn.meta.increment();
+
+            let keep_alive = handle_one_request(
+                &mut conn.read_stream,
+                &mut conn.response,
+                &self.handler_config,
+                &conn.meta,
+            )
+            .unwrap_or(false);
+
+            if keep_alive {
+                let mut ev = epoll_event {
+                    events: (EPOLLIN | EPOLLONESHOT | EPOLLET) as u32,
+                    u64: self.conn_ptr,
+                };
+                epoll_ctl(self.epfd, EPOLL_CTL_MOD, conn.fd, &mut ev);
+                let _ = Box::into_raw(conn); // leak conn ptr
+            } else {
+                epoll_ctl(self.epfd, EPOLL_CTL_DEL, conn.fd, std::ptr::null_mut());
+                // conn gets dropped here
+            }
+        }
+    }
+}
 
 impl<R> Server<R>
 where
     R: HttpRouter<Route = Box<RouteFn>> + Send + Sync + 'static,
 {
     pub fn serve_epoll(self) -> io::Result<()> {
-        use libc::{
-            EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLL_CTL_MOD, EPOLLET, EPOLLIN, EPOLLONESHOT,
-            epoll_create1, epoll_ctl, epoll_event, epoll_wait,
-        };
-        use std::io;
-        use std::net::{TcpListener, TcpStream};
-        use std::os::unix::io::{AsRawFd, RawFd};
-        use std::sync::Arc;
-
-        struct Connection {
-            read_stream: TcpStream,
-            response: ResponseHandle,
-            meta: ConnectionMeta,
-            fd: RawFd,
-        }
-
         let listener = TcpListener::bind(&*self.bind_addrs)?;
         listener.set_nonblocking(true)?;
 
@@ -43,7 +80,7 @@ where
             return Err(io::Error::last_os_error());
         }
 
-        let pool = ThreadPool::new(self.thread_count);
+        let pool: ThreadPool<EpollJob<R>> = ThreadPool::new(self.thread_count);
         let max_events = self.epoll_queue_max_events as i32;
         let mut events = vec![epoll_event { events: 0, u64: 0 }; max_events as usize];
 
@@ -71,15 +108,9 @@ where
                         }
 
                         let fd = stream.as_raw_fd();
-                        if fd < 0 {
-                            continue;
-                        }
                         let write_stream = match stream.try_clone() {
                             Ok(s) => s,
-                            Err(_e) => {
-                                // eprintln!("WARN! dropping connection: {}", _e);
-                                continue;
-                            }
+                            Err(_e) => continue, // TODO: how to handle this?
                         };
                         let response = ResponseHandle::new(write_stream);
                         let conn = Box::new(Connection {
@@ -101,35 +132,10 @@ where
                         }
                     }
                 } else {
-                    let config = Arc::clone(&self.handler_config);
-
-                    pool.execute(move || {
-                        let mut conn = unsafe { Box::from_raw(conn_ptr as *mut Connection) };
-                        conn.meta.increment();
-
-                        let keep_alive = handle_one_request(
-                            &mut conn.read_stream,
-                            &mut conn.response,
-                            &config,
-                            &conn.meta,
-                        )
-                        .unwrap_or(false);
-
-                        if keep_alive {
-                            let mut ev = epoll_event {
-                                events: (EPOLLIN | EPOLLONESHOT | EPOLLET) as u32,
-                                u64: conn_ptr,
-                            };
-                            unsafe {
-                                epoll_ctl(epfd, EPOLL_CTL_MOD, conn.fd, &mut ev);
-                            }
-                            // make sure conn lives
-                            let _ = Box::into_raw(conn);
-                        } else {
-                            unsafe {
-                                epoll_ctl(epfd, EPOLL_CTL_DEL, conn.fd, std::ptr::null_mut());
-                            }
-                        }
+                    pool.execute(EpollJob {
+                        conn_ptr,
+                        epfd,
+                        handler_config: Arc::clone(&self.handler_config),
                     });
                 }
             }

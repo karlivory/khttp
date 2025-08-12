@@ -1,6 +1,6 @@
 use crate::parser::Request;
 use crate::router::RouteParams;
-use crate::threadpool::ThreadPool;
+use crate::threadpool::{Task, ThreadPool};
 use crate::{BodyReader, Headers, HttpPrinter, HttpRouter, Method, RequestUri, Router, Status};
 use std::io::{self, Read};
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
@@ -57,8 +57,16 @@ where
     }
 
     pub fn serve(self) -> io::Result<()> {
+        struct PoolJob<R>(TcpStream, Arc<HandlerConfig<R>>);
+
+        impl<R: HttpRouter<Route = Box<RouteFn>> + Send + Sync + 'static> Task for PoolJob<R> {
+            #[inline]
+            fn run(self) {
+                let _ = handle_connection(self.0, self.1);
+            }
+        }
         let listener = TcpListener::bind(&*self.bind_addrs)?;
-        let pool = ThreadPool::new(self.thread_count);
+        let pool: ThreadPool<PoolJob<R>> = ThreadPool::new(self.thread_count);
 
         for stream in listener.incoming() {
             let stream = match &self.stream_setup_hook {
@@ -73,11 +81,7 @@ where
                 },
             };
 
-            let config = self.handler_config.clone();
-
-            pool.execute(move || {
-                let _ = handle_connection(stream, config);
-            });
+            pool.execute(PoolJob(stream, Arc::clone(&self.handler_config)));
         }
         Ok(())
     }

@@ -3,77 +3,68 @@ use std::{
     thread,
 };
 
-pub(crate) struct ThreadPool {
-    workers: Vec<Worker>,
-    sender: Option<mpsc::Sender<Job>>,
+pub trait Task: Send + 'static {
+    fn run(self);
 }
 
-type Job = Box<dyn FnOnce() + Send + 'static>;
+pub(crate) struct ThreadPool<J: Task> {
+    workers: Vec<Worker>,
+    sender: Option<mpsc::Sender<J>>,
+}
 
-impl ThreadPool {
-    pub fn new(size: usize) -> ThreadPool {
+impl<J: Task> ThreadPool<J> {
+    pub fn new(size: usize) -> Self {
         assert!(size > 0);
-        let (sender, receiver) = mpsc::channel();
+        let (sender, receiver) = mpsc::channel::<J>();
         let receiver = Arc::new(Mutex::new(receiver));
         let mut workers = Vec::with_capacity(size);
 
-        for id in 0..size {
-            workers.push(Worker::new(id, Arc::clone(&receiver)));
+        for _ in 0..size {
+            workers.push(Worker::new(Arc::clone(&receiver)));
         }
 
-        ThreadPool {
+        Self {
             workers,
             sender: Some(sender),
         }
     }
 
-    pub fn execute<F>(&self, f: F)
-    where
-        F: FnOnce() + Send + 'static,
-    {
-        let job = Box::new(f);
+    #[inline]
+    pub fn execute(&self, job: J) {
         self.sender.as_ref().unwrap().send(job).unwrap();
     }
 }
 
-impl Drop for ThreadPool {
+impl<J: Task> Drop for ThreadPool<J> {
     fn drop(&mut self) {
-        drop(self.sender.take());
-
-        for worker in &mut self.workers {
-            if let Some(thread) = worker.thread.take() {
-                thread.join().unwrap();
+        drop(self.sender.take()); // closes channel; workers exit
+        for w in &mut self.workers {
+            if let Some(t) = w.thread.take() {
+                t.join().unwrap();
             }
         }
     }
 }
 
 struct Worker {
-    _id: usize,
     thread: Option<thread::JoinHandle<()>>,
 }
 
 impl Worker {
-    fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Worker {
+    fn new<J: Task>(receiver: Arc<Mutex<mpsc::Receiver<J>>>) -> Self {
         let thread = thread::spawn(move || {
             loop {
-                let lock = receiver.lock().unwrap();
-                let message = lock.recv();
-                drop(lock);
-
-                match message {
-                    Ok(job) => {
-                        job();
-                    }
-                    Err(_) => {
-                        break;
-                    }
+                let msg = {
+                    let rx = receiver.lock().unwrap();
+                    rx.recv()
+                };
+                match msg {
+                    Ok(job) => job.run(),
+                    Err(_) => break, // sender dropped
                 }
             }
         });
-
-        Worker {
-            _id: id,
+        Self {
             thread: Some(thread),
         }
     }
