@@ -7,7 +7,14 @@ use std::io::Read;
 
 #[test]
 fn test_request_get_no_headers() {
-    assert_parse_request_ok("GET /ab HTTP/1.1\r\n\r\n", Method::Get, "/ab", &[], "");
+    assert_parse_request_ok(
+        "GET /ab HTTP/1.1\r\n\r\n",
+        Method::Get,
+        "/ab",
+        "/ab",
+        &[],
+        "",
+    );
 }
 
 #[test]
@@ -15,6 +22,7 @@ fn test_request_get_simple() {
     assert_parse_request_ok(
         "GET /foo HTTP/1.1\r\nhost: localhost\r\n\r\n",
         Method::Get,
+        "/foo",
         "/foo",
         &[("host", b"localhost")],
         "",
@@ -26,6 +34,7 @@ fn test_request_post_with_body() {
     assert_parse_request_ok(
         "POST /data HTTP/1.1\r\nfoobar: 5\r\n\r\nhello",
         Method::Post,
+        "/data",
         "/data",
         &[("foobar", b"5")],
         "hello",
@@ -40,6 +49,7 @@ fn test_request_header_empty_value() {
         "GET /foo HTTP/1.1\r\nX-Test:\r\n\r\n",
         Method::Get,
         "/foo",
+        "/foo",
         &[("X-Test", b"")],
         "",
     );
@@ -51,6 +61,7 @@ fn test_request_header_value_leading_whitespace_is_removed() {
         "GET / HTTP/1.1\r\nFoo:\t    bar\r\n\r\n",
         Method::Get,
         "/",
+        "/",
         &[("Foo", b"bar")],
         "",
     );
@@ -61,6 +72,7 @@ fn test_request_header_value_trailing_whitespace_is_kept() {
     assert_parse_request_ok(
         "GET / HTTP/1.1\r\nFoo: bar  \t \r\n\r\n",
         Method::Get,
+        "/",
         "/",
         &[("Foo", b"bar  \t ")],
         "",
@@ -75,6 +87,19 @@ fn test_request_valid_uri_chars() {
         "GET http://host:8080/-._~:/?#%[]@!$&'()*+,;= HTTP/1.1\r\n\r\n",
         Method::Get,
         "http://host:8080/-._~:/?#%[]@!$&'()*+,;=",
+        "/-._~:/",
+        &[],
+        "",
+    );
+}
+
+#[test]
+fn test_authority_form() {
+    assert_parse_request_ok(
+        "GET http://example.com:8080 HTTP/1.1\r\n\r\n",
+        Method::Get,
+        "http://example.com:8080",
+        "", // TODO: should RequestUri::path return "" here?
         &[],
         "",
     );
@@ -265,14 +290,16 @@ fn test_extended_latin_reason_not_allowed() {
 fn assert_parse_request_ok(
     input: &str,
     method: Method,
-    uri: &str,
+    full_uri: &str,
+    path: &str,
     headers: &[(&str, &[u8])],
     body: &str,
 ) {
     let buf = input.as_bytes();
     let req = Request::parse(buf).expect("should parse");
     assert_eq!(req.method, method);
-    assert_eq!(req.uri.as_str(), uri);
+    assert_eq!(req.uri.as_str(), full_uri);
+    assert_eq!(req.uri.path(), path);
     assert_eq!(req.headers, Headers::from(headers));
 
     let mut body_reader = MockReader {

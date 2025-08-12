@@ -1,4 +1,8 @@
-use super::{HttpParsingError, HttpParsingError::*, parse_headers, parse_version};
+use super::{
+    HttpParsingError::{self, *},
+    parse_headers, parse_version,
+    simd::{match_path_vectored, match_uri_vectored},
+};
 use crate::{Headers, Method, RequestUri};
 
 #[derive(Debug)]
@@ -31,16 +35,21 @@ impl<'b> Request<'b> {
 
 #[inline]
 fn parse_method(buf: &[u8]) -> Result<(Method, &[u8]), HttpParsingError> {
-    let mut i = 0;
+    // hot paths: GET and POST
+    if let Some(rest) = buf.strip_prefix(b"GET ") {
+        return Ok((Method::Get, rest));
+    }
+    if let Some(rest) = buf.strip_prefix(b"POST ") {
+        return Ok((Method::Post, rest));
+    }
 
+    let mut i = 0;
     while i < buf.len() {
         let b = buf[i];
         if b == b' ' {
             let method_bytes = &buf[..i];
 
             let method = match method_bytes {
-                b"GET" => Method::Get,
-                b"POST" => Method::Post,
                 b"HEAD" => Method::Head,
                 b"PUT" => Method::Put,
                 b"PATCH" => Method::Patch,
@@ -67,44 +76,42 @@ fn parse_method(buf: &[u8]) -> Result<(Method, &[u8]), HttpParsingError> {
 
 #[inline]
 fn parse_uri(buf: &[u8]) -> Result<(RequestUri, &[u8]), HttpParsingError> {
-    let mut scheme_i = 0; // 0 -> no “://” scheme
-    let mut path_i_start = 0; // 0 -> uri is in origin-form (“/foo”)
-    let mut path_i_end = 0; // exclusive; will be set later
-
-    // Step 1: classify first byte
-    let first = *buf.first().ok_or(MalformedStatusLine)?;
-    let origin_form = match first {
-        b' ' => return Err(MalformedStatusLine),
+    // step 1: classify first byte
+    let origin_form = match *buf.first().ok_or(MalformedStatusLine)? {
+        b'/' => true,
         b'*' => {
             return Ok((
-                RequestUri::new("*", 0, 0, 1),
+                RequestUri::new("*", 0, 1),
                 buf.get(1..).ok_or(MalformedStatusLine)?,
             ));
         }
-        b'/' => true,
         _ => false,
     };
 
-    // Step 2: advance to start of path
+    let mut path_start_i = 0; // start of path (e.g. -> /api/v1/...)
+
+    // step 2: advance to start of path (absolute- or authority-form)
     let mut i = 0;
     if !origin_form {
-        // uri is either absolute or authority-form
+        // scan for the first slash that is NOT part of "://"
         while i < buf.len() {
             let b = buf[i];
 
             match b {
-                // detect first “://”
-                b':' if scheme_i == 0 && i + 2 < buf.len() && &buf[i..i + 3] == b"://" => {
-                    scheme_i = i;
+                // skip the scheme separator "://"
+                b':' if i + 2 < buf.len() && &buf[i..i + 3] == b"://" => {
                     i += 3;
                     continue;
                 }
-
+                // start of path
                 b'/' => {
-                    path_i_start = i;
+                    path_start_i = i;
                     break;
                 }
-
+                // end of uri
+                b' ' => {
+                    break;
+                }
                 // validate authority byte
                 _ => {
                     if !is_valid_uri_byte(b) {
@@ -116,57 +123,54 @@ fn parse_uri(buf: &[u8]) -> Result<(RequestUri, &[u8]), HttpParsingError> {
             i += 1;
         }
 
-        // no slash found → authority-form ("example.com:443")
-        if path_i_start == 0 {
-            // TODO: test this
-            let uri = unsafe { std::str::from_utf8_unchecked(&buf[..i]) };
-            return Ok((
-                RequestUri::new(uri, 0, 0, 0),
-                buf.get(i + 1..).ok_or(MalformedStatusLine)?,
-            ));
+        // no slash found => authority-form ("example.com:443")
+        if path_start_i == 0 {
+            // validate up to the mandatory space
+            let mut j = i;
+            j += match_uri_vectored(&buf[j..]);
+            match buf.get(j).copied() {
+                Some(b' ') => {
+                    // SAFETY: ASCII subset validated byte-by-byte above
+                    let uri = unsafe { core::str::from_utf8_unchecked(&buf[..j]) };
+                    let rest = buf.get(j + 1..).ok_or(MalformedStatusLine)?;
+                    return Ok((RequestUri::new(uri, 0, 0), rest));
+                }
+                Some(_) => return Err(MalformedStatusLine),
+                None => return Err(MalformedStatusLine),
+            }
         }
     }
 
-    // Step 3: scan path/query until the SP
-    while i < buf.len() {
-        let b = buf[i];
+    // Step 3: we are at start of path (`i` points at '/'; or 0 for origin-form).
+    // scan path up to first '?' or SP
+    i += match_path_vectored(&buf[i..]);
 
-        match b {
-            b' ' => {
-                if path_i_end == 0 {
-                    path_i_end = i; // set end if we never saw '?'
-                }
-                break; // end of request-target
-            }
-            b'?' if path_i_end == 0 => {
-                // first '?' marks end-of-path
-                path_i_end = i;
-            }
-            _ => {
-                if !is_valid_uri_byte(b) {
-                    return Err(MalformedStatusLine);
-                }
-            }
+    // i is now equal to end of path (OR first illegal character)
+    let path_end_i = i;
+
+    // if next byte is '?', consume query using bulk URI validation until SP.
+    if let Some(&b'?') = buf.get(i) {
+        i += 1; // skip '?'
+        // scan path up to SP
+        let n = match_uri_vectored(&buf[i..]);
+        i += n;
+        match buf.get(i).copied() {
+            Some(b' ') => {}                            // all good, we found the SP
+            Some(_) => return Err(MalformedStatusLine), // invalid char
+            None => return Err(MalformedStatusLine),
         }
-
-        i += 1;
+    } else {
+        // otherwise we must be at SP right after the path
+        if buf.get(i) != Some(&b' ') {
+            return Err(MalformedStatusLine);
+        }
     }
 
-    if path_i_end == 0 {
-        // we never hit SP -> malformed
-        return Err(MalformedStatusLine);
-    }
+    // SAFETY: every byte validated as US-ASCII subset (within UTF8)
+    let uri = unsafe { core::str::from_utf8_unchecked(&buf[..i]) };
 
-    // SAFETY: every byte already validated as US-ASCII subset
-    let uri = unsafe { std::str::from_utf8_unchecked(&buf[..i]) };
-
-    // skip the space so `rest` starts with “HTTP/…”
-    let rest = buf.get(i + 1..).ok_or(MalformedStatusLine)?;
-
-    Ok((
-        RequestUri::new(uri, scheme_i, path_i_start, path_i_end),
-        rest,
-    ))
+    let rest = buf.get(i + 1..).ok_or(MalformedStatusLine)?; // skip space
+    Ok((RequestUri::new(uri, path_start_i, path_end_i), rest))
 }
 
 const fn make_uri_byte_mask() -> [bool; 256] {
@@ -184,6 +188,6 @@ const fn make_uri_byte_mask() -> [bool; 256] {
 static URI_BYTE_MASK: [bool; 256] = make_uri_byte_mask();
 
 #[inline(always)]
-fn is_valid_uri_byte(b: u8) -> bool {
+pub(crate) fn is_valid_uri_byte(b: u8) -> bool {
     URI_BYTE_MASK[b as usize]
 }

@@ -3,13 +3,16 @@ name = "khttp"
 version = "0.1.0"
 categories = ["network-programming", "web-programming::http-server"]
 keywords = ["http", "web", "server", "client", "minimal"]
-description = "A low-level 0-dependency synchronous HTTP/1.1 server/client library"
+description = "A low-level synchronous HTTP/1.1 server/client library"
 edition = "2024"
 license = "MIT"
 authors = ["karlivory"]
 homepage = "https://github.com/karlivory/khttp"
 repository = "https://github.com/karlivory/khttp"
 readme = "README.md"
+
+[dependencies]
+memchr = "2.7.5"
 
 [lib]
 name = "khttp"

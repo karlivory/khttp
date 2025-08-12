@@ -1,16 +1,14 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestUri<'a> {
     full: &'a str,
-    scheme_i: usize,
     path_i_start: usize,
     path_i_end: usize,
 }
 
 impl<'a> RequestUri<'a> {
-    pub fn new(uri: &'a str, scheme_i: usize, path_i_start: usize, path_i_end: usize) -> Self {
+    pub fn new(uri: &'a str, path_i_start: usize, path_i_end: usize) -> Self {
         RequestUri {
             full: uri,
-            scheme_i,
             path_i_start,
             path_i_end,
         }
@@ -21,7 +19,6 @@ impl<'a> RequestUri<'a> {
     }
 
     pub fn scheme(&self) -> Option<&str> {
-        // TODO: use scheme_i
         self.full.find("://").map(|idx| &self.full[..idx])
     }
 

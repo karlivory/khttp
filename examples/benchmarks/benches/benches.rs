@@ -343,7 +343,6 @@ fn run_server_bench(sb: ServerBench) {
             use tokio::runtime::Runtime;
 
             // bind using std to get a free port
-            let port = get_free_port();
             let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind axum");
             std_listener.set_nonblocking(true).unwrap();
             let port = std_listener.local_addr().unwrap().port();
@@ -483,7 +482,7 @@ fn respond_chunked(res: &mut ResponseHandle) -> io::Result<()> {
 }
 
 fn make_long_request() -> Vec<u8> {
-    let mut buf = b"GET /really/long/path/that/keeps/going/on/and/on?".to_vec();
+    let mut buf = b"GET https://example.com/really/long/path/that/keeps/going/on/and/on?".to_vec();
 
     // Append ~200 bytes worth of query parameters
     for i in 1..=20 {
@@ -549,17 +548,17 @@ fn httparse_alloc_request(req: httparse::Request) {
     }
 
     // parse method
-    let method = match req.method.unwrap().as_bytes() {
-        b"GET" => Method::Get,
-        b"POST" => Method::Post,
-        b"HEAD" => Method::Head,
-        b"PUT" => Method::Put,
-        b"PATCH" => Method::Patch,
-        b"DELETE" => Method::Delete,
-        b"OPTIONS" => Method::Options,
-        b"TRACE" => Method::Trace,
-        _ => {
-            unimplemented!();
-        }
-    };
+    // let _method = match req.method.unwrap().as_bytes() {
+    //     b"GET" => Method::Get,
+    //     b"POST" => Method::Post,
+    //     b"HEAD" => Method::Head,
+    //     b"PUT" => Method::Put,
+    //     b"PATCH" => Method::Patch,
+    //     b"DELETE" => Method::Delete,
+    //     b"OPTIONS" => Method::Options,
+    //     b"TRACE" => Method::Trace,
+    //     _ => {
+    //         unimplemented!();
+    //     }
+    // };
 }

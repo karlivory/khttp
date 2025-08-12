@@ -1,72 +1,74 @@
 use crate::Headers;
 use HttpParsingError::*;
+use memchr::memchr;
 use std::{error::Error, fmt::Display, io};
 
 mod request;
 mod response;
+pub mod simd;
 pub use request::Request;
 pub use response::Response;
 
 #[inline]
 fn parse_headers(buf: &[u8]) -> Result<(Headers, &[u8]), HttpParsingError> {
     let mut headers = Headers::new();
-
     let mut buf = buf;
-    let mut i = 0;
-    while i < buf.len().saturating_sub(1) {
-        if buf[i] == b'\r' && buf[i + 1] == b'\n' {
-            let line = &buf[..i];
-            if line.is_empty() {
-                return Ok((headers, &buf[2..]));
-            }
 
-            let (name, value) = parse_header_line(line)?;
-            headers.add(name, value);
-
-            // Advance to next header line
-            buf = &buf[i + 2..];
-            i = 0;
-        } else {
-            i += 1;
+    loop {
+        if let Some(rest) = buf.strip_prefix(b"\r\n") {
+            return Ok((headers, rest));
         }
-    }
 
-    Err(UnexpectedEof)
+        // find '\n'
+        let nl = match memchr(b'\n', buf) {
+            Some(p) => p,
+            None => return Err(UnexpectedEof),
+        };
+
+        // require CRLF
+        if nl == 0 || buf[nl - 1] != b'\r' {
+            buf = &buf[nl + 1..];
+            continue;
+        }
+
+        let line = &buf[..nl - 1];
+        let (name, value) = parse_header_line(line)?;
+        headers.add(name, value);
+
+        buf = &buf[nl + 1..];
+    }
 }
-
-#[inline]
+#[inline(always)]
 fn parse_header_line(line: &[u8]) -> Result<(&str, &[u8]), HttpParsingError> {
-    for (i, b) in line.iter().enumerate() {
-        if *b == b':' {
-            unsafe {
-                for c in line[..i].iter() {
-                    if !is_valid_header_field_byte(*c) {
-                        return Err(MalformedHeader);
-                    }
-                }
-                let name_str = std::str::from_utf8_unchecked(&line[..i]);
-                let value = &line[i + 1..].trim_ascii_start();
-                return Ok((name_str, value));
-            }
-        }
+    let colon = memchr(b':', line).ok_or(MalformedHeader)?;
+    if !line[..colon]
+        .iter()
+        .copied()
+        .all(is_valid_header_field_byte)
+    {
+        return Err(MalformedHeader);
     }
-    Err(MalformedHeader) // no ':' found
+
+    let name_str = unsafe { std::str::from_utf8_unchecked(&line[..colon]) };
+    let value = &line[colon + 1..].trim_ascii_start();
+    Ok((name_str, value))
 }
 
 #[inline]
 fn parse_version(buf: &[u8]) -> Result<(u8, &[u8]), HttpParsingError> {
-    const PREFIX: &[u8] = b"HTTP/";
-
-    // HTTP/1.x takes 8 chars
-    let rest = buf.get(8..).ok_or(UnexpectedEof)?;
-    if &buf[..PREFIX.len()] != PREFIX {
-        return Err(UnsupportedHttpVersion);
+    if let Some(rest) = buf.strip_prefix(b"HTTP/1.") {
+        let (&minor, rest) = rest.split_first().ok_or(UnexpectedEof)?;
+        return match minor {
+            b'1' => Ok((1, rest)),
+            b'0' => Ok((0, rest)),
+            _ => Err(UnsupportedHttpVersion),
+        };
     }
-    let version_number = &buf[PREFIX.len()..PREFIX.len() + 3];
-    match version_number {
-        b"1.0" => Ok((0, rest)),
-        b"1.1" => Ok((1, rest)),
-        _ => Err(UnsupportedHttpVersion),
+
+    if buf.starts_with(b"HTTP/") {
+        Err(UnsupportedHttpVersion)
+    } else {
+        Err(MalformedStatusLine)
     }
 }
 
