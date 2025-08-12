@@ -66,7 +66,7 @@ impl<W: Write> HttpPrinter<W> {
     #[inline]
     fn write_chunked<R: Read>(&mut self, mut body: R) -> io::Result<()> {
         // TODO: why is this slow in benchmarks?
-        let mut buf = [0u8; 8 * 1024];
+        let mut buf = [0u8; 64 * 1024];
         loop {
             let n = body.read(&mut buf)?;
             if n == 0 {
