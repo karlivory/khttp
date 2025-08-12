@@ -201,7 +201,7 @@ fn build_request_head<R: Read>(
 const CONTENT_LENGTH_HEADER: &[u8] = b"content-length: ";
 const TRANSFER_ENCODING_HEADER: &[u8] = b"transfer-encoding: ";
 const TRANSFER_ENCODING_HEADER_CHUNKED: &[u8] = b"transfer-encoding: chunked";
-const CONNECTION_HEADER: &[u8] = b"connection: close";
+const CONNECTION_HEADER: &[u8] = b"connection: ";
 
 #[inline]
 fn add_content_length_header(buf: &mut Vec<u8>, value: u64) {
