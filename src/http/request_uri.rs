@@ -50,8 +50,4 @@ impl<'a> RequestUri<'a> {
         let end = hash_idx.unwrap_or(self.full.len());
         Some(&self.full[qmark_idx + 1..end])
     }
-
-    pub fn fragment(&self) -> Option<&str> {
-        self.full.find('#').map(|idx| &self.full[idx + 1..])
-    }
 }
