@@ -293,7 +293,7 @@ fn u16_to_ascii_3digits(n: u16) -> [u8; 3] {
 }
 
 fn probe_body<R: Read>(src: &mut R, max: usize) -> io::Result<(Vec<u8>, bool)> {
-    let mut collected = Vec::with_capacity(max.min(4096));
+    let mut collected = Vec::with_capacity(128);
     let mut buf = [0u8; 1024];
     while collected.len() < max {
         let to_read = (max - collected.len()).min(buf.len());
