@@ -269,10 +269,8 @@ where
         Err(_) => return Ok(false), // TODO: reply with 400?
     };
 
-    };
-
     if let Some(hook) = &config.pre_routing_hook {
-        match (hook)(&mut request, &mut response, connection_meta) {
+        match (hook)(&mut request, response, connection_meta) {
             PreRoutingAction::Proceed => {}
             PreRoutingAction::Drop => return Ok(response.keep_alive),
         }
