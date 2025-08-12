@@ -64,11 +64,21 @@ fn main() {
     });
 
     server_benches.push(ServerBench {
-        full: "server:heavy",
-        path: "/a/b/c",
+        full: "server:medium",
+        path: "/",
         kind: ServerKind::Khttp(Box::new(|| {
             let mut app = get_khttp_app();
-            app.route(Method::Get, "/a/b/c", |_c, r| respond_heavy(r));
+            app.route(Method::Get, "/", |_c, r| respond_medium(r));
+            app.build()
+        })),
+    });
+
+    server_benches.push(ServerBench {
+        full: "server:heavy",
+        path: "/",
+        kind: ServerKind::Khttp(Box::new(|| {
+            let mut app = get_khttp_app();
+            app.route(Method::Get, "/", |_c, r| respond_heavy(r));
             app.build()
         })),
     });
@@ -128,11 +138,20 @@ fn main() {
     });
 
     server_benches.push(ServerBench {
-        full: "axum:heavy",
-        path: "/a/b/c",
+        full: "axum:medium",
+        path: "/",
         kind: ServerKind::Axum(Box::new(|router| {
             use axum::routing::get;
-            router.route("/a/b/c", get(|| async { heavy_body() }))
+            router.route("/", get(|| async { medium_body() }))
+        })),
+    });
+
+    server_benches.push(ServerBench {
+        full: "axum:heavy",
+        path: "/",
+        kind: ServerKind::Axum(Box::new(|router| {
+            use axum::routing::get;
+            router.route("/", get(|| async { heavy_body() }))
         })),
     });
 
@@ -461,11 +480,8 @@ fn get_khttp_app() -> ServerBuilder {
 
 fn get_base_headers() -> Headers<'static> {
     // for fairness: same headers that axum responds with
-    let now = chrono::Utc::now();
     let mut headers = Headers::new();
-    let date_str = now.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
-    headers.replace("date", date_str.into_bytes());
-    headers.replace(Headers::CONTENT_TYPE, b"text/plain; charset=utf-8");
+    headers.add(Headers::CONTENT_TYPE, b"text/plain; charset=utf-8");
     headers
 }
 
@@ -483,12 +499,25 @@ fn respond_longheader(res: &mut ResponseHandle) -> io::Result<()> {
     res.ok(&headers, "hey".as_bytes())
 }
 
+fn medium_body() -> &'static [u8] {
+    use std::sync::OnceLock;
+    static LOCK: OnceLock<Vec<u8>> = OnceLock::new();
+    LOCK.get_or_init(|| b"Hello, World!".repeat(10_000))
+        .as_slice()
+}
+
 fn heavy_body() -> &'static [u8] {
     use std::sync::OnceLock;
-    static HEAVY: OnceLock<Vec<u8>> = OnceLock::new();
-    HEAVY
-        .get_or_init(|| b"Hello, World!".repeat(100_000))
+    static LOCK: OnceLock<Vec<u8>> = OnceLock::new();
+    LOCK.get_or_init(|| b"Hello, World!".repeat(100_000))
         .as_slice()
+}
+
+fn respond_medium(res: &mut ResponseHandle) -> io::Result<()> {
+    let msg = medium_body();
+    let mut headers = get_base_headers();
+    headers.set_content_length(Some(msg.len() as u64));
+    res.ok(&headers, msg)
 }
 
 fn respond_heavy(res: &mut ResponseHandle) -> io::Result<()> {
