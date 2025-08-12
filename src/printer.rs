@@ -1,5 +1,8 @@
 use crate::{Headers, Method, Status};
-use std::io::{self, BufWriter, Read, Write};
+use std::{
+    io::{self, BufWriter, Read, Write},
+    mem::MaybeUninit,
+};
 
 const CRLF: &[u8] = b"\r\n";
 const PROBE_MAX: usize = 8 * 1024;
@@ -65,14 +68,26 @@ impl<W: Write> HttpPrinter<W> {
 
     #[inline]
     fn write_chunked<R: Read>(&mut self, mut body: R) -> io::Result<()> {
-        // TODO: why is this slow in benchmarks?
-        let mut buf = [0u8; 64 * 1024];
+        // TODO: fine-tune the buffer size
+        let mut buf: [MaybeUninit<u8>; 128 * 1024] = unsafe { MaybeUninit::uninit().assume_init() };
+
         loop {
-            let n = body.read(&mut buf)?;
+            let n = {
+                let dst: &mut [u8] = unsafe {
+                    std::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut u8, buf.len())
+                };
+                body.read(dst)?
+            };
+
             if n == 0 {
                 break;
             }
-            self.write_chunk(&buf[..n])?;
+
+            // SAFETY: The first 'n' bytes were just written by 'read', so they are initialized.
+            let init_slice: &[u8] =
+                unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, n) };
+
+            self.write_chunk(init_slice)?;
         }
 
         // terminating chunk
