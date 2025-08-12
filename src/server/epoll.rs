@@ -106,12 +106,13 @@ where
                                 StreamSetupAction::StopAccepting => return Ok(()),
                             }
                         }
-
-                        let fd = stream.as_raw_fd();
+                        stream.set_nodelay(true)?; // TODO: do this via default_stream_setup_hook?
                         let write_stream = match stream.try_clone() {
                             Ok(s) => s,
                             Err(_e) => continue, // TODO: how to handle this?
                         };
+
+                        let fd = stream.as_raw_fd();
                         let response = ResponseHandle::new(write_stream);
                         let conn = Box::new(Connection {
                             read_stream: stream,
