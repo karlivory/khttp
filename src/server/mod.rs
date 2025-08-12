@@ -87,12 +87,19 @@ where
     }
 }
 
-pub struct ResponseHandle<'r> {
-    stream: &'r mut TcpStream,
+pub struct ResponseHandle {
+    stream: TcpStream,
     keep_alive: bool,
 }
 
-impl ResponseHandle<'_> {
+impl ResponseHandle {
+    fn new(stream: TcpStream) -> Self {
+        ResponseHandle {
+            stream,
+            keep_alive: true,
+        }
+    }
+
     pub fn ok(&mut self, headers: &Headers, body: impl Read) -> io::Result<()> {
         self.send(&Status::OK, headers, body)
     }
@@ -109,11 +116,11 @@ impl ResponseHandle<'_> {
     }
 
     pub fn get_stream(&mut self) -> &TcpStream {
-        self.stream
+        &self.stream
     }
 
     pub fn get_stream_mut(&mut self) -> &mut TcpStream {
-        self.stream
+        &mut self.stream
     }
 }
 
@@ -194,10 +201,15 @@ where
     R: HttpRouter<Route = Box<RouteFn>>,
 {
     let mut conn_meta = ConnectionMeta::new();
-    let mut write_stream = stream.try_clone()?;
+    let write_stream = stream.try_clone()?;
+    let mut response = ResponseHandle {
+        stream: write_stream,
+        keep_alive: true,
+    };
+
     loop {
         conn_meta.increment();
-        let keep_alive = handle_one_request(&mut stream, &mut write_stream, &config, &conn_meta)?;
+        let keep_alive = handle_one_request(&mut stream, &mut response, &config, &conn_meta)?;
         if !keep_alive {
             return Ok(());
         }
@@ -241,7 +253,7 @@ where
 /// Returns "keep-alive" (whether to keep the connection alive for the next request).
 fn handle_one_request<R>(
     read_stream: &mut TcpStream,
-    write_stream: &mut TcpStream,
+    response: &mut ResponseHandle,
     config: &HandlerConfig<R>,
     connection_meta: &ConnectionMeta,
 ) -> io::Result<bool>
@@ -257,9 +269,6 @@ where
         Err(_) => return Ok(false), // TODO: reply with 400?
     };
 
-    let mut response = ResponseHandle {
-        stream: write_stream,
-        keep_alive: true,
     };
 
     if let Some(hook) = &config.pre_routing_hook {
@@ -285,8 +294,7 @@ where
     };
 
     let client_requested_close = ctx.headers.is_connection_close();
-    (matched_route.route)(ctx, &mut response)?;
-
+    (matched_route.route)(ctx, response)?;
     if client_requested_close {
         return Ok(false);
     }

@@ -1,8 +1,8 @@
 #![cfg(feature = "epoll")]
 use super::{ConnectionMeta, RouteFn, Server, StreamSetupAction};
-use crate::HttpRouter;
 use crate::server::handle_one_request;
 use crate::threadpool::ThreadPool;
+use crate::{HttpRouter, ResponseHandle};
 use std::io::{self};
 
 impl<R> Server<R>
@@ -21,7 +21,7 @@ where
 
         struct Connection {
             read_stream: TcpStream,
-            write_stream: TcpStream,
+            response: ResponseHandle,
             meta: ConnectionMeta,
             fd: RawFd,
         }
@@ -81,9 +81,10 @@ where
                                 continue;
                             }
                         };
+                        let response = ResponseHandle::new(write_stream);
                         let conn = Box::new(Connection {
                             read_stream: stream,
-                            write_stream,
+                            response,
                             meta: ConnectionMeta::new(),
                             fd,
                         });
@@ -108,7 +109,7 @@ where
 
                         let keep_alive = handle_one_request(
                             &mut conn.read_stream,
-                            &mut conn.write_stream,
+                            &mut conn.response,
                             &config,
                             &conn.meta,
                         )
