@@ -1,6 +1,5 @@
-use crate::{Headers, Method, RequestUri};
-
 use super::{HttpParsingError, HttpParsingError::*, parse_headers, parse_version};
+use crate::{Headers, Method, RequestUri};
 
 #[derive(Debug)]
 pub struct Request<'b> {

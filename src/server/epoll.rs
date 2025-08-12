@@ -1,10 +1,9 @@
 #![cfg(feature = "epoll")]
+use super::{ConnectionMeta, RouteFn, Server, StreamSetupAction};
 use crate::HttpRouter;
 use crate::server::handle_one_request;
 use crate::threadpool::ThreadPool;
 use std::io::{self};
-
-use super::{ConnectionMeta, RouteFn, Server, StreamSetupAction};
 
 impl<R> Server<R>
 where

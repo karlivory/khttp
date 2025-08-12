@@ -1,14 +1,13 @@
+use super::{
+    ConnectionMeta, HandlerConfig, PreRoutingAction, PreRoutingHookFn, RequestContext,
+    ResponseHandle, RouteFn, Server, StreamSetupAction, StreamSetupFn,
+};
 use crate::parser::Request;
 use crate::router::RouterBuilder;
 use crate::{Headers, HttpRouter, Method, Router, Status};
 use std::io::{self};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::Arc;
-
-use super::{
-    ConnectionMeta, HandlerConfig, PreRoutingAction, PreRoutingHookFn, RequestContext,
-    ResponseHandle, RouteFn, Server, StreamSetupAction, StreamSetupFn,
-};
 
 const DEFAULT_THREAD_COUNT: usize = 20;
 const DEFAULT_MAX_REQUEST_HEAD: usize = 8192;

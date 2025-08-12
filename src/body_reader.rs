@@ -1,8 +1,6 @@
+use crate::Headers;
 use std::cmp::min;
 use std::io::{self, BufRead, BufReader, ErrorKind, Read};
-// use std::net::TcpStream;
-
-use crate::Headers;
 
 const BUF_SIZE: usize = 4096;
 

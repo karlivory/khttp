@@ -1,6 +1,5 @@
-use crate::{Headers, Status};
-
 use super::{HttpParsingError, HttpParsingError::*, parse_headers, parse_version};
+use crate::{Headers, Status};
 
 #[derive(Debug)]
 pub struct Response<'b> {
