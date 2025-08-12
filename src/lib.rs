@@ -1,4 +1,5 @@
 mod body_reader;
+pub mod date;
 mod http;
 mod parser;
 mod printer;

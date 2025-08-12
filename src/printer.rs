@@ -226,6 +226,11 @@ fn add_headers<R: Read>(buf: &mut Vec<u8>, headers: &Headers, strat: &BodyStrate
         buf.extend_from_slice(connection);
         buf.extend_from_slice(CRLF);
     }
+    if headers.is_with_date_header() {
+        let date_buf = crate::date::get_date_now();
+        buf.extend_from_slice(&date_buf);
+        buf.extend_from_slice(CRLF);
+    }
     // // set framing headers ("Transfer-Encoding" OR "Content-Length")
     match strat {
         BodyStrategy::Fast(_, cl) => {

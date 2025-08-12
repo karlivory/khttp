@@ -10,14 +10,20 @@ pub struct Headers<'a> {
     transfer_encoding: Vec<u8>,
     connection_close: bool,
     connection_values: Vec<u8>,
+    print_date: bool,
 }
 
 static HEADERS_VEC_INIT_CAPACITY: usize = 16; // rough guess, could be benchmarked
 pub static EMPTY_HEADERS: LazyLock<Headers<'static>> = LazyLock::new(Headers::new);
+pub static EMPTY_HEADERS_NODATE: LazyLock<Headers<'static>> = LazyLock::new(Headers::new_nodate);
 
 impl<'a> Headers<'a> {
     pub fn empty() -> &'static Headers<'static> {
         &EMPTY_HEADERS
+    }
+
+    pub fn empty_nodate() -> &'static Headers<'static> {
+        &EMPTY_HEADERS_NODATE
     }
 
     pub fn new() -> Self {
@@ -28,6 +34,19 @@ impl<'a> Headers<'a> {
             chunked: false,
             connection_close: false,
             connection_values: Vec::new(),
+            print_date: true,
+        }
+    }
+
+    pub fn new_nodate() -> Self {
+        Self {
+            headers: Vec::with_capacity(HEADERS_VEC_INIT_CAPACITY),
+            content_length: None,
+            transfer_encoding: Vec::new(),
+            chunked: false,
+            connection_close: false,
+            connection_values: Vec::new(),
+            print_date: false,
         }
     }
 
@@ -161,6 +180,10 @@ impl<'a> Headers<'a> {
 
     pub fn get_transfer_encoding(&self) -> &[u8] {
         &self.transfer_encoding
+    }
+
+    pub fn is_with_date_header(&self) -> bool {
+        self.print_date
     }
 
     pub fn set_connection_close(&mut self) {

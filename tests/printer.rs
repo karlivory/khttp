@@ -7,7 +7,7 @@ use std::io::{Cursor, Read, Write};
 
 #[test]
 fn test_response_with_content_length() {
-    let mut headers = Headers::new();
+    let mut headers = Headers::new_nodate();
     headers.set_content_length(Some(5));
     assert_print_response(
         b"HTTP/1.1 200 OK\r\ncontent-length: 5\r\n\r\nhello",
@@ -22,14 +22,14 @@ fn test_response_auto_content_length_small_body() {
     assert_print_response(
         b"HTTP/1.1 200 OK\r\ncontent-length: 4\r\n\r\ntiny",
         Status::OK,
-        Headers::new(),
+        Headers::new_nodate(),
         "tiny",
     );
 }
 
 #[test]
 fn test_response_chunked_explicit_te() {
-    let mut headers = Headers::new();
+    let mut headers = Headers::new_nodate();
     headers.set_transfer_encoding_chunked();
 
     assert_print_response(
@@ -43,7 +43,7 @@ fn test_response_chunked_explicit_te() {
 #[test]
 fn test_large_response_auto_te() {
     let body = b"hello".repeat(3000);
-    let w = capture_response(Status::OK, Headers::new(), &body[..]);
+    let w = capture_response(Status::OK, Headers::new_nodate(), &body[..]);
     assert!(w.contains("transfer-encoding: chunked"));
     assert!(!w.contains("content-length"));
 }
@@ -51,7 +51,7 @@ fn test_large_response_auto_te() {
 #[test]
 fn test_large_response_cl_no_auto_te() {
     let body = b"hello".repeat(3000);
-    let mut headers = Headers::new();
+    let mut headers = Headers::new_nodate();
     let cl = body.len() as u64;
     headers.set_content_length(Some(cl));
     let w = capture_response(Status::OK, headers, &body[..]);
@@ -89,7 +89,7 @@ fn test_request_with_content_length() {
 
 #[test]
 fn test_request_with_te() {
-    let mut headers = Headers::new();
+    let mut headers = Headers::new_nodate();
     headers.set_transfer_encoding_chunked();
     assert_print_request(
         b"POST /api HTTP/1.1\r\ntransfer-encoding: chunked\r\n\r\n4\r\ntest\r\n0\r\n\r\n",
@@ -105,7 +105,7 @@ fn test_request_with_te() {
 // ---------------------------------------------------------------------
 
 fn headers_with_content_length(len: u64) -> Headers<'static> {
-    let mut h = Headers::new();
+    let mut h = Headers::new_nodate();
     h.set_content_length(Some(len));
     h
 }

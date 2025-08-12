@@ -18,3 +18,4 @@ khttp = { path = "../..", features = ["epoll"] }
 criterion = { version = "0.6.0", features = ["html_reports"] }
 axum = "0.8.4"
 tokio = { version = "1.46.1", features = ["rt-multi-thread", "macros", "net"] }
+httpdate = "1.0.3"

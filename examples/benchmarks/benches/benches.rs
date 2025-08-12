@@ -273,6 +273,30 @@ fn main() {
         }),
     });
 
+    parser_benches.push(ParserBench {
+        full: "date:uncached",
+        bench: Box::new(|group| {
+            group.bench_function(BenchmarkId::new("long", "GET /long"), |b| {
+                b.iter(|| {
+                    let d = khttp::date::get_date_now_uncached();
+                    std::hint::black_box(d); // prevent optimization
+                });
+            });
+        }),
+    });
+
+    parser_benches.push(ParserBench {
+        full: "date:httpdate",
+        bench: Box::new(|group| {
+            group.bench_function(BenchmarkId::new("long", "GET /long"), |b| {
+                b.iter(|| {
+                    let s = httpdate::fmt_http_date(std::time::SystemTime::now());
+                    std::hint::black_box(&s);
+                });
+            });
+        }),
+    });
+
     // -------- filter & run --------
     let filters = user_filters();
     let available: Vec<&str> = server_benches

@@ -540,6 +540,7 @@ dependencies = [
 name = "khttp"
 version = "0.1.0"
 dependencies = [
+ "httpdate",
  "libc",
  "memchr",
 ]
@@ -554,6 +555,7 @@ dependencies = [
  "criterion",
  "futures-util",
  "httparse",
+ "httpdate",
  "khttp",
  "tokio",
 ]
