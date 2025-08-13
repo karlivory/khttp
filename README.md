@@ -20,11 +20,10 @@
 
 ```rust
 use khttp::{Headers, Method::*, PreRoutingAction, Server, Status};
-
 fn main() {
     let mut app = Server::builder("127.0.0.1:8080").unwrap();
 
-    // route handlers are: dyn Fn(RequestContext, &mut ResponseHandle) -> io::Result<()>
+    // handler type: dyn Fn(RequestContext, &mut ResponseHandle) -> io::Result<()>
     app.route(Get, "/", |ctx, res| {
         // Access the request via RequestContext
         println!(
@@ -46,26 +45,26 @@ fn main() {
     });
 
     app.route(Post, "/uppercase", |mut ctx, res| {
-        // ctx.body() implements Read but it also has convenience methods ::string() and ::vec()
+        // ctx.body() implements Read
         let body = ctx.body().string().unwrap_or_default();
         let response_body = body.to_ascii_uppercase();
-        // "date" and "content-length" headers are added automatically
+        // "date" and "content-length" are automatically added
         res.ok(Headers::empty(), response_body.as_bytes())
     });
 
     // Routing supports named parameters
-    app.route(Get, "/user/:id", |ctx, res| {
-        let user_id: u64 = match ctx.params.get("id").unwrap().parse() {
+    app.route(Get, "/user/:id", |c, r| {
+        let user_id: u64 = match c.params.get("id").unwrap().parse() {
             Ok(id) => id,
             Err(_) => {
-                return res.send(&Status::BAD_REQUEST, Headers::empty(), &b"invalid id"[..]);
+                return r.send(&Status::BAD_REQUEST, Headers::empty(), &b"bad id"[..]);
             }
         };
-        res.ok(Headers::empty(), format!("{}", user_id).as_bytes())
+        r.ok(Headers::empty(), format!("{}", user_id).as_bytes())
     });
 
     // All other requests are handled via the fallback_route
-    app.fallback_route(|_, res| res.send(&Status::NOT_FOUND, Headers::empty(), &b"not found"[..]));
+    app.fallback_route(|_, r| r.send(&Status::NOT_FOUND, Headers::empty(), &b"404"[..]));
 
     // Fine-tuning
     app.thread_count(20);
