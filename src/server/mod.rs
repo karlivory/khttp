@@ -1,8 +1,13 @@
 use crate::parser::Request;
 use crate::router::RouteParams;
 use crate::threadpool::{Task, ThreadPool};
-use crate::{BodyReader, Headers, HttpPrinter, HttpRouter, Method, RequestUri, Router, Status};
+use crate::{
+    BodyReader, Headers, HttpParsingError, HttpPrinter, HttpRouter, Method, RequestUri, Router,
+    Status,
+};
+use std::cell::RefCell;
 use std::io::{self, Read};
+use std::mem::MaybeUninit;
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::Arc;
 use std::time::Instant;
@@ -220,38 +225,63 @@ where
     }
 }
 
-// HACK: thread-local buffer to avoid allocs/zeroing per request.
-// safe since each thread handles exactly one request at a time
-fn with_uninit_buffer<'a, F>(max_size: usize, read_fn: F) -> io::Result<Option<&'a [u8]>>
-where
-    F: FnOnce(&mut [u8]) -> io::Result<usize>,
-{
-    const DEFAULT_REQUEST_BUFFER_SIZE: usize = 4096;
-    thread_local! {
-        static REQUEST_BUFFER: std::cell::RefCell<Vec<std::mem::MaybeUninit<u8>>> =
-            std::cell::RefCell::new(Vec::with_capacity(DEFAULT_REQUEST_BUFFER_SIZE));
-    }
+const DEFAULT_REQUEST_BUFFER_SIZE: usize = 4096;
+thread_local! {
+    static REQUEST_BUFFER: RefCell<Vec<MaybeUninit<u8>>> =
+        RefCell::new(Vec::with_capacity(DEFAULT_REQUEST_BUFFER_SIZE));
+}
+
+/// Read request head into a thread-local uninitialized buffer and parse it.
+/// Thread-local storage is used since each thread handles exactly one request at once.
+fn read_request<'a>(
+    stream: &mut TcpStream,
+    max_size: usize,
+) -> Result<(&'a [u8], Request<'a>), ReadRequestError> {
+    use ReadRequestError::*;
+    use std::slice::{from_raw_parts, from_raw_parts_mut};
 
     REQUEST_BUFFER.with(|cell| {
         let mut vec = cell.borrow_mut();
 
         if vec.len() != max_size {
-            vec.resize_with(max_size, std::mem::MaybeUninit::uninit);
+            vec.resize_with(max_size, MaybeUninit::uninit);
         }
 
-        // SAFETY: We're only treating the slice as `[u8]` temporarily for writing.
-        let buf = unsafe { std::slice::from_raw_parts_mut(vec.as_mut_ptr() as *mut u8, max_size) };
+        let ptr = vec.as_mut_ptr() as *mut u8;
+        let mut filled = 0;
 
-        let bytes_read = read_fn(buf)?;
-        if bytes_read == 0 {
-            return Ok(None); // EOF
+        loop {
+            if filled == max_size {
+                return Err(RequestHeadTooLarge);
+            }
+
+            // SAFETY: ptr.add(filled) is within bounds; read() will init this tail region
+            let tail = unsafe { from_raw_parts_mut(ptr.add(filled), max_size - filled) };
+
+            let n = match stream.read(tail) {
+                Ok(0) => return Err(ReadEof),
+                Ok(n) => n,
+                Err(_) => return Err(IOError),
+            };
+            filled += n;
+
+            // SAFETY: only the prefix [..filled] has been written (initialized) by read()
+            let buf = unsafe { from_raw_parts(ptr as *const u8, filled) };
+
+            match Request::parse(buf) {
+                Ok(req) => return Ok((buf, req)),
+                Err(HttpParsingError::UnexpectedEof) => continue, // need more bytes, keep reading
+                Err(_) => return Err(InvalidRequestHead),         // malformed request head
+            }
         }
-
-        // SAFETY: Only the first `bytes_read` bytes are guaranteed initialized
-        let ret = unsafe { std::slice::from_raw_parts(vec.as_ptr() as *const u8, bytes_read) };
-
-        Ok(Some(ret))
     })
+}
+
+enum ReadRequestError {
+    RequestHeadTooLarge,
+    InvalidRequestHead,
+    ReadEof,
+    IOError,
 }
 
 /// Returns "keep-alive" (whether to keep the connection alive for the next request).
@@ -264,13 +294,17 @@ fn handle_one_request<R>(
 where
     R: HttpRouter<Route = Box<RouteFn>>,
 {
-    let buf = match with_uninit_buffer(config.max_request_head, |buf| read_stream.read(buf))? {
-        Some(b) => b,
-        None => return Ok(false), // eof
-    };
-    let mut request = match Request::parse(buf) {
-        Ok(x) => x,
-        Err(_) => return Ok(false), // TODO: reply with 400?
+    let (buf, mut request) = match read_request(read_stream, config.max_request_head) {
+        Ok((buf, req)) => (buf, req),
+        Err(ReadRequestError::InvalidRequestHead) => {
+            response.send(&Status::BAD_REQUEST, Headers::empty(), std::io::empty())?;
+            return Ok(false);
+        }
+        Err(ReadRequestError::RequestHeadTooLarge) => {
+            response.send(&Status::of(431), Headers::empty(), std::io::empty())?;
+            return Ok(false);
+        }
+        Err(_) => return Ok(false), // silently drop connection on eof / io-error
     };
 
     if let Some(hook) = &config.pre_routing_hook {
