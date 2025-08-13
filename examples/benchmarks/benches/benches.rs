@@ -196,7 +196,7 @@ fn main() {
                 "/chunked",
                 get(|| async {
                     // TODO: is this correct?
-                    let msg = heavy_body();
+                    let msg = medium_body();
                     let stream = stream::iter(vec![Ok::<_, std::io::Error>(Bytes::from(msg))]);
                     Body::from_stream(stream)
                 }),
@@ -528,7 +528,7 @@ fn respond_heavy(res: &mut ResponseHandle) -> io::Result<()> {
 }
 
 fn respond_chunked(res: &mut ResponseHandle) -> io::Result<()> {
-    let msg = heavy_body();
+    let msg = medium_body();
     let mut headers = get_base_headers();
     headers.set_transfer_encoding_chunked();
     res.send(&Status::of(200), &headers, msg)
