@@ -118,7 +118,7 @@ fn test_request_missing_headers_eof() {
 fn test_request_missing_http_version() {
     assert_parse_request_err(
         "GET /hello\r\nheader: value\r\n\r\n",
-        HttpParsingError::MalformedStatusLine,
+        HttpParsingError::UnsupportedHttpVersion,
     );
 }
 

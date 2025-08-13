@@ -71,13 +71,13 @@ fn parse_method(buf: &[u8]) -> Result<(Method, &[u8]), HttpParsingError> {
         i += 1;
     }
 
-    Err(MalformedStatusLine)
+    Err(UnexpectedEof) // no 'SP' found
 }
 
 #[inline]
 fn parse_uri(buf: &[u8]) -> Result<(RequestUri, &[u8]), HttpParsingError> {
     // step 1: classify first byte
-    let origin_form = match *buf.first().ok_or(MalformedStatusLine)? {
+    let origin_form = match *buf.first().ok_or(UnexpectedEof)? {
         b'/' => true,
         b'*' => {
             return Ok((
@@ -157,19 +157,21 @@ fn parse_uri(buf: &[u8]) -> Result<(RequestUri, &[u8]), HttpParsingError> {
         match buf.get(i).copied() {
             Some(b' ') => {}                            // all good, we found the SP
             Some(_) => return Err(MalformedStatusLine), // invalid char
-            None => return Err(MalformedStatusLine),
+            None => return Err(UnexpectedEof),          // TODO: is this correct?
         }
     } else {
         // otherwise we must be at SP right after the path
-        if buf.get(i) != Some(&b' ') {
-            return Err(MalformedStatusLine);
+        match buf.get(i) {
+            Some(b' ') => {}
+            Some(_) => return Err(MalformedStatusLine),
+            None => return Err(UnexpectedEof),
         }
     }
 
     // SAFETY: every byte validated as US-ASCII subset (within UTF8)
     let uri = unsafe { core::str::from_utf8_unchecked(&buf[..i]) };
 
-    let rest = buf.get(i + 1..).ok_or(MalformedStatusLine)?; // skip space
+    let rest = buf.get(i + 1..).ok_or(UnexpectedEof)?; // skip space
     Ok((RequestUri::new(uri, path_start_i, path_end_i), rest))
 }
 

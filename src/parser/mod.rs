@@ -65,11 +65,10 @@ fn parse_version(buf: &[u8]) -> Result<(u8, &[u8]), HttpParsingError> {
         };
     }
 
-    if buf.starts_with(b"HTTP/") {
-        Err(UnsupportedHttpVersion)
-    } else {
-        Err(MalformedStatusLine)
+    if b"HTTP/1.".starts_with(&buf[..buf.len().min(7)]) {
+        return Err(UnexpectedEof);
     }
+    Err(UnsupportedHttpVersion)
 }
 
 const fn make_header_field_byte_mask() -> [bool; 256] {
