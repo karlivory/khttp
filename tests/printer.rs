@@ -100,6 +100,22 @@ fn test_request_with_te() {
     );
 }
 
+#[test]
+fn test_write_response0() {
+    let mut headers = Headers::new_nodate();
+    headers.add("foo", b"bar");
+    let mut w = MockWriter::new();
+    {
+        let mut printer = HttpPrinter::new(&mut w);
+        printer.write_response0(&Status::OK, &headers).unwrap();
+        printer.flush().unwrap();
+    }
+    assert_eq!(
+        w.as_str(),
+        "HTTP/1.1 200 OK\r\nfoo: bar\r\ncontent-length: 0\r\n\r\n"
+    );
+}
+
 // ---------------------------------------------------------------------
 // UTILS
 // ---------------------------------------------------------------------

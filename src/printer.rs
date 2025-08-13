@@ -23,6 +23,41 @@ impl<W: Write> HttpPrinter<W> {
         self.writer.flush()
     }
 
+    pub fn write_response0(&mut self, status: &Status, headers: &Headers) -> io::Result<()> {
+        // TODO: refactor
+        let mut head = get_head_vector(headers.get_count());
+
+        // status line
+        head.extend_from_slice(b"HTTP/1.1 ");
+        head.extend_from_slice(&u16_to_ascii(status.code));
+        head.extend_from_slice(status.reason.as_bytes());
+        head.extend_from_slice(CRLF);
+
+        // headers
+        let buf = &mut head;
+        for (name, value) in headers.iter() {
+            buf.extend_from_slice(name.as_bytes());
+            buf.extend_from_slice(b": ");
+            buf.extend_from_slice(value);
+            buf.extend_from_slice(CRLF);
+        }
+        // // set "connection" header
+        let connection = headers.get_connection_values();
+        if !connection.is_empty() {
+            buf.extend_from_slice(CONNECTION_HEADER);
+            buf.extend_from_slice(connection);
+            buf.extend_from_slice(CRLF);
+        }
+        if headers.is_with_date_header() {
+            let date_buf = crate::date::get_date_now();
+            buf.extend_from_slice(&date_buf);
+            // buf.extend_from_slice(CRLF);
+        }
+        buf.extend_from_slice(b"content-length: 0\r\n\r\n");
+        self.writer.write_all(&head)?;
+        self.flush()
+    }
+
     pub fn write_response<R: Read>(
         &mut self,
         status: &Status,

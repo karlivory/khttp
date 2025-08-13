@@ -113,15 +113,26 @@ impl ResponseHandle {
         }
     }
 
-    pub fn ok(&mut self, headers: &Headers, body: impl Read) -> io::Result<()> {
+    pub fn ok<R: Read>(&mut self, headers: &Headers, body: R) -> io::Result<()> {
         self.send(&Status::OK, headers, body)
     }
 
-    pub fn send(&mut self, status: &Status, headers: &Headers, body: impl Read) -> io::Result<()> {
+    pub fn ok0(&mut self, headers: &Headers) -> io::Result<()> {
+        self.send0(&Status::OK, headers)
+    }
+
+    pub fn send<R: Read>(&mut self, status: &Status, headers: &Headers, body: R) -> io::Result<()> {
         if headers.is_connection_close() {
             self.keep_alive = false;
         }
         HttpPrinter::new(&mut self.stream).write_response(status, headers, body)
+    }
+
+    pub fn send0(&mut self, status: &Status, headers: &Headers) -> io::Result<()> {
+        if headers.is_connection_close() {
+            self.keep_alive = false;
+        }
+        HttpPrinter::new(&mut self.stream).write_response0(status, headers)
     }
 
     pub fn send_100_continue(&mut self) -> io::Result<()> {
