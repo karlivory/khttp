@@ -61,6 +61,10 @@ where
         &self.bind_addrs
     }
 
+    pub fn threads(&self) -> usize {
+        self.thread_count
+    }
+
     pub fn serve(self) -> io::Result<()> {
         struct PoolJob<R>(TcpStream, Arc<HandlerConfig<R>>);
 
