@@ -27,7 +27,7 @@ impl<'b> Response<'b> {
 }
 
 #[inline]
-fn parse_response_status(buf: &[u8]) -> Result<(Status, &[u8]), HttpParsingError> {
+fn parse_response_status(buf: &[u8]) -> Result<(Status<'_>, &[u8]), HttpParsingError> {
     let code = parse_response_status_code(buf)?;
     // check SP
     if buf.get(3).ok_or(MalformedStatusLine)? != &b' ' {

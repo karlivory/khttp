@@ -30,7 +30,7 @@ where
         uri: &str,
         headers: &Headers,
         body: impl Read,
-    ) -> Result<ClientResponseHandle, ClientError> {
+    ) -> Result<ClientResponseHandle<'_>, ClientError> {
         // establish connection
         let mut stream = ClientRequestTcpStream::new(&self.address)?;
 
@@ -170,7 +170,7 @@ macro_rules! define_method {
                 &mut self,
                 uri: &str,
                 headers: &Headers,
-            ) -> Result<ClientResponseHandle, ClientError> {
+            ) -> Result<ClientResponseHandle<'_>, ClientError> {
                 self.exchange(&Method::$method, uri, headers, std::io::empty())
             }
         }
@@ -185,7 +185,7 @@ macro_rules! define_method {
                 uri: &str,
                 headers: &Headers,
                 body: impl Read,
-            ) -> Result<ClientResponseHandle, ClientError> {
+            ) -> Result<ClientResponseHandle<'_>, ClientError> {
                 self.exchange(&Method::$method, uri, headers, body)
             }
         }

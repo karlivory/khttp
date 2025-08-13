@@ -75,7 +75,7 @@ fn parse_method(buf: &[u8]) -> Result<(Method, &[u8]), HttpParsingError> {
 }
 
 #[inline]
-fn parse_uri(buf: &[u8]) -> Result<(RequestUri, &[u8]), HttpParsingError> {
+fn parse_uri(buf: &[u8]) -> Result<(RequestUri<'_>, &[u8]), HttpParsingError> {
     // step 1: classify first byte
     let origin_form = match *buf.first().ok_or(UnexpectedEof)? {
         b'/' => true,

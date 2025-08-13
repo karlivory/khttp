@@ -10,7 +10,7 @@ pub use request::Request;
 pub use response::Response;
 
 #[inline]
-fn parse_headers(buf: &[u8]) -> Result<(Headers, &[u8]), HttpParsingError> {
+fn parse_headers(buf: &[u8]) -> Result<(Headers<'_>, &[u8]), HttpParsingError> {
     let mut headers = Headers::new();
     let mut buf = buf;
 
