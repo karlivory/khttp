@@ -68,7 +68,7 @@ fn serve_file(path: &Path, res: &mut ResponseHandle) -> io::Result<()> {
 
     let mut headers = Headers::new();
     headers.add(Headers::CONTENT_TYPE, get_mime(path).as_bytes());
-    res.ok(&headers, file)
+    res.ok(&headers, io::BufReader::new(file))
 }
 
 fn serve_directory_listing(
