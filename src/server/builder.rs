@@ -9,7 +9,7 @@ use std::io::{self};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::Arc;
 
-const DEFAULT_THREAD_COUNT: usize = 20;
+const DEFAULT_THREAD_COUNT: usize = 16;
 const DEFAULT_MAX_REQUEST_HEAD: usize = 4096; // should be plenty, this is what nginx uses by default
 const DEFAULT_EPOLL_QUEUE_MAXEVENTS: usize = 1024;
 
@@ -18,9 +18,8 @@ pub struct ServerBuilder {
     router: RouterBuilder<Box<RouteFn>>,
     stream_setup_hook: Option<Box<StreamSetupFn>>,
     pre_routing_hook: Option<Box<PreRoutingHookFn>>,
-    thread_count: Option<usize>,
-    max_request_head_size: Option<usize>,
-    max_request_header_count: Option<usize>,
+    thread_count: usize,
+    max_request_head_size: usize,
     epoll_queue_max_events: usize,
 }
 
@@ -40,11 +39,10 @@ impl ServerBuilder {
             router: RouterBuilder::new(Box::new(|_, r| {
                 r.send(&Status::NOT_FOUND, Headers::empty(), std::io::empty())
             })),
-            thread_count: None,
             stream_setup_hook: None,
             pre_routing_hook: None,
-            max_request_head_size: None,
-            max_request_header_count: None,
+            thread_count: DEFAULT_THREAD_COUNT, // TODO: use std::thread::available_parallelism() ?
+            max_request_head_size: DEFAULT_MAX_REQUEST_HEAD,
             epoll_queue_max_events: DEFAULT_EPOLL_QUEUE_MAXEVENTS,
         })
     }
@@ -58,7 +56,7 @@ impl ServerBuilder {
     }
 
     pub fn thread_count(&mut self, thread_count: usize) -> &mut Self {
-        self.thread_count = Some(thread_count);
+        self.thread_count = thread_count;
         self
     }
 
@@ -89,13 +87,8 @@ impl ServerBuilder {
         self
     }
 
-    pub fn max_request_head_size(&mut self, value: Option<usize>) -> &mut Self {
+    pub fn max_request_head_size(&mut self, value: usize) -> &mut Self {
         self.max_request_head_size = value;
-        self
-    }
-
-    pub fn max_request_header_count(&mut self, value: Option<usize>) -> &mut Self {
-        self.max_request_header_count = value;
         self
     }
 
@@ -107,14 +100,12 @@ impl ServerBuilder {
     pub fn build(self) -> Server<Router<Box<RouteFn>>> {
         Server {
             bind_addrs: self.bind_addrs,
-            thread_count: self.thread_count.unwrap_or(DEFAULT_THREAD_COUNT),
+            thread_count: self.thread_count,
             stream_setup_hook: self.stream_setup_hook,
             handler_config: Arc::new(HandlerConfig {
                 router: self.router.build(),
                 pre_routing_hook: self.pre_routing_hook,
-                max_request_head: self
-                    .max_request_head_size
-                    .unwrap_or(DEFAULT_MAX_REQUEST_HEAD),
+                max_request_head: self.max_request_head_size,
             }),
             epoll_queue_max_events: self.epoll_queue_max_events,
         }
@@ -126,14 +117,12 @@ impl ServerBuilder {
     {
         Server {
             bind_addrs: self.bind_addrs,
-            thread_count: self.thread_count.unwrap_or(DEFAULT_THREAD_COUNT),
+            thread_count: self.thread_count,
             stream_setup_hook: self.stream_setup_hook,
             handler_config: Arc::new(HandlerConfig {
                 router,
                 pre_routing_hook: self.pre_routing_hook,
-                max_request_head: self
-                    .max_request_head_size
-                    .unwrap_or(DEFAULT_MAX_REQUEST_HEAD),
+                max_request_head: self.max_request_head_size,
             }),
             epoll_queue_max_events: self.epoll_queue_max_events,
         }

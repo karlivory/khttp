@@ -137,7 +137,7 @@ pub struct RequestContext<'r> {
     pub method: Method,
     pub uri: &'r RequestUri<'r>,
     pub headers: Headers<'r>,
-    pub route_params: &'r RouteParams<'r, 'r>,
+    pub params: &'r RouteParams<'r, 'r>,
     pub http_version: u8,
     pub conn: &'r ConnectionMeta,
     body: BodyReader<'r, &'r mut TcpStream>,
@@ -171,7 +171,7 @@ impl<'r> RequestContext<'r> {
             self.method,
             self.uri,
             self.headers,
-            self.route_params,
+            self.params,
             self.http_version,
             self.conn,
             self.body,
@@ -196,8 +196,8 @@ impl ConnectionMeta {
         self.index = self.index.wrapping_add(1);
     }
 
-    pub fn index(&self) -> &usize {
-        &self.index
+    pub fn index(&self) -> usize {
+        self.index
     }
 
     pub fn conn_start(&self) -> &Instant {
@@ -324,7 +324,7 @@ where
         headers: request.headers,
         uri: &request.uri,
         http_version: request.http_version,
-        route_params: &matched_route.params,
+        params: &matched_route.params,
         conn: connection_meta,
         body,
     };

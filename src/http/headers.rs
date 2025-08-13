@@ -32,7 +32,7 @@ impl<'a> Headers<'a> {
     }
 
     /// for request-head errors
-    pub(crate) fn close() -> &'static Headers<'static> {
+    pub fn close() -> &'static Headers<'static> {
         &EMPTY_HEADERS_CLOSE
     }
 

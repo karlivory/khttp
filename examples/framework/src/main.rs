@@ -50,7 +50,7 @@ fn add_routes(app: &mut FrameworkApp) {
 
             let user_id = match ctx
                 .request
-                .route_params
+                .params
                 .get("id")
                 .and_then(|s| s.parse::<u64>().ok())
             {

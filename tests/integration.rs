@@ -61,7 +61,7 @@ fn start_server(n: u64) -> std::thread::JoinHandle<()> {
         });
 
         app.route(Method::Delete, "/user/:id", |ctx, res| {
-            let body = format!("no user: {}", ctx.route_params.get("id").unwrap());
+            let body = format!("no user: {}", ctx.params.get("id").unwrap());
             res.send(&Status::of(400), Headers::empty(), body.as_bytes())
         });
 
