@@ -35,16 +35,7 @@ impl<'a> RequestUri<'a> {
     }
 
     pub fn query(&self) -> Option<&str> {
-        let hash_idx = self.full.find('#');
         let qmark_idx = self.full.find('?')?;
-
-        if let Some(hash_pos) = hash_idx {
-            if qmark_idx > hash_pos {
-                return None;
-            }
-        }
-
-        let end = hash_idx.unwrap_or(self.full.len());
-        Some(&self.full[qmark_idx + 1..end])
+        Some(&self.full[qmark_idx + 1..self.full.len()])
     }
 }
