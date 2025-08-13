@@ -10,6 +10,7 @@ authors = ["karlivory"]
 homepage = "https://github.com/karlivory/khttp"
 repository = "https://github.com/karlivory/khttp"
 readme = "README.md"
+exclude = ["tests/**", "examples/**", ".github/**", ".vscode/**"]
 
 [dependencies]
 memchr = "2.7.5"
