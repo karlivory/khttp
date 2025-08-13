@@ -297,11 +297,11 @@ where
     let (buf, mut request) = match read_request(read_stream, config.max_request_head) {
         Ok((buf, req)) => (buf, req),
         Err(ReadRequestError::InvalidRequestHead) => {
-            response.send(&Status::BAD_REQUEST, Headers::empty(), std::io::empty())?;
+            response.send(&Status::BAD_REQUEST, Headers::close(), std::io::empty())?;
             return Ok(false);
         }
         Err(ReadRequestError::RequestHeadTooLarge) => {
-            response.send(&Status::of(431), Headers::empty(), std::io::empty())?;
+            response.send(&Status::of(431), Headers::close(), std::io::empty())?;
             return Ok(false);
         }
         Err(_) => return Ok(false), // silently drop connection on eof / io-error

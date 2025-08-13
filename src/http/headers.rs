@@ -14,6 +14,11 @@ pub struct Headers<'a> {
 }
 
 static HEADERS_VEC_INIT_CAPACITY: usize = 16; // rough guess, could be benchmarked
+static EMPTY_HEADERS_CLOSE: LazyLock<Headers<'static>> = LazyLock::new(|| {
+    let mut headers = Headers::new_nodate();
+    headers.set_connection_close();
+    headers
+});
 pub static EMPTY_HEADERS: LazyLock<Headers<'static>> = LazyLock::new(Headers::new);
 pub static EMPTY_HEADERS_NODATE: LazyLock<Headers<'static>> = LazyLock::new(Headers::new_nodate);
 
@@ -24,6 +29,11 @@ impl<'a> Headers<'a> {
 
     pub fn empty_nodate() -> &'static Headers<'static> {
         &EMPTY_HEADERS_NODATE
+    }
+
+    /// for request-head errors
+    pub(crate) fn close() -> &'static Headers<'static> {
+        &EMPTY_HEADERS_CLOSE
     }
 
     pub fn new() -> Self {
