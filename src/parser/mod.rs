@@ -1,12 +1,15 @@
 use crate::Headers;
-use HttpParsingError::*;
 use memchr::memchr;
 use std::{error::Error, fmt::Display, io};
+use HttpParsingError::*;
 
 mod request;
-mod response;
 pub mod simd;
 pub use request::Request;
+
+#[cfg(feature = "client")]
+mod response;
+#[cfg(feature = "client")]
 pub use response::Response;
 
 #[inline]

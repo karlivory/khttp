@@ -28,6 +28,7 @@ impl<'a, R: Read> BodyReader<'a, R> {
         }
     }
 
+    #[cfg(feature = "client")]
     pub fn from_response(leftover: &'a [u8], stream: R, headers: &Headers) -> Self {
         if let Some(content_len) = headers.get_content_length() {
             if content_len > 0 {

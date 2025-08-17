@@ -1,4 +1,4 @@
-use crate::{Headers, Method, Status};
+use crate::{Headers, Status};
 use std::{
     io::{self, BufWriter, Read, Write},
     mem::MaybeUninit,
@@ -62,9 +62,10 @@ impl<W: Write> HttpPrinter<W> {
         self.flush()
     }
 
+    #[cfg(feature = "client")]
     pub fn write_request<R: Read>(
         &mut self,
-        method: &Method,
+        method: &crate::Method,
         uri: &str,
         headers: &Headers,
         body: R,
@@ -215,8 +216,9 @@ fn build_response_head<R: Read>(
     head
 }
 
+#[cfg(feature = "client")]
 fn build_request_head<R: Read>(
-    method: &Method,
+    method: &crate::Method,
     uri: &str,
     headers: &Headers,
     strat: &BodyStrategy<R>,

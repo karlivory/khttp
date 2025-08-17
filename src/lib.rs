@@ -9,7 +9,7 @@ mod threadpool;
 
 pub use body_reader::BodyReader;
 pub use http::{Headers, Method, RequestUri, Status};
-pub use parser::{HttpParsingError, Request, Response};
+pub use parser::{HttpParsingError, Request};
 pub use printer::HttpPrinter;
 pub use router::{HttpRouter, Match, RouteParams, Router, RouterBuilder};
 pub use server::{
@@ -21,3 +21,5 @@ pub use server::{
 mod client;
 #[cfg(feature = "client")]
 pub use client::{Client, ClientError, ClientResponseHandle};
+#[cfg(feature = "client")]
+pub use parser::Response;

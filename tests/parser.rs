@@ -1,5 +1,8 @@
-use khttp::{Headers, HttpParsingError, Method, Request, Response};
+use khttp::{Headers, HttpParsingError, Method, Request};
 use std::io::Read;
+
+#[cfg(feature = "client")]
+use khttp::Response;
 
 // ---------------------------------------------------------------------
 // REQUEST OK
@@ -158,6 +161,7 @@ fn test_request_unsupported_http_version() {
 // RESPONSE OK
 // ---------------------------------------------------------------------
 
+#[cfg(feature = "client")]
 #[test]
 fn test_response_crlf_only_headers() {
     assert_parse_response_ok(
@@ -169,6 +173,7 @@ fn test_response_crlf_only_headers() {
     );
 }
 
+#[cfg(feature = "client")]
 #[test]
 fn test_response_simple_ok() {
     assert_parse_response_ok(
@@ -180,16 +185,19 @@ fn test_response_simple_ok() {
     );
 }
 
+#[cfg(feature = "client")]
 #[test]
 fn test_response_not_found() {
     assert_parse_response_ok("HTTP/1.1 404 Not Found\r\n\r\n", 404, "Not Found", &[], "");
 }
 
+#[cfg(feature = "client")]
 #[test]
 fn test_response_empty_reason_phrase() {
     assert_parse_response_ok("HTTP/1.1 204 \r\n\r\n", 204, "", &[], "");
 }
 
+#[cfg(feature = "client")]
 #[test]
 fn test_response_multiple_headers_same_name() {
     assert_parse_response_ok(
@@ -201,6 +209,7 @@ fn test_response_multiple_headers_same_name() {
     );
 }
 
+#[cfg(feature = "client")]
 #[test]
 fn test_response_large_header_value() {
     let big = "a".repeat(1024);
@@ -213,6 +222,7 @@ fn test_response_large_header_value() {
     );
 }
 
+#[cfg(feature = "client")]
 #[test]
 fn test_response_extra_crlf_after_headers() {
     assert_parse_response_ok(
@@ -228,6 +238,7 @@ fn test_response_extra_crlf_after_headers() {
 // // RESPONSE ERRORS
 // // ---------------------------------------------------------------------
 
+#[cfg(feature = "client")]
 #[test]
 fn test_response_invalid_status_code_4_digits() {
     assert_parse_response_err(
@@ -236,6 +247,7 @@ fn test_response_invalid_status_code_4_digits() {
     );
 }
 
+#[cfg(feature = "client")]
 #[test]
 fn test_response_header_eof_before_complete() {
     assert_parse_response_err(
@@ -244,6 +256,7 @@ fn test_response_header_eof_before_complete() {
     );
 }
 
+#[cfg(feature = "client")]
 #[test]
 fn test_response_header_without_colon() {
     assert_parse_response_err(
@@ -252,6 +265,7 @@ fn test_response_header_without_colon() {
     );
 }
 
+#[cfg(feature = "client")]
 #[test]
 fn test_response_header_invalid_name() {
     assert_parse_response_err(
@@ -260,6 +274,7 @@ fn test_response_header_invalid_name() {
     );
 }
 
+#[cfg(feature = "client")]
 #[test]
 fn test_response_status_code_two_digits() {
     assert_parse_response_err(
@@ -268,6 +283,7 @@ fn test_response_status_code_two_digits() {
     );
 }
 
+#[cfg(feature = "client")]
 #[test]
 fn test_response_status_code_non_numeric() {
     assert_parse_response_err(
@@ -276,6 +292,7 @@ fn test_response_status_code_non_numeric() {
     );
 }
 
+#[cfg(feature = "client")]
 #[test]
 fn test_extended_latin_reason_not_allowed() {
     let e_acute = '\u{00E9}'; // accented e
@@ -317,6 +334,7 @@ fn assert_parse_request_err(input: &str, expected: HttpParsingError) {
     assert_eq!(result.unwrap_err(), expected);
 }
 
+#[cfg(feature = "client")]
 fn assert_parse_response_ok(
     input: &str,
     code: u16,
@@ -339,6 +357,7 @@ fn assert_parse_response_ok(
     assert_eq!(out, body);
 }
 
+#[cfg(feature = "client")]
 fn assert_parse_response_err(input: &str, expected: HttpParsingError) {
     let buf = input.as_bytes();
     let result = Response::parse(buf);

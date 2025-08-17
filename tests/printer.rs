@@ -1,4 +1,4 @@
-use khttp::{Headers, HttpPrinter, Method, Status};
+use khttp::{Headers, HttpPrinter, Status};
 use std::io::{Cursor, Read, Write};
 
 // ---------------------------------------------------------------------
@@ -75,9 +75,12 @@ fn test_100_continue() {
 // REQUESTS
 // ---------------------------------------------------------------------
 
+#[cfg(feature = "client")]
 #[test]
 fn test_request_with_content_length() {
-    let headers = headers_with_content_length(4);
+    use khttp::Method;
+    let mut headers = Headers::new_nodate();
+    headers.set_content_length(Some(4));
     assert_print_request(
         b"POST /api HTTP/1.1\r\ncontent-length: 4\r\n\r\ntest",
         Method::Post,
@@ -87,8 +90,10 @@ fn test_request_with_content_length() {
     );
 }
 
+#[cfg(feature = "client")]
 #[test]
 fn test_request_with_te() {
+    use khttp::Method;
     let mut headers = Headers::new_nodate();
     headers.set_transfer_encoding_chunked();
     assert_print_request(
@@ -120,25 +125,27 @@ fn test_write_response0() {
 // UTILS
 // ---------------------------------------------------------------------
 
-fn headers_with_content_length(len: u64) -> Headers<'static> {
-    let mut h = Headers::new_nodate();
-    h.set_content_length(Some(len));
-    h
-}
-
 fn assert_print_response(expected: &[u8], status: Status, headers: Headers, body: &str) {
     let got = capture_response(status, headers, Cursor::new(body));
     let expected = String::from_utf8_lossy(expected);
     assert_eq!(got, expected);
 }
 
-fn assert_print_request(expected: &[u8], method: Method, uri: &str, headers: Headers, body: &str) {
+#[cfg(feature = "client")]
+fn assert_print_request(
+    expected: &[u8],
+    method: khttp::Method,
+    uri: &str,
+    headers: Headers,
+    body: &str,
+) {
     let got = capture_request(method, uri, &headers, Cursor::new(body));
     let expected = String::from_utf8_lossy(expected);
     assert_eq!(got, expected);
 }
 
-fn capture_request(method: Method, uri: &str, headers: &Headers, body: impl Read) -> String {
+#[cfg(feature = "client")]
+fn capture_request(method: khttp::Method, uri: &str, headers: &Headers, body: impl Read) -> String {
     let mut w = MockWriter::new();
     {
         let mut printer = HttpPrinter::new(&mut w);

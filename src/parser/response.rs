@@ -1,4 +1,4 @@
-use super::{HttpParsingError, HttpParsingError::*, parse_headers, parse_version};
+use super::{parse_headers, parse_version, HttpParsingError, HttpParsingError::*};
 use crate::{Headers, Status};
 
 #[derive(Debug)]
