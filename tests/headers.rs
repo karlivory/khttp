@@ -1,5 +1,21 @@
 use khttp::Headers;
 
+fn get_te_values(headers: &Headers) -> Vec<String> {
+    headers
+        .get_transfer_encoding()
+        .into_iter()
+        .map(|v| String::from_utf8(v).unwrap())
+        .collect::<Vec<_>>()
+}
+
+fn get_connection_values(headers: &Headers) -> Vec<String> {
+    headers
+        .get_connection_values()
+        .into_iter()
+        .map(|v| String::from_utf8(v).unwrap())
+        .collect::<Vec<_>>()
+}
+
 #[test]
 fn test_add_and_get() {
     let mut headers = Headers::new();
@@ -33,17 +49,17 @@ fn test_remove() {
 fn test_transfer_encoding_is_set() {
     let mut headers = Headers::new();
     headers.set_transfer_encoding_chunked();
-    let values = std::str::from_utf8(headers.get_transfer_encoding()).unwrap();
+    let values = get_te_values(&headers);
 
     assert!(headers.is_transfer_encoding_chunked());
-    assert_eq!(values, "chunked");
+    assert_eq!(values, vec!["chunked"]);
 
     let mut headers = Headers::new();
     headers.add("Transfer-Encoding", b"chunked");
-    let values = std::str::from_utf8(headers.get_transfer_encoding()).unwrap();
+    let values = get_te_values(&headers);
 
     assert!(headers.is_transfer_encoding_chunked());
-    assert_eq!(values, "chunked");
+    assert_eq!(values, vec!["chunked"]);
 }
 
 #[test]
@@ -51,27 +67,26 @@ fn test_transfer_encoding_multiple_values() {
     let mut headers = Headers::new();
     headers.add("Transfer-Encoding", b"gzip, deflate");
     headers.add("Transfer-Encoding", b"other");
-    let values = std::str::from_utf8(headers.get_transfer_encoding()).unwrap();
+    let values = get_te_values(&headers);
 
     assert!(!headers.is_transfer_encoding_chunked());
-    assert_eq!(values, "gzip, deflate, other");
+    assert_eq!(values, vec!["gzip", "deflate", "other"]);
+
+    headers.add("Transfer-Encoding", b"chunked");
+    let values = get_te_values(&headers);
+
+    assert!(headers.is_transfer_encoding_chunked());
+    assert_eq!(values, vec!["gzip", "deflate", "other", "chunked"]);
 }
 
 #[test]
 fn test_connection_is_set() {
     let mut headers = Headers::new();
     headers.set_connection_close();
-    let values = std::str::from_utf8(headers.get_connection_values()).unwrap();
+    let values = get_connection_values(&headers);
 
     assert!(headers.is_connection_close());
-    assert_eq!(values, "close");
-
-    let mut headers = Headers::new();
-    headers.add("Connection", b"close");
-    let values = std::str::from_utf8(headers.get_connection_values()).unwrap();
-
-    assert!(headers.is_connection_close());
-    assert_eq!(values, "close");
+    assert_eq!(values, vec!["close"]);
 }
 
 #[test]
@@ -79,8 +94,8 @@ fn test_connection_multiple_values() {
     let mut headers = Headers::new();
     headers.add("Connection", b"keep-alive");
     headers.add("Connection", b"upgrade");
-    let values = std::str::from_utf8(headers.get_connection_values()).unwrap();
+    let values = get_connection_values(&headers);
 
     assert!(!headers.is_connection_close());
-    assert_eq!(values, "keep-alive, upgrade");
+    assert_eq!(values, vec!["keep-alive", "upgrade"]);
 }

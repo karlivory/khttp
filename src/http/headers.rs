@@ -7,9 +7,7 @@ pub struct Headers<'a> {
     headers: Vec<(Cow<'a, str>, Cow<'a, [u8]>)>,
     content_length: Option<u64>,
     chunked: bool,
-    transfer_encoding: Vec<u8>,
     connection_close: bool,
-    connection_values: Vec<u8>,
     print_date: bool,
 }
 
@@ -40,10 +38,8 @@ impl<'a> Headers<'a> {
         Self {
             headers: Vec::with_capacity(HEADERS_VEC_INIT_CAPACITY),
             content_length: None,
-            transfer_encoding: Vec::new(),
             chunked: false,
             connection_close: false,
-            connection_values: Vec::new(),
             print_date: true,
         }
     }
@@ -52,10 +48,8 @@ impl<'a> Headers<'a> {
         Self {
             headers: Vec::with_capacity(HEADERS_VEC_INIT_CAPACITY),
             content_length: None,
-            transfer_encoding: Vec::new(),
             chunked: false,
             connection_close: false,
-            connection_values: Vec::new(),
             print_date: false,
         }
     }
@@ -86,36 +80,22 @@ impl<'a> Headers<'a> {
                 self.content_length = s.trim_ascii().parse().ok();
             }
             return;
-        } else if name.eq_ignore_ascii_case(Self::TRANSFER_ENCODING) {
-            value
-                .split(|&b| b == b',')
-                .map(|v| v.trim_ascii_start())
-                .for_each(|v| {
-                    if v.eq_ignore_ascii_case(b"chunked") {
-                        self.set_transfer_encoding_chunked();
-                    } else {
-                        if !self.transfer_encoding.is_empty() {
-                            self.transfer_encoding.extend_from_slice(b", ");
-                        }
-                        self.transfer_encoding.extend_from_slice(v);
-                    }
-                });
-            return;
+        }
+
+        if name.eq_ignore_ascii_case(Self::TRANSFER_ENCODING) {
+            for v in value.split(|&b| b == b',').map(|v| v.trim_ascii_start()) {
+                if v.eq_ignore_ascii_case(b"chunked") {
+                    self.chunked = true;
+                    break;
+                }
+            }
         } else if name.eq_ignore_ascii_case(Self::CONNECTION) {
-            value
-                .split(|&b| b == b',')
-                .map(|v| v.trim_ascii_start())
-                .for_each(|v| {
-                    if v.eq_ignore_ascii_case(b"close") {
-                        self.set_connection_close();
-                    } else {
-                        if !self.connection_values.is_empty() {
-                            self.connection_values.extend_from_slice(b", ");
-                        }
-                        self.connection_values.extend_from_slice(v);
-                    }
-                });
-            return;
+            for v in value.split(|&b| b == b',').map(|v| v.trim_ascii_start()) {
+                if v.eq_ignore_ascii_case(b"close") {
+                    self.connection_close = true;
+                    break;
+                }
+            }
         }
 
         self.headers.push((name, value));
@@ -152,10 +132,8 @@ impl<'a> Headers<'a> {
             self.content_length = None;
         } else if name.eq_ignore_ascii_case(Self::TRANSFER_ENCODING) {
             self.chunked = false;
-            self.transfer_encoding.clear();
         } else if name.eq_ignore_ascii_case(Self::CONNECTION) {
             self.connection_close = false; // back to default
-            self.connection_values.clear();
         }
 
         self.headers.retain(|(k, _)| !k.eq_ignore_ascii_case(name));
@@ -176,20 +154,29 @@ impl<'a> Headers<'a> {
 
     pub fn set_transfer_encoding_chunked(&mut self) {
         self.chunked = true;
-
-        if self.transfer_encoding.is_empty() {
-            self.transfer_encoding.extend_from_slice(b"chunked");
-        } else {
-            self.transfer_encoding.extend_from_slice(b", chunked");
-        }
+        self.headers.push((
+            Cow::Borrowed(Self::TRANSFER_ENCODING),
+            Cow::Borrowed(b"chunked"),
+        ));
     }
 
     pub fn is_transfer_encoding_chunked(&self) -> bool {
         self.chunked
     }
 
-    pub fn get_transfer_encoding(&self) -> &[u8] {
-        &self.transfer_encoding
+    /// Returns all transfer-encoding tokens (comma-split, trimmed)
+    pub fn get_transfer_encoding(&self) -> Vec<Vec<u8>> {
+        let mut out = Vec::new();
+        for (_, v) in self.get_all(Self::TRANSFER_ENCODING) {
+            for token in v
+                .as_ref()
+                .split(|&b| b == b',')
+                .map(|t| t.trim_ascii_start())
+            {
+                out.push(token.to_vec());
+            }
+        }
+        out
     }
 
     pub fn is_with_date_header(&self) -> bool {
@@ -198,19 +185,27 @@ impl<'a> Headers<'a> {
 
     pub fn set_connection_close(&mut self) {
         self.connection_close = true;
-        if self.connection_values.is_empty() {
-            self.connection_values.extend_from_slice(b"close");
-        } else {
-            self.connection_values.extend_from_slice(b", close");
-        }
+        self.headers
+            .push((Cow::Borrowed(Self::CONNECTION), Cow::Borrowed(b"close")));
     }
 
     pub fn is_connection_close(&self) -> bool {
         self.connection_close
     }
 
-    pub fn get_connection_values(&self) -> &[u8] {
-        &self.connection_values
+    /// Returns all connection header tokens (comma-split, trimmed)
+    pub fn get_connection_values(&self) -> Vec<Vec<u8>> {
+        let mut out = Vec::new();
+        for (_, v) in self.get_all(Self::CONNECTION) {
+            for token in v
+                .as_ref()
+                .split(|&b| b == b',')
+                .map(|t| t.trim_ascii_start())
+            {
+                out.push(token.to_vec());
+            }
+        }
+        out
     }
 
     pub fn is_100_continue(&self) -> bool {
@@ -242,6 +237,9 @@ impl fmt::Display for Headers<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (key, val) in &self.headers {
             writeln!(f, "{}: {}", key, String::from_utf8_lossy(val))?;
+        }
+        if let Some(cl) = self.content_length {
+            writeln!(f, "{}: {}", Self::CONTENT_LENGTH, cl)?;
         }
         Ok(())
     }

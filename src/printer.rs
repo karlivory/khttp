@@ -24,7 +24,6 @@ impl<W: Write> HttpPrinter<W> {
     }
 
     pub fn write_response0(&mut self, status: &Status, headers: &Headers) -> io::Result<()> {
-        // TODO: refactor
         let mut head = get_head_vector(headers.get_count());
 
         // status line
@@ -40,17 +39,9 @@ impl<W: Write> HttpPrinter<W> {
             head.extend_from_slice(value);
             head.extend_from_slice(CRLF);
         }
-        // // set "connection" header
-        let connection = headers.get_connection_values();
-        if !connection.is_empty() {
-            head.extend_from_slice(CONNECTION_HEADER);
-            head.extend_from_slice(connection);
-            head.extend_from_slice(CRLF);
-        }
         if headers.is_with_date_header() {
             let date_buf = crate::date::get_date_now();
             head.extend_from_slice(&date_buf);
-            // buf.extend_from_slice(CRLF);
         }
         head.extend_from_slice(b"content-length: 0\r\n\r\n");
 
@@ -248,9 +239,7 @@ fn build_request_head<R: Read>(
 }
 
 const CONTENT_LENGTH_HEADER: &[u8] = b"content-length: ";
-const TRANSFER_ENCODING_HEADER: &[u8] = b"transfer-encoding: ";
-const TRANSFER_ENCODING_HEADER_CHUNKED: &[u8] = b"transfer-encoding: chunked";
-const CONNECTION_HEADER: &[u8] = b"connection: ";
+const TRANSFER_ENCODING_HEADER_CHUNKED: &[u8] = b"transfer-encoding: chunked\r\n";
 
 #[inline]
 fn add_content_length_header(buf: &mut Vec<u8>, value: u64) {
@@ -258,6 +247,7 @@ fn add_content_length_header(buf: &mut Vec<u8>, value: u64) {
     let mut num_buf = [0u8; 20]; // enough to hold any u64 in base 10
     let len = u64_to_ascii_buf(value, &mut num_buf);
     buf.extend_from_slice(&num_buf[..len]);
+    buf.extend_from_slice(CRLF);
 }
 
 #[inline]
@@ -268,17 +258,9 @@ fn add_headers<R: Read>(buf: &mut Vec<u8>, headers: &Headers, strat: &BodyStrate
         buf.extend_from_slice(value);
         buf.extend_from_slice(CRLF);
     }
-    // // set "connection" header
-    let connection = headers.get_connection_values();
-    if !connection.is_empty() {
-        buf.extend_from_slice(CONNECTION_HEADER);
-        buf.extend_from_slice(connection);
-        buf.extend_from_slice(CRLF);
-    }
     if headers.is_with_date_header() {
         let date_buf = crate::date::get_date_now();
         buf.extend_from_slice(&date_buf);
-        // buf.extend_from_slice(CRLF);
     }
     // // set framing headers ("Transfer-Encoding" OR "Content-Length")
     match strat {
@@ -288,23 +270,12 @@ fn add_headers<R: Read>(buf: &mut Vec<u8>, headers: &Headers, strat: &BodyStrate
         BodyStrategy::Streaming(_, cl) => {
             add_content_length_header(buf, *cl);
         }
-        BodyStrategy::Chunked { .. } => {
-            let encodings = headers.get_transfer_encoding();
-            debug_assert!(!encodings.is_empty());
-            buf.extend_from_slice(TRANSFER_ENCODING_HEADER);
-            buf.extend_from_slice(encodings);
-        }
+        BodyStrategy::Chunked { .. } => {} // NOP
         BodyStrategy::AutoChunked { .. } => {
             debug_assert!(!headers.is_transfer_encoding_chunked());
             buf.extend_from_slice(TRANSFER_ENCODING_HEADER_CHUNKED);
-            let encodings = headers.get_transfer_encoding();
-            if !encodings.is_empty() {
-                buf.extend_from_slice(b", ");
-                buf.extend_from_slice(encodings);
-            }
         }
     }
-    buf.extend_from_slice(CRLF);
 }
 
 // -------------------------------------------------------------------------
