@@ -34,10 +34,7 @@ pub fn run(op: ClientOp) {
         Ok(mut response) => {
             if op.verbose {
                 println!("{} {}", response.status.code, response.status.reason);
-                for (k, v) in response.headers.iter() {
-                    println!("{}: {}", k, String::from_utf8_lossy(v));
-                }
-                println!();
+                println!("{}", response.headers);
             }
             let body = response.body().string().unwrap_or_default();
             print!("{}", body);
