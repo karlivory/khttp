@@ -109,7 +109,10 @@ impl<'a> Headers<'a> {
             .map(|(_, v)| v.as_ref())
     }
 
-    pub fn get_all(&self, name: &str) -> impl Iterator<Item = &(Cow<'a, str>, Cow<'a, [u8]>)> {
+    pub fn get_all<'s>(
+        &'s self,
+        name: &'s str,
+    ) -> impl Iterator<Item = &'s (Cow<'a, str>, Cow<'a, [u8]>)> {
         self.headers
             .iter()
             .filter(move |(k, _)| k.as_ref().eq_ignore_ascii_case(name))
