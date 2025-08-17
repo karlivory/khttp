@@ -1,17 +1,17 @@
 #![cfg(feature = "epoll")]
 use super::{ConnectionMeta, RouteFn, Server, StreamSetupAction};
-use crate::server::{HandlerConfig, handle_one_request};
+use crate::server::{handle_one_request, HandlerConfig};
 use crate::threadpool::{Task, ThreadPool};
 use crate::{HttpRouter, ResponseHandle};
 use libc::{
-    EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLLET, EPOLLIN, epoll_create1, epoll_ctl, epoll_event,
-    epoll_wait,
+    epoll_create1, epoll_ctl, epoll_event, epoll_wait, EPOLLET, EPOLLIN, EPOLL_CTL_ADD,
+    EPOLL_CTL_DEL,
 };
 use std::io;
 use std::net::{TcpListener, TcpStream};
 use std::os::unix::io::{AsRawFd, RawFd};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 struct Connection {
     read_stream: TcpStream,
