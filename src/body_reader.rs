@@ -79,7 +79,7 @@ impl<'a, R: Read> BodyReader<'a, R> {
         self.read_to_end(&mut buf).map(|_| buf)
     }
 
-    pub fn inner_mut(&mut self) -> &mut R {
+    pub(crate) fn inner_mut(&mut self) -> &mut R {
         match &mut self.0 {
             BodyEncoding::Fixed(FixedReader { inner, .. }) => inner.get_mut().inner_mut(),
             BodyEncoding::Chunked(ChunkedReader { inner, .. }) => inner.get_mut().inner_mut(),
@@ -88,7 +88,7 @@ impl<'a, R: Read> BodyReader<'a, R> {
         }
     }
 
-    pub fn inner(&self) -> &R {
+    pub(crate) fn inner(&self) -> &R {
         match &self.0 {
             BodyEncoding::Fixed(FixedReader { inner, .. }) => inner.get_ref().inner(),
             BodyEncoding::Chunked(ChunkedReader { inner, .. }) => inner.get_ref().inner(),
@@ -97,7 +97,7 @@ impl<'a, R: Read> BodyReader<'a, R> {
         }
     }
 
-    pub fn drain(&mut self) {
+    fn drain(&mut self) {
         let mut buf = [0u8; 1024];
         loop {
             match &mut self.0 {
@@ -165,11 +165,11 @@ impl<'a, R> StreamWithLeftover<'a, R> {
         }
     }
 
-    pub fn inner_mut(&mut self) -> &mut R {
+    fn inner_mut(&mut self) -> &mut R {
         &mut self.stream
     }
 
-    pub fn inner(&self) -> &R {
+    fn inner(&self) -> &R {
         &self.stream
     }
 }
