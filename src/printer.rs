@@ -315,16 +315,33 @@ fn u16_to_ascii(n: u16) -> [u8; 4] {
     ]
 }
 
-fn probe_body<R: Read>(src: &mut R, max: usize) -> io::Result<(Vec<u8>, bool)> {
+pub fn probe_body<R: Read>(src: &mut R, max: usize) -> io::Result<(Vec<u8>, bool)> {
     let mut collected = Vec::with_capacity(128);
-    let mut buf = [0u8; 1024];
+
     while collected.len() < max {
-        let to_read = (max - collected.len()).min(buf.len());
-        let n = src.read(&mut buf[..to_read])?;
+        if collected.spare_capacity_mut().is_empty() {
+            let need = (max - collected.len()).min(1024);
+            collected.reserve(need);
+        }
+        let remaining = max - collected.len();
+
+        let n = {
+            let spare = collected.spare_capacity_mut();
+            let to_read = remaining.min(spare.len());
+
+            // SAFETY: we expose only the first `to_read` bytes to `read`, which will initialize up to `n` of them
+            let buf =
+                unsafe { std::slice::from_raw_parts_mut(spare.as_mut_ptr() as *mut u8, to_read) };
+            src.read(buf)?
+        };
+
         if n == 0 {
             return Ok((collected, true));
         }
-        collected.extend_from_slice(&buf[..n]);
+
+        // SAFETY: `read` initialized exactly `n` bytes.
+        unsafe { collected.set_len(collected.len() + n) };
     }
+
     Ok((collected, false))
 }
