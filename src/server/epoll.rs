@@ -4,19 +4,21 @@ use crate::server::{HandlerConfig, handle_one_request};
 use crate::threadpool::{Task, ThreadPool};
 use crate::{HttpRouter, ResponseHandle};
 use libc::{
-    EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLL_CTL_MOD, EPOLLET, EPOLLIN, EPOLLONESHOT, epoll_create1,
-    epoll_ctl, epoll_event, epoll_wait,
+    EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLLET, EPOLLIN, epoll_create1, epoll_ctl, epoll_event,
+    epoll_wait,
 };
 use std::io;
 use std::net::{TcpListener, TcpStream};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 struct Connection {
     read_stream: TcpStream,
     response: ResponseHandle,
     meta: ConnectionMeta,
     fd: RawFd,
+    in_flight: AtomicBool, // ensure only one worker processes this connection at a time
 }
 
 struct EpollJob<R> {
@@ -44,15 +46,11 @@ where
             .unwrap_or(false);
 
             if keep_alive {
-                let mut ev = epoll_event {
-                    events: (EPOLLIN | EPOLLONESHOT | EPOLLET) as u32,
-                    u64: self.conn_ptr,
-                };
-                epoll_ctl(self.epfd, EPOLL_CTL_MOD, conn.fd, &mut ev);
-                let _ = Box::into_raw(conn); // leak conn ptr
+                conn.in_flight.store(false, Ordering::Release);
+                let _ = Box::into_raw(conn); // leak conn
             } else {
-                epoll_ctl(self.epfd, EPOLL_CTL_DEL, conn.fd, std::ptr::null_mut());
-                // conn gets dropped here
+                let _ = epoll_ctl(self.epfd, EPOLL_CTL_DEL, conn.fd, std::ptr::null_mut());
+                // conn is dropped here
             }
         }
     }
@@ -71,12 +69,12 @@ where
             return Err(io::Error::last_os_error());
         }
 
-        const LISTENER_PTR: u64 = 1; // pseudo-pointer: 1 is never equal to a real heap address
-        let mut ev = epoll_event {
+        const LISTENER_PTR: u64 = 1; // pseudo-pointer: never equals a real heap address
+        let mut lev = epoll_event {
             events: (EPOLLIN | EPOLLET) as u32,
             u64: LISTENER_PTR,
         };
-        if unsafe { epoll_ctl(epfd, EPOLL_CTL_ADD, listener.as_raw_fd(), &mut ev) } == -1 {
+        if unsafe { epoll_ctl(epfd, EPOLL_CTL_ADD, listener.as_raw_fd(), &mut lev) } == -1 {
             return Err(io::Error::last_os_error());
         }
 
@@ -98,7 +96,13 @@ where
 
                 if conn_ptr == LISTENER_PTR {
                     // listener is nonblocking, so WouldBlock breaks this loop
-                    while let Ok((mut stream, _)) = listener.accept() {
+                    loop {
+                        let (mut stream, _peer) = match listener.accept() {
+                            Ok(x) => x,
+                            // Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                            Err(_) => break, // skip all accept errors
+                        };
+
                         if let Some(hook) = &self.stream_setup_hook {
                             stream = match (hook)(Ok(stream)) {
                                 StreamSetupAction::Proceed(s) => s,
@@ -106,33 +110,44 @@ where
                                 StreamSetupAction::StopAccepting => return Ok(()),
                             }
                         }
-                        stream.set_nodelay(true)?; // TODO: do this via default_stream_setup_hook?
+                        stream.set_nodelay(true)?;
+
                         let write_stream = match stream.try_clone() {
                             Ok(s) => s,
-                            Err(_e) => continue, // TODO: how to handle this?
+                            Err(_) => continue,
                         };
 
                         let fd = stream.as_raw_fd();
                         let response = ResponseHandle::new(write_stream);
+
                         let conn = Box::new(Connection {
                             read_stream: stream,
                             response,
                             meta: ConnectionMeta::new(),
                             fd,
+                            in_flight: AtomicBool::new(false),
                         });
+
                         let ptr = Box::into_raw(conn) as u64;
-                        let mut ev = epoll_event {
-                            events: (EPOLLIN | EPOLLONESHOT | EPOLLET) as u32,
+
+                        let mut cev = epoll_event {
+                            events: EPOLLIN as u32,
                             u64: ptr,
                         };
 
-                        if unsafe { epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &mut ev) } == -1 {
+                        if unsafe { epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &mut cev) } == -1 {
                             unsafe {
                                 drop(Box::from_raw(ptr as *mut Connection));
                             }
                         }
                     }
                 } else {
+                    let conn_ref = unsafe { &*(conn_ptr as *const Connection) };
+                    if conn_ref.in_flight.swap(true, Ordering::AcqRel) {
+                        // a worker is already running on this connection
+                        continue;
+                    }
+
                     pool.execute(EpollJob {
                         conn_ptr,
                         epfd,
