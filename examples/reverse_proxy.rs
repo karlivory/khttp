@@ -27,10 +27,10 @@ fn proxy(
     headers.replace("Host", host.as_bytes());
 
     let mut client = Client::new(format!("{}:{}", host, port));
-    let response = match client.exchange(&method, uri.path(), &headers, request_body) {
+    let response = match client.exchange(&method, uri.path_and_query(), &headers, request_body) {
         Ok(r) => r,
         Err(e) => {
-            dbg!(e);
+            eprintln!("{}", e);
             return res.send(&Status::SERVICE_UNAVAILABLE, Headers::empty(), &[][..]);
         }
     };

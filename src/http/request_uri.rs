@@ -24,7 +24,7 @@ impl<'a> RequestUri<'a> {
 
     pub fn authority(&self) -> Option<&str> {
         let rest = self.full.strip_prefix(&format!("{}://", self.scheme()?))?;
-        match rest.find('/') {
+        match rest.find(['/', '?']) {
             Some(idx) => Some(&rest[..idx]),
             None => Some(rest),
         }
@@ -32,6 +32,10 @@ impl<'a> RequestUri<'a> {
 
     pub fn path(&self) -> &str {
         &self.full[self.path_i_start..self.path_i_end]
+    }
+
+    pub fn path_and_query(&self) -> &str {
+        &self.full[self.path_i_start..]
     }
 
     pub fn query(&self) -> Option<&str> {
