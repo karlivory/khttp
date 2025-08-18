@@ -315,7 +315,7 @@ fn u16_to_ascii(n: u16) -> [u8; 4] {
     ]
 }
 
-pub fn probe_body<R: Read>(src: &mut R, max: usize) -> io::Result<(Vec<u8>, bool)> {
+fn probe_body<R: Read>(src: &mut R, max: usize) -> io::Result<(Vec<u8>, bool)> {
     let mut collected = Vec::with_capacity(128);
 
     while collected.len() < max {
