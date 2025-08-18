@@ -219,10 +219,7 @@ impl ConnectionMeta {
 fn handle_connection(mut stream: TcpStream, config: Arc<HandlerConfig>) -> io::Result<()> {
     let mut conn_meta = ConnectionMeta::new();
     let write_stream = stream.try_clone()?;
-    let mut response = ResponseHandle {
-        stream: write_stream,
-        keep_alive: true,
-    };
+    let mut response = ResponseHandle::new(write_stream);
 
     loop {
         conn_meta.increment();
