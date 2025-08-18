@@ -1,73 +1,46 @@
-#![allow(clippy::borrowed_box)]
+use khttp::{Headers, Method::*, RequestContext, ResponseHandle, Server, Status};
+use std::io;
 
-use khttp::{
-    Headers, HttpRouter, Match,
-    Method::{self, *},
-    RouteFn, Server, Status,
-};
-use std::sync::OnceLock;
-
-fn main() {
-    Server::builder("127.0.0.1:8080")
-        .unwrap()
-        .build_with_router(CustomRouter)
-        .serve_epoll()
-        .unwrap();
+fn main() -> io::Result<()> {
+    let mut app = Server::builder("127.0.0.1:8080").unwrap();
+    app.fallback_route(router);
+    app.build().serve_epoll()
 }
 
 // ---------------------------------------------------------------------
-// custom HttpRouter
+// single route entrypoint
 // ---------------------------------------------------------------------
 
-struct CustomRouter;
+fn router(ctx: RequestContext, res: &mut ResponseHandle) -> io::Result<()> {
+    let handler_fn = match (&ctx.method, ctx.uri.path()) {
+        (Get, "/hello") => hello_world,
+        (Get, x) if x.starts_with("/user/") => get_user,
+        _ => not_found,
+    };
 
-impl HttpRouter for CustomRouter {
-    type Route = Box<RouteFn>;
+    handler_fn(ctx, res)
+}
 
-    fn match_route<'a, 'r>(&'a self, method: &Method, path: &'r str) -> Match<'a, 'r, Self::Route> {
-        match (method, path) {
-            (Get, "/hello") => Match::no_params(hello_world()),
-            (Get, x) if x.starts_with("/user/") => Match::no_params(get_user()),
-            _ => Match::no_params(not_found()),
+// ---------------------------------------------------------------------
+// route handlers
+// ---------------------------------------------------------------------
+
+fn hello_world(_ctx: RequestContext, res: &mut ResponseHandle) -> io::Result<()> {
+    res.ok(Headers::empty(), &b"Hello, World!"[..])
+}
+
+fn get_user(ctx: RequestContext, res: &mut ResponseHandle) -> io::Result<()> {
+    let user_id = ctx.uri.path().strip_prefix("/user/").unwrap();
+    let user_id = match user_id.parse::<u64>() {
+        Ok(id) => id,
+        Err(_) => {
+            let body = format!("invalid id: {}", user_id);
+            return res.send(&Status::BAD_REQUEST, Headers::empty(), body.as_bytes());
         }
-    }
+    };
+    res.ok(Headers::empty(), format!("user {}\n", user_id).as_bytes())
 }
 
-// ---------------------------------------------------------------------
-// routes
-// ---------------------------------------------------------------------
-
-fn hello_world() -> &'static Box<RouteFn> {
-    static LOCK: OnceLock<Box<RouteFn>> = OnceLock::new();
-    LOCK.get_or_init(|| Box::new(|_, res| res.ok(Headers::empty(), &b"Hello, World!"[..])))
-}
-
-fn get_user() -> &'static Box<RouteFn> {
-    static LOCK: OnceLock<Box<RouteFn>> = OnceLock::new();
-    LOCK.get_or_init(|| {
-        Box::new(|ctx, res| {
-            let user_id = ctx.uri.path().strip_prefix("/user/").unwrap();
-            let user_id = match user_id.parse::<u64>() {
-                Ok(id) => id,
-                Err(_) => {
-                    let body = format!("invalid id: {}", user_id);
-                    return res.send(&Status::BAD_REQUEST, Headers::empty(), body.as_bytes());
-                }
-            };
-            res.ok(Headers::empty(), format!("user {}\n", user_id).as_bytes())
-        })
-    })
-}
-
-fn not_found() -> &'static Box<RouteFn> {
-    static LOCK: OnceLock<Box<RouteFn>> = OnceLock::new();
-    LOCK.get_or_init(|| {
-        Box::new(|_, res| {
-            res.send(
-                &Status::NOT_FOUND,
-                Headers::empty(),
-                &b"404 - not found"[..],
-            )
-        })
-    })
+fn not_found(_ctx: RequestContext, res: &mut ResponseHandle) -> io::Result<()> {
+    res.send(&Status::NOT_FOUND, Headers::empty(), "not found".as_bytes())
 }

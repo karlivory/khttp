@@ -1,8 +1,8 @@
 #![cfg(feature = "epoll")]
-use super::{ConnectionMeta, RouteFn, Server, StreamSetupAction};
+use super::{ConnectionMeta, Server, StreamSetupAction};
 use crate::server::{handle_one_request, HandlerConfig};
 use crate::threadpool::{Task, ThreadPool};
-use crate::{HttpRouter, ResponseHandle};
+use crate::ResponseHandle;
 use libc::{
     epoll_create1, epoll_ctl, epoll_event, epoll_wait, EPOLLET, EPOLLIN, EPOLL_CTL_ADD,
     EPOLL_CTL_DEL,
@@ -21,16 +21,13 @@ struct Connection {
     in_flight: AtomicBool, // ensure only one worker processes this connection at a time
 }
 
-struct EpollJob<R> {
+struct EpollJob {
     conn_ptr: u64,
     epfd: RawFd,
-    handler_config: Arc<HandlerConfig<R>>,
+    handler_config: Arc<HandlerConfig>,
 }
 
-impl<R> Task for EpollJob<R>
-where
-    R: HttpRouter<Route = Box<RouteFn>> + Send + Sync + 'static,
-{
+impl Task for EpollJob {
     #[inline]
     fn run(self) {
         unsafe {
@@ -56,10 +53,7 @@ where
     }
 }
 
-impl<R> Server<R>
-where
-    R: HttpRouter<Route = Box<RouteFn>> + Send + Sync + 'static,
-{
+impl Server {
     pub fn serve_epoll(self) -> io::Result<()> {
         let listener = TcpListener::bind(&*self.bind_addrs)?;
         listener.set_nonblocking(true)?;
@@ -78,7 +72,7 @@ where
             return Err(io::Error::last_os_error());
         }
 
-        let pool: ThreadPool<EpollJob<R>> = ThreadPool::new(self.thread_count);
+        let pool: ThreadPool<EpollJob> = ThreadPool::new(self.thread_count);
         let max_events = self.epoll_queue_max_events as i32;
         let mut events = vec![epoll_event { events: 0, u64: 0 }; max_events as usize];
 

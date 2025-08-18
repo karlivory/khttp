@@ -1,4 +1,4 @@
-use khttp::{HttpRouter, Method, Method::*, Router, RouterBuilder};
+use khttp::{Method, Method::*, Router, RouterBuilder};
 
 // ---------------------------------------------------------------------
 // TESTS

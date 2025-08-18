@@ -10,7 +10,7 @@
 //! (inspired by axum's benches.rs)
 
 use criterion::{BenchmarkId, Criterion};
-use khttp::{Headers, Method, ResponseHandle, RouteFn, Router, Server, ServerBuilder, Status};
+use khttp::{Headers, Method, ResponseHandle, ServerBuilder, Status};
 use std::{
     io::{self, BufRead, BufReader},
     net::TcpListener,
@@ -26,11 +26,10 @@ struct ServerBench {
 }
 
 enum ServerKind {
-    Khttp(Box<dyn FnOnce() -> KhttpServer>),
+    Khttp(Box<dyn FnOnce() -> khttp::Server>),
     Axum(Box<dyn FnOnce(axum::Router) -> axum::Router>),
 }
 
-type KhttpServer = Server<Router<Box<RouteFn>>>;
 type ParserBenchFn = dyn Fn(&mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>);
 
 struct ParserBench {
@@ -475,7 +474,7 @@ fn get_free_port() -> u16 {
 
 fn get_khttp_app() -> ServerBuilder {
     let port = get_free_port();
-    Server::builder(format!("127.0.0.1:{port}")).unwrap()
+    khttp::Server::builder(format!("127.0.0.1:{port}")).unwrap()
 }
 
 fn get_base_headers() -> Headers<'static> {

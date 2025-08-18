@@ -4,7 +4,7 @@ use super::{
 };
 use crate::parser::Request;
 use crate::router::RouterBuilder;
-use crate::{Headers, HttpRouter, Method, Router, Status};
+use crate::{Headers, Method, Status};
 use std::io::{self};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::Arc;
@@ -97,30 +97,13 @@ impl ServerBuilder {
         self
     }
 
-    pub fn build(self) -> Server<Router<Box<RouteFn>>> {
+    pub fn build(self) -> Server {
         Server {
             bind_addrs: self.bind_addrs,
             thread_count: self.thread_count,
             stream_setup_hook: self.stream_setup_hook,
             handler_config: Arc::new(HandlerConfig {
                 router: self.router.build(),
-                pre_routing_hook: self.pre_routing_hook,
-                max_request_head: self.max_request_head_size,
-            }),
-            epoll_queue_max_events: self.epoll_queue_max_events,
-        }
-    }
-
-    pub fn build_with_router<R>(self, router: R) -> Server<R>
-    where
-        R: HttpRouter,
-    {
-        Server {
-            bind_addrs: self.bind_addrs,
-            thread_count: self.thread_count,
-            stream_setup_hook: self.stream_setup_hook,
-            handler_config: Arc::new(HandlerConfig {
-                router,
                 pre_routing_hook: self.pre_routing_hook,
                 max_request_head: self.max_request_head_size,
             }),

@@ -2,8 +2,7 @@ use crate::parser::Request;
 use crate::router::RouteParams;
 use crate::threadpool::{Task, ThreadPool};
 use crate::{
-    BodyReader, Headers, HttpParsingError, HttpPrinter, HttpRouter, Method, RequestUri, Router,
-    Status,
+    BodyReader, Headers, HttpParsingError, HttpPrinter, Method, RequestUri, Router, Status,
 };
 use std::cell::RefCell;
 use std::io::{self, Read};
@@ -22,17 +21,17 @@ pub type PreRoutingHookFn = dyn Fn(&mut Request<'_>, &mut ResponseHandle, &Conne
     + Send
     + Sync;
 
-struct HandlerConfig<R> {
-    router: R,
+struct HandlerConfig {
+    router: Router<Box<RouteFn>>,
     pre_routing_hook: Option<Box<PreRoutingHookFn>>,
     max_request_head: usize,
 }
 
-pub struct Server<R> {
+pub struct Server {
     bind_addrs: Vec<SocketAddr>,
     thread_count: usize,
     stream_setup_hook: Option<Box<StreamSetupFn>>,
-    handler_config: Arc<HandlerConfig<R>>,
+    handler_config: Arc<HandlerConfig>,
     epoll_queue_max_events: usize,
 }
 
@@ -47,16 +46,13 @@ pub enum PreRoutingAction {
     Drop,
 }
 
-impl Server<Router<Box<RouteFn>>> {
+impl Server {
     pub fn builder<A: ToSocketAddrs>(addr: A) -> io::Result<ServerBuilder> {
         ServerBuilder::new(addr)
     }
 }
 
-impl<R> Server<R>
-where
-    R: HttpRouter<Route = Box<RouteFn>> + Send + Sync + 'static,
-{
+impl Server {
     pub fn bind_addrs(&self) -> &Vec<SocketAddr> {
         &self.bind_addrs
     }
@@ -66,16 +62,16 @@ where
     }
 
     pub fn serve(self) -> io::Result<()> {
-        struct PoolJob<R>(TcpStream, Arc<HandlerConfig<R>>);
+        struct PoolJob(TcpStream, Arc<HandlerConfig>);
 
-        impl<R: HttpRouter<Route = Box<RouteFn>> + Send + Sync + 'static> Task for PoolJob<R> {
+        impl Task for PoolJob {
             #[inline]
             fn run(self) {
                 let _ = handle_connection(self.0, self.1);
             }
         }
         let listener = TcpListener::bind(&*self.bind_addrs)?;
-        let pool: ThreadPool<PoolJob<R>> = ThreadPool::new(self.thread_count);
+        let pool: ThreadPool<PoolJob> = ThreadPool::new(self.thread_count);
 
         for stream in listener.incoming() {
             let stream = match &self.stream_setup_hook {
@@ -220,10 +216,7 @@ impl ConnectionMeta {
     }
 }
 
-fn handle_connection<R>(mut stream: TcpStream, config: Arc<HandlerConfig<R>>) -> io::Result<()>
-where
-    R: HttpRouter<Route = Box<RouteFn>>,
-{
+fn handle_connection(mut stream: TcpStream, config: Arc<HandlerConfig>) -> io::Result<()> {
     let mut conn_meta = ConnectionMeta::new();
     let write_stream = stream.try_clone()?;
     let mut response = ResponseHandle {
@@ -252,8 +245,8 @@ fn read_request<'a>(
     stream: &mut TcpStream,
     max_size: usize,
 ) -> Result<(&'a [u8], Request<'a>), ReadRequestError> {
-    use ReadRequestError::*;
     use std::slice::{from_raw_parts, from_raw_parts_mut};
+    use ReadRequestError::*;
 
     REQUEST_BUFFER.with(|cell| {
         let mut vec = cell.borrow_mut();
@@ -300,15 +293,12 @@ enum ReadRequestError {
 }
 
 /// Returns "keep-alive" (whether to keep the connection alive for the next request).
-fn handle_one_request<R>(
+fn handle_one_request(
     read_stream: &mut TcpStream,
     response: &mut ResponseHandle,
-    config: &HandlerConfig<R>,
+    config: &HandlerConfig,
     connection_meta: &ConnectionMeta,
-) -> io::Result<bool>
-where
-    R: HttpRouter<Route = Box<RouteFn>>,
-{
+) -> io::Result<bool> {
     let (buf, mut request) = match read_request(read_stream, config.max_request_head) {
         Ok((buf, req)) => (buf, req),
         Err(ReadRequestError::InvalidRequestHead) => {

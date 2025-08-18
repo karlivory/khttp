@@ -1,11 +1,6 @@
 use crate::Method;
 use std::{array::from_fn, cmp::max, collections::HashMap};
 
-pub trait HttpRouter {
-    type Route;
-    fn match_route<'a, 'r>(&'a self, method: &Method, path: &'r str) -> Match<'a, 'r, Self::Route>;
-}
-
 pub struct RouterBuilder<T> {
     methods: [MethodBucket<T>; 8],
     extensions: HashMap<String, MethodBucket<T>>,
@@ -161,14 +156,8 @@ impl<T> RouterBuilder<T> {
     }
 }
 
-impl<T> HttpRouter for Router<T> {
-    type Route = T;
-
-    fn match_route<'a, 'r>(
-        &'a self,
-        method: &Method,
-        mut uri: &'r str,
-    ) -> Match<'a, 'r, Self::Route> {
+impl<T> Router<T> {
+    pub fn match_route<'a, 'r>(&'a self, method: &Method, mut uri: &'r str) -> Match<'a, 'r, T> {
         if uri.starts_with('/') {
             uri = &uri[1..]; // normalize: strip leading slash
         }
