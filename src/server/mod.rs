@@ -91,6 +91,30 @@ impl Server {
         Ok(())
     }
 
+    pub fn serve_threaded(self) -> io::Result<()> {
+        let listener = TcpListener::bind(&*self.bind_addrs)?;
+
+        for stream in listener.incoming() {
+            let stream = match &self.stream_setup_hook {
+                Some(hook) => match (hook)(stream) {
+                    StreamSetupAction::Proceed(s) => s,
+                    StreamSetupAction::Drop => continue,
+                    StreamSetupAction::StopAccepting => break,
+                },
+                None => match stream {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                },
+            };
+            let config = Arc::clone(&self.handler_config);
+
+            std::thread::spawn(|| {
+                let _ = handle_connection(stream, config);
+            });
+        }
+        Ok(())
+    }
+
     pub fn handle(&self, stream: TcpStream) -> io::Result<()> {
         handle_connection(stream, self.handler_config.clone())
     }
