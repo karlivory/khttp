@@ -89,10 +89,6 @@ See other [examples](./examples) for:
 * [`reverse_proxy.rs`](./examples/reverse_proxy.rs): simple reverse proxy using server & client,
 * [`framework.rs`](./examples/framework.rs): middleware and DI by extending ServerBuilder.
 
-## Benchmarks
-
-See [benchmarks.md](./benchmarks.md).
-
 ## License
 
 [MIT](LICENSE).
