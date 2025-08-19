@@ -23,10 +23,27 @@ impl<'a> RequestUri<'a> {
     }
 
     pub fn authority(&self) -> Option<&str> {
-        let rest = self.full.strip_prefix(&format!("{}://", self.scheme()?))?;
-        match rest.find(['/', '?']) {
-            Some(idx) => Some(&rest[..idx]),
-            None => Some(rest),
+        if let Some(scheme_i) = self.full.find("://") {
+            // absolute-form, e.g. https://example.com[:port][/path][?query]
+            let start = scheme_i + 3;
+            if self.path_i_start == 0 {
+                let rest = &self.full[start..];
+                match rest.find('?') {
+                    Some(i) => Some(&rest[..i]),
+                    None => Some(rest),
+                }
+            } else {
+                Some(&self.full[start..self.path_i_start])
+            }
+        } else if self.full.starts_with('/') {
+            // origin-form: no authority
+            None
+        } else {
+            // authority-form (CONNECT), e.g. example.com[:port]
+            match self.full.find(['/', '?']) {
+                Some(i) => Some(&self.full[..i]),
+                None => Some(self.full),
+            }
         }
     }
 
@@ -35,11 +52,27 @@ impl<'a> RequestUri<'a> {
     }
 
     pub fn path_and_query(&self) -> &str {
-        &self.full[self.path_i_start..]
+        if self.path_i_end != 0 {
+            &self.full[self.path_i_start..]
+        } else {
+            if let Some(scheme_i) = self.full.find("://") {
+                if let Some(rel_q) = self.full[scheme_i + 3..].find('?') {
+                    return &self.full[scheme_i + 3 + rel_q..];
+                }
+            }
+            ""
+        }
     }
 
     pub fn query(&self) -> Option<&str> {
-        let qmark_idx = self.full.find('?')?;
-        Some(&self.full[qmark_idx + 1..self.full.len()])
+        let path_start = &self.full[self.path_i_end..];
+        let qmark_i = path_start.find('?')?;
+        Some(&path_start[qmark_i + 1..])
+    }
+}
+
+impl std::fmt::Display for RequestUri<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.full)
     }
 }
