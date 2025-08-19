@@ -95,8 +95,7 @@ impl ClientRequestTcpStream {
         headers: &Headers,
         body: impl Read,
     ) -> Result<(), ClientError> {
-        HttpPrinter::new(&self.stream)
-            .write_request(method, uri, headers, body)
+        HttpPrinter::write_request(&mut self.stream, method, uri, headers, body)
             .map_err(ClientError::WriteFailure)?;
         Ok(())
     }

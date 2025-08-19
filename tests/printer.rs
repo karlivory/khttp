@@ -63,9 +63,7 @@ fn test_large_response_cl_no_auto_te() {
 fn test_100_continue() {
     let mut w = MockWriter::new();
     {
-        let mut printer = HttpPrinter::new(&mut w);
-        printer.write_100_continue().unwrap();
-        printer.flush().unwrap();
+        HttpPrinter::write_100_continue(&mut w).expect("should print");
     }
 
     assert_eq!(w.as_str(), "HTTP/1.1 100 Continue\r\n\r\n");
@@ -111,9 +109,7 @@ fn test_write_response0() {
     headers.add("foo", b"bar");
     let mut w = MockWriter::new();
     {
-        let mut printer = HttpPrinter::new(&mut w);
-        printer.write_response0(&Status::OK, &headers).unwrap();
-        printer.flush().unwrap();
+        HttpPrinter::write_response0(&mut w, &Status::OK, &headers).unwrap();
     }
     assert_eq!(
         w.as_str(),
@@ -148,11 +144,7 @@ fn assert_print_request(
 fn capture_request(method: khttp::Method, uri: &str, headers: &Headers, body: impl Read) -> String {
     let mut w = MockWriter::new();
     {
-        let mut printer = HttpPrinter::new(&mut w);
-        printer
-            .write_request(&method, uri, headers, body)
-            .expect("should print");
-        printer.flush().unwrap();
+        HttpPrinter::write_request(&mut w, &method, uri, headers, body).expect("should print");
     }
     w.into_string()
 }
@@ -160,9 +152,7 @@ fn capture_request(method: khttp::Method, uri: &str, headers: &Headers, body: im
 fn capture_response(status: Status, headers: Headers, body: impl Read) -> String {
     let mut w = MockWriter::new();
     {
-        let mut printer = HttpPrinter::new(&mut w);
-        printer.write_response(&status, &headers, body).unwrap();
-        printer.flush().unwrap();
+        HttpPrinter::write_response(&mut w, &status, &headers, body).unwrap();
     }
     w.into_string()
 }

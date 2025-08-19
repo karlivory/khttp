@@ -145,18 +145,18 @@ impl ResponseHandle {
         if headers.is_connection_close() {
             self.keep_alive = false;
         }
-        HttpPrinter::new(&mut self.stream).write_response(status, headers, body)
+        HttpPrinter::write_response(&mut self.stream, status, headers, body)
     }
 
     pub fn send0(&mut self, status: &Status, headers: &Headers) -> io::Result<()> {
         if headers.is_connection_close() {
             self.keep_alive = false;
         }
-        HttpPrinter::new(&mut self.stream).write_response0(status, headers)
+        HttpPrinter::write_response0(&mut self.stream, status, headers)
     }
 
     pub fn send_100_continue(&mut self) -> io::Result<()> {
-        HttpPrinter::new(&mut self.stream).write_100_continue()
+        HttpPrinter::write_100_continue(&mut self.stream)
     }
 
     pub fn get_stream(&mut self) -> &TcpStream {

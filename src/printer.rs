@@ -7,24 +7,17 @@ use std::{
 const CRLF: &[u8] = b"\r\n";
 const PROBE_MAX: usize = 8 * 1024;
 const RESPONSE_100_CONTINUE: &[u8] = b"HTTP/1.1 100 Continue\r\n\r\n";
+const RESPONSE_HEAD_BUF_INIT_CAP: usize = 512;
 
-pub struct HttpPrinter<W: Write> {
-    writer: BufWriter<W>,
-}
+pub struct HttpPrinter;
 
-impl<W: Write> HttpPrinter<W> {
-    pub fn new(stream: W) -> Self {
-        Self {
-            writer: BufWriter::new(stream),
-        }
-    }
-
-    pub fn flush(&mut self) -> io::Result<()> {
-        self.writer.flush()
-    }
-
-    pub fn write_response0(&mut self, status: &Status, headers: &Headers) -> io::Result<()> {
-        let mut head = get_head_vector(headers.get_count());
+impl HttpPrinter {
+    pub fn write_response0<W: Write>(
+        mut writer: W,
+        status: &Status,
+        headers: &Headers,
+    ) -> io::Result<()> {
+        let mut head = Vec::with_capacity(RESPONSE_HEAD_BUF_INIT_CAP);
 
         // status line
         head.extend_from_slice(b"HTTP/1.1 ");
@@ -45,100 +38,85 @@ impl<W: Write> HttpPrinter<W> {
         }
         head.extend_from_slice(b"content-length: 0\r\n\r\n");
 
-        self.writer.write_all(&head)?;
-        self.flush()
+        writer.write_all(&head)
     }
 
-    pub fn write_response<R: Read>(
-        &mut self,
+    pub fn write_response<W: Write, R: Read>(
+        mut writer: W,
         status: &Status,
         headers: &Headers,
         body: R,
     ) -> io::Result<()> {
         let strat = decide_body_strategy(headers, body)?;
-        let head = build_response_head(status, headers, &strat);
-        self.writer.write_all(&head)?;
-        self.dispatch(strat)?;
-        self.flush()
+        let mut head = build_response_head(status, headers, &strat);
+
+        match strat {
+            BodyStrategy::Fast(buf, _) => {
+                head.reserve(buf.len());
+                head.extend_from_slice(&buf);
+                writer.write_all(&head)
+            }
+            BodyStrategy::Streaming(reader, _) => {
+                let mut bw = BufWriter::new(writer);
+                bw.write_all(&head)?;
+                write_streaming(&mut bw, reader)
+            }
+            BodyStrategy::Chunked { reader } => {
+                let mut bw = BufWriter::new(writer);
+                bw.write_all(&head)?;
+                write_chunked(bw, reader)
+            }
+            BodyStrategy::AutoChunked { prefix, reader } => {
+                let mut bw = BufWriter::new(writer);
+                bw.write_all(&head)?;
+                write_chunk(&mut bw, &prefix)?;
+                write_chunked(bw, reader)
+            }
+        }
     }
 
     #[cfg(feature = "client")]
-    pub fn write_request<R: Read>(
-        &mut self,
+    pub fn write_request<W: Write, R: Read>(
+        mut writer: W,
         method: &crate::Method,
         uri: &str,
         headers: &Headers,
-        body: R,
+        mut body: R,
     ) -> io::Result<()> {
-        let strat = decide_body_strategy(headers, body)?;
-        let head = build_request_head(method, uri, headers, &strat);
-        self.writer.write_all(&head)?;
-        self.dispatch(strat)?;
-        self.flush()
-    }
+        let strat = decide_body_strategy(headers, &mut body)?;
+        let mut head = build_request_head(method, uri, headers, &strat);
 
-    #[inline]
-    pub fn write_100_continue(&mut self) -> io::Result<()> {
-        self.writer.write_all(RESPONSE_100_CONTINUE)?;
-        self.writer.flush()
-    }
-
-    #[inline]
-    fn write_fast(&mut self, body: &[u8]) -> io::Result<()> {
-        self.writer.write_all(body)
-    }
-
-    #[inline]
-    fn write_streaming<R: Read>(&mut self, mut body: R) -> io::Result<()> {
-        std::io::copy(&mut body, &mut self.writer).map(|_| ())
-    }
-
-    #[inline]
-    fn write_chunked<R: Read>(&mut self, mut body: R) -> io::Result<()> {
-        // TODO: fine-tune the buffer size
-        let mut buf: [MaybeUninit<u8>; 128 * 1024] = unsafe { MaybeUninit::uninit().assume_init() };
-
-        loop {
-            let n = {
-                let dst: &mut [u8] = unsafe {
-                    std::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut u8, buf.len())
-                };
-                body.read(dst)?
-            };
-
-            if n == 0 {
-                break;
-            }
-
-            // SAFETY: The first 'n' bytes were just written by 'read', so they are initialized.
-            let init_slice: &[u8] =
-                unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, n) };
-
-            self.write_chunk(init_slice)?;
-        }
-
-        // terminating chunk
-        self.writer.write_all(b"0\r\n\r\n")
-    }
-
-    #[inline]
-    fn write_chunk(&mut self, bytes: &[u8]) -> io::Result<()> {
-        write!(&mut self.writer, "{:X}\r\n", bytes.len())?;
-        self.writer.write_all(bytes)?;
-        self.writer.write_all(CRLF)
-    }
-
-    #[inline]
-    fn dispatch<R: Read>(&mut self, strat: BodyStrategy<R>) -> io::Result<()> {
         match strat {
-            BodyStrategy::Fast(buf, _) => self.write_fast(&buf),
-            BodyStrategy::Streaming(reader, _) => self.write_streaming(reader),
-            BodyStrategy::Chunked { reader } => self.write_chunked(reader),
+            BodyStrategy::Fast(buf, _) => {
+                head.reserve(buf.len());
+                head.extend_from_slice(&buf);
+                writer.write_all(&head)
+            }
+            BodyStrategy::Streaming(reader, _) => {
+                writer.write_all(&head)?;
+                let mut bw = BufWriter::new(writer);
+                write_streaming(&mut bw, reader)?;
+                bw.flush()
+            }
+            BodyStrategy::Chunked { reader } => {
+                writer.write_all(&head)?;
+                let mut bw = BufWriter::new(writer);
+                write_chunked(&mut bw, reader)?;
+                bw.flush()
+            }
             BodyStrategy::AutoChunked { prefix, reader } => {
-                self.write_chunk(&prefix)?;
-                self.write_chunked(reader)
+                writer.write_all(&head)?;
+                let mut bw = BufWriter::new(writer);
+                write_chunk(&mut bw, &prefix)?;
+                write_chunked(&mut bw, reader)?;
+                bw.flush()
             }
         }
+    }
+
+    #[inline]
+    pub fn write_100_continue<W: Write>(mut writer: W) -> io::Result<()> {
+        writer.write_all(RESPONSE_100_CONTINUE)
     }
 }
 
@@ -153,13 +131,12 @@ enum BodyStrategy<R: Read> {
     AutoChunked { prefix: Vec<u8>, reader: R },
 }
 
+#[inline]
 fn decide_body_strategy<R: Read>(headers: &Headers, mut body: R) -> io::Result<BodyStrategy<R>> {
-    // TE: chunked explicitly requested
     if headers.is_transfer_encoding_chunked() {
         return Ok(BodyStrategy::Chunked { reader: body });
     }
 
-    // Caller provided CL
     if let Some(cl) = headers.get_content_length() {
         const FAST_LIMIT: u64 = PROBE_MAX as u64;
         if cl <= FAST_LIMIT {
@@ -172,7 +149,6 @@ fn decide_body_strategy<R: Read>(headers: &Headers, mut body: R) -> io::Result<B
         }
     }
 
-    // No CL, no TE -> probe
     let (prefix, complete) = probe_body(&mut body, PROBE_MAX)?;
     if complete {
         let cl = prefix.len();
@@ -189,29 +165,21 @@ fn decide_body_strategy<R: Read>(headers: &Headers, mut body: R) -> io::Result<B
 // HEAD CONSTRUCTION
 // -------------------------------------------------------------------------
 
-#[inline(always)]
-fn get_head_vector(header_count: usize) -> Vec<u8> {
-    // rough guess: 64 bytes status + 40 bytes per header
-    Vec::with_capacity(64 + header_count * 40)
-}
-
+#[inline]
 fn build_response_head<R: Read>(
     status: &Status,
     headers: &Headers,
     strat: &BodyStrategy<R>,
 ) -> Vec<u8> {
-    let mut head = get_head_vector(headers.get_count());
+    let mut head = Vec::with_capacity(RESPONSE_HEAD_BUF_INIT_CAP);
 
-    // status line
     head.extend_from_slice(b"HTTP/1.1 ");
     head.extend_from_slice(&u16_to_ascii(status.code));
     head.extend_from_slice(status.reason.as_bytes());
     head.extend_from_slice(CRLF);
 
-    // headers
     add_headers(&mut head, headers, strat);
 
-    // finalize
     head.extend_from_slice(CRLF);
     head
 }
@@ -223,19 +191,16 @@ fn build_request_head<R: Read>(
     headers: &Headers,
     strat: &BodyStrategy<R>,
 ) -> Vec<u8> {
-    let mut head = get_head_vector(headers.get_count());
+    let mut head = Vec::with_capacity(RESPONSE_HEAD_BUF_INIT_CAP);
 
-    // request line
     head.extend_from_slice(method.as_str().as_bytes());
     head.extend_from_slice(b" ");
     head.extend_from_slice(uri.as_bytes());
     head.extend_from_slice(b" ");
     head.extend_from_slice(b"HTTP/1.1\r\n");
 
-    // headers
     add_headers(&mut head, headers, strat);
 
-    // finalize
     head.extend_from_slice(CRLF);
     head
 }
@@ -264,15 +229,10 @@ fn add_headers<R: Read>(buf: &mut Vec<u8>, headers: &Headers, strat: &BodyStrate
         let date_buf = crate::date::get_date_now();
         buf.extend_from_slice(&date_buf);
     }
-    // // set framing headers ("Transfer-Encoding" OR "Content-Length")
     match strat {
-        BodyStrategy::Fast(_, cl) => {
-            add_content_length_header(buf, *cl);
-        }
-        BodyStrategy::Streaming(_, cl) => {
-            add_content_length_header(buf, *cl);
-        }
-        BodyStrategy::Chunked { .. } => {} // NOP
+        BodyStrategy::Fast(_, cl) => add_content_length_header(buf, *cl),
+        BodyStrategy::Streaming(_, cl) => add_content_length_header(buf, *cl),
+        BodyStrategy::Chunked { .. } => { /* NOP (caller requested TE:chunked) */ }
         BodyStrategy::AutoChunked { .. } => {
             debug_assert!(!headers.is_transfer_encoding_chunked());
             buf.extend_from_slice(TRANSFER_ENCODING_HEADER_CHUNKED);
@@ -344,4 +304,42 @@ fn probe_body<R: Read>(src: &mut R, max: usize) -> io::Result<(Vec<u8>, bool)> {
     }
 
     Ok((collected, false))
+}
+
+#[inline]
+fn write_streaming<W: Write, R: Read>(writer: &mut W, mut body: R) -> io::Result<()> {
+    std::io::copy(&mut body, writer).map(|_| ())
+}
+
+#[inline]
+fn write_chunk<W: Write>(writer: &mut W, bytes: &[u8]) -> io::Result<()> {
+    write!(writer, "{:X}\r\n", bytes.len())?;
+    writer.write_all(bytes)?;
+    writer.write_all(CRLF)
+}
+
+#[inline]
+fn write_chunked<W: Write, R: Read>(mut writer: W, mut body: R) -> io::Result<()> {
+    // TODO: fine-tune the buffer size
+    let mut buf: [MaybeUninit<u8>; 128 * 1024] = unsafe { MaybeUninit::uninit().assume_init() };
+
+    loop {
+        let n = {
+            let dst: &mut [u8] =
+                unsafe { std::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut u8, buf.len()) };
+            body.read(dst)?
+        };
+
+        if n == 0 {
+            break;
+        }
+
+        // SAFETY: The first `n` bytes were just written by `read`, so they are initialized.
+        let init_slice: &[u8] = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, n) };
+
+        write_chunk(&mut writer, init_slice)?;
+    }
+
+    // terminating chunk
+    writer.write_all(b"0\r\n\r\n")
 }
