@@ -4,7 +4,7 @@
 
 * Keeping things simple
 * Low memory footprint
-* Low overhead / high performance
+* Low overhead / high performance (see: [benchmarks.md](./benchmarks.md))
 * Minimal dependencies (`libc`, `memchr`)
 
 ## Features:
@@ -88,6 +88,10 @@ See other [examples](./examples) for:
 * [`static_file_server.rs`](./examples/static_file_server.rs): serving static files (a la `python -m http.server`),
 * [`reverse_proxy.rs`](./examples/reverse_proxy.rs): simple reverse proxy using server & client,
 * [`framework.rs`](./examples/framework.rs): middleware and DI by extending ServerBuilder.
+
+## Benchmarks
+
+See [benchmarks.md](./benchmarks.md).
 
 ## License
 
