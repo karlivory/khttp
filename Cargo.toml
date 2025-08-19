@@ -10,7 +10,7 @@ authors = ["karlivory"]
 homepage = "https://github.com/karlivory/khttp"
 repository = "https://github.com/karlivory/khttp"
 readme = "README.md"
-exclude = ["tests/**", "examples/**", ".github/**", ".vscode/**"]
+exclude = ["tests/**", "examples/**", ".github/**", ".vscode/**", "benchmarks"]
 
 [dependencies]
 memchr = "2.7.5"
@@ -29,7 +29,7 @@ version = "0.2.174"
 optional = true
 
 [workspace]
-members = [".", "examples/*"]
+members = [".", "examples/*", "benchmarks"]
 
 [[example]]
 name = "reverse_proxy"
