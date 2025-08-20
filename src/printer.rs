@@ -41,6 +41,42 @@ impl HttpPrinter {
         writer.write_all(&head)
     }
 
+    pub fn write_response_bytes<W: Write>(
+        mut writer: W,
+        status: &Status,
+        headers: &Headers,
+        body: &[u8],
+    ) -> io::Result<()> {
+        let mut head = Vec::with_capacity(RESPONSE_HEAD_BUF_INIT_CAP);
+
+        // status line
+        head.extend_from_slice(b"HTTP/1.1 ");
+        head.extend_from_slice(&u16_to_ascii(status.code));
+        head.extend_from_slice(status.reason.as_bytes());
+        head.extend_from_slice(CRLF);
+
+        // headers
+        for (name, value) in headers.iter() {
+            head.extend_from_slice(name.as_bytes());
+            head.extend_from_slice(b": ");
+            head.extend_from_slice(value);
+            head.extend_from_slice(CRLF);
+        }
+        if headers.is_with_date_header() {
+            let date_buf = crate::date::get_date_now();
+            head.extend_from_slice(&date_buf);
+        }
+        let cl = body.len();
+        add_content_length_header(&mut head, cl as u64);
+        head.extend_from_slice(CRLF);
+
+        // body
+        head.reserve(cl);
+        head.extend_from_slice(body);
+
+        writer.write_all(&head)
+    }
+
     pub fn write_response<W: Write, R: Read>(
         mut writer: W,
         status: &Status,

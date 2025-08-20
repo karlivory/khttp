@@ -155,6 +155,18 @@ impl ResponseHandle {
         HttpPrinter::write_response0(&mut self.stream, status, headers)
     }
 
+    pub fn send_bytes(
+        &mut self,
+        status: &Status,
+        headers: &Headers,
+        body: &[u8],
+    ) -> io::Result<()> {
+        if headers.is_connection_close() {
+            self.keep_alive = false;
+        }
+        HttpPrinter::write_response_bytes(&mut self.stream, status, headers, body)
+    }
+
     pub fn send_100_continue(&mut self) -> io::Result<()> {
         HttpPrinter::write_100_continue(&mut self.stream)
     }
