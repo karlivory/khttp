@@ -1,11 +1,12 @@
 use crate::{Headers, Status};
 use std::{
-    io::{self, BufWriter, Read, Write},
+    io::{self, BufWriter, IoSlice, Read, Write},
     mem::MaybeUninit,
 };
 
 const CRLF: &[u8] = b"\r\n";
 const PROBE_MAX: usize = 8 * 1024;
+const INLINE_COPY_MAX: usize = 2 * 1024;
 const RESPONSE_100_CONTINUE: &[u8] = b"HTTP/1.1 100 Continue\r\n\r\n";
 const RESPONSE_HEAD_BUF_INIT_CAP: usize = 512;
 
@@ -42,7 +43,7 @@ impl HttpPrinter {
     }
 
     pub fn write_response_bytes<W: Write>(
-        mut writer: W,
+        writer: W,
         status: &Status,
         headers: &Headers,
         body: &[u8],
@@ -66,32 +67,24 @@ impl HttpPrinter {
             let date_buf = crate::date::get_date_now();
             head.extend_from_slice(&date_buf);
         }
-        let cl = body.len();
-        add_content_length_header(&mut head, cl as u64);
+        add_content_length_header(&mut head, body.len() as u64);
         head.extend_from_slice(CRLF);
 
         // body
-        head.reserve(cl);
-        head.extend_from_slice(body);
-
-        writer.write_all(&head)
+        write_vectored_bytes(writer, head, body)
     }
 
     pub fn write_response<W: Write, R: Read>(
-        mut writer: W,
+        writer: W,
         status: &Status,
         headers: &Headers,
         body: R,
     ) -> io::Result<()> {
         let strat = decide_body_strategy(headers, body)?;
-        let mut head = build_response_head(status, headers, &strat);
+        let head = build_response_head(status, headers, &strat);
 
         match strat {
-            BodyStrategy::Fast(buf, _) => {
-                head.reserve(buf.len());
-                head.extend_from_slice(&buf);
-                writer.write_all(&head)
-            }
+            BodyStrategy::Fast(buf, _) => write_vectored_bytes(writer, head, &buf),
             BodyStrategy::Streaming(reader, _) => {
                 let mut bw = BufWriter::new(writer);
                 bw.write_all(&head)?;
@@ -113,39 +106,32 @@ impl HttpPrinter {
 
     #[cfg(feature = "client")]
     pub fn write_request<W: Write, R: Read>(
-        mut writer: W,
+        writer: W,
         method: &crate::Method,
         uri: &str,
         headers: &Headers,
         mut body: R,
     ) -> io::Result<()> {
         let strat = decide_body_strategy(headers, &mut body)?;
-        let mut head = build_request_head(method, uri, headers, &strat);
+        let head = build_request_head(method, uri, headers, &strat);
 
         match strat {
-            BodyStrategy::Fast(buf, _) => {
-                head.reserve(buf.len());
-                head.extend_from_slice(&buf);
-                writer.write_all(&head)
-            }
+            BodyStrategy::Fast(buf, _) => write_vectored_bytes(writer, head, &buf),
             BodyStrategy::Streaming(reader, _) => {
-                writer.write_all(&head)?;
                 let mut bw = BufWriter::new(writer);
-                write_streaming(&mut bw, reader)?;
-                bw.flush()
+                bw.write_all(&head)?;
+                write_streaming(&mut bw, reader)
             }
             BodyStrategy::Chunked { reader } => {
-                writer.write_all(&head)?;
                 let mut bw = BufWriter::new(writer);
-                write_chunked(&mut bw, reader)?;
-                bw.flush()
+                bw.write_all(&head)?;
+                write_chunked(bw, reader)
             }
             BodyStrategy::AutoChunked { prefix, reader } => {
-                writer.write_all(&head)?;
                 let mut bw = BufWriter::new(writer);
+                bw.write_all(&head)?;
                 write_chunk(&mut bw, &prefix)?;
-                write_chunked(&mut bw, reader)?;
-                bw.flush()
+                write_chunked(bw, reader)
             }
         }
     }
@@ -340,6 +326,25 @@ fn probe_body<R: Read>(src: &mut R, max: usize) -> io::Result<(Vec<u8>, bool)> {
     }
 
     Ok((collected, false))
+}
+
+#[inline]
+fn write_vectored_bytes<W: Write>(mut writer: W, mut head: Vec<u8>, body: &[u8]) -> io::Result<()> {
+    // for smaller bodies, it's faster to just copy + write_all
+    if body.len() < INLINE_COPY_MAX {
+        head.reserve(body.len());
+        head.extend_from_slice(body);
+        return writer.write_all(&head);
+    }
+    let iov = [IoSlice::new(&head), IoSlice::new(body)];
+    let n = writer.write_vectored(&iov)?;
+    if n < head.len() {
+        writer.write_all(&head[n..])?;
+        writer.write_all(body)
+    } else {
+        let offset = n - head.len();
+        writer.write_all(&body[offset..])
+    }
 }
 
 #[inline]
