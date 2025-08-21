@@ -133,38 +133,47 @@ impl ResponseHandle {
         }
     }
 
-    pub fn ok<R: Read>(&mut self, headers: &Headers, body: R) -> io::Result<()> {
+    pub fn ok<B: AsRef<[u8]>>(&mut self, headers: &Headers, body: B) -> io::Result<()> {
         self.send(&Status::OK, headers, body)
+    }
+
+    pub fn send<B: AsRef<[u8]>>(
+        &mut self,
+        status: &Status,
+        headers: &Headers,
+        body: B,
+    ) -> io::Result<()> {
+        if headers.is_connection_close() {
+            self.keep_alive = false;
+        }
+        HttpPrinter::write_response_bytes(&mut self.stream, status, headers, body.as_ref())
     }
 
     pub fn ok0(&mut self, headers: &Headers) -> io::Result<()> {
         self.send0(&Status::OK, headers)
     }
 
-    pub fn send<R: Read>(&mut self, status: &Status, headers: &Headers, body: R) -> io::Result<()> {
-        if headers.is_connection_close() {
-            self.keep_alive = false;
-        }
-        HttpPrinter::write_response(&mut self.stream, status, headers, body)
-    }
-
     pub fn send0(&mut self, status: &Status, headers: &Headers) -> io::Result<()> {
         if headers.is_connection_close() {
             self.keep_alive = false;
         }
-        HttpPrinter::write_response0(&mut self.stream, status, headers)
+        HttpPrinter::write_response_empty(&mut self.stream, status, headers)
     }
 
-    pub fn send_bytes(
+    pub fn okr<R: Read>(&mut self, headers: &Headers, body: R) -> io::Result<()> {
+        self.sendr(&Status::OK, headers, body)
+    }
+
+    pub fn sendr<R: Read>(
         &mut self,
         status: &Status,
         headers: &Headers,
-        body: &[u8],
+        body: R,
     ) -> io::Result<()> {
         if headers.is_connection_close() {
             self.keep_alive = false;
         }
-        HttpPrinter::write_response_bytes(&mut self.stream, status, headers, body)
+        HttpPrinter::write_response(&mut self.stream, status, headers, body)
     }
 
     pub fn send_100_continue(&mut self) -> io::Result<()> {
@@ -335,11 +344,11 @@ fn handle_one_request(
     let (buf, mut request) = match read_request(read_stream, config.max_request_head) {
         Ok((buf, req)) => (buf, req),
         Err(ReadRequestError::InvalidRequestHead) => {
-            response.send(&Status::BAD_REQUEST, Headers::close(), std::io::empty())?;
+            response.send0(&Status::BAD_REQUEST, Headers::close())?;
             return Ok(false);
         }
         Err(ReadRequestError::RequestHeadTooLarge) => {
-            response.send(&Status::of(431), Headers::close(), std::io::empty())?;
+            response.send0(&Status::of(431), Headers::close())?;
             return Ok(false);
         }
         Err(_) => return Ok(false), // silently drop connection on eof / io-error

@@ -13,7 +13,7 @@ const RESPONSE_HEAD_BUF_INIT_CAP: usize = 512;
 pub struct HttpPrinter;
 
 impl HttpPrinter {
-    pub fn write_response0<W: Write>(
+    pub fn write_response_empty<W: Write>(
         mut writer: W,
         status: &Status,
         headers: &Headers,

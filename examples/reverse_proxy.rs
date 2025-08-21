@@ -31,12 +31,12 @@ fn proxy(
         Ok(r) => r,
         Err(e) => {
             eprintln!("{}", e);
-            return res.send(&Status::SERVICE_UNAVAILABLE, Headers::empty(), &[][..]);
+            return res.sendr(&Status::SERVICE_UNAVAILABLE, Headers::empty(), &[][..]);
         }
     };
 
     let (status, headers, response_body) = response.into_parts();
-    res.send(&status, &headers, response_body)
+    res.sendr(&status, &headers, response_body)
 }
 
 fn exit(message: &str) -> ! {

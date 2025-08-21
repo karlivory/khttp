@@ -28,7 +28,7 @@ fn main() {
 
     app.get("/health")
         .with(&base_layer)
-        .handle(|_, r| r.ok(Headers::empty(), &b"ok"[..]));
+        .handle(|_, r| r.ok(Headers::empty(), b"ok"));
 
     app.get("/api/user/:id")
         .with(&base_layer)
@@ -44,7 +44,7 @@ fn main() {
                 Some(id) => id,
                 None => {
                     log.warn("Invalid user id");
-                    return res.send(&Status::BAD_REQUEST, Headers::empty(), "bad id".as_bytes());
+                    return res.send(&Status::BAD_REQUEST, Headers::empty(), b"bad id");
                 }
             };
 
@@ -240,7 +240,7 @@ mod middlewares {
                     if let Some(log) = ctx.get::<Arc<Logger>>() {
                         log.warn("blocked unauthorized request");
                     }
-                    res.send(&Status::of(401), Headers::empty(), &b"unauthorized"[..])
+                    res.send(&Status::of(401), Headers::empty(), b"unauthorized")
                 }
             })
         }
@@ -285,7 +285,7 @@ mod middlewares {
                     };
 
                     eprintln!("[panic] handler panicked: {msg}");
-                    res.send(&Status::of(500), Headers::empty(), &b"internal error"[..])
+                    res.send(&Status::of(500), Headers::empty(), b"internal error")
                 } else {
                     Ok(())
                 }
@@ -294,15 +294,15 @@ mod middlewares {
     }
 }
 
-fn trailing_slash_redirect()
--> impl Fn(&mut Request<'_>, &mut ResponseHandle, &ConnectionMeta) -> PreRoutingAction {
+fn trailing_slash_redirect(
+) -> impl Fn(&mut Request<'_>, &mut ResponseHandle, &ConnectionMeta) -> PreRoutingAction {
     move |request, response, _| {
         let original_path = request.uri.path();
         if original_path != "/" && original_path.ends_with('/') {
             let trimmed = original_path.trim_end_matches('/');
             let mut headers = Headers::new();
             headers.replace("Location", trimmed.as_bytes());
-            let _ = response.send(&Status::of(301), &headers, &[][..]);
+            let _ = response.send0(&Status::of(301), &headers);
             return PreRoutingAction::Drop;
         }
         PreRoutingAction::Proceed

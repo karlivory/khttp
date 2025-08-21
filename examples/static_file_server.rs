@@ -34,7 +34,7 @@ fn serve_static_file(dir: &str, ctx: RequestContext, res: &mut ResponseHandle) -
     let full_path = match sanitize_path(dir, path) {
         Some(p) => p,
         None => {
-            return res.send(&Status::NOT_FOUND, Headers::empty(), &b"404 Not Found"[..]);
+            return res.send(&Status::NOT_FOUND, Headers::empty(), b"404 Not Found");
         }
     };
 
@@ -62,13 +62,13 @@ fn serve_file(path: &Path, res: &mut ResponseHandle) -> io::Result<()> {
                     Status::INTERNAL_SERVER_ERROR
                 }
             };
-            return res.send(&status, Headers::empty(), &b"error"[..]);
+            return res.send(&status, Headers::empty(), b"error");
         }
     };
 
     let mut headers = Headers::new();
     headers.add(Headers::CONTENT_TYPE, get_mime(path).as_bytes());
-    res.ok(&headers, io::BufReader::new(file))
+    res.okr(&headers, io::BufReader::new(file))
 }
 
 fn serve_directory_listing(
@@ -128,7 +128,7 @@ fn serve_directory_listing(
     let mut headers = Headers::new();
     headers.add(Headers::CONTENT_TYPE, b"text/html; charset=utf-8");
 
-    res.ok(&headers, html.as_bytes())
+    res.okr(&headers, html.as_bytes())
 }
 
 /// Prevent directory traversal

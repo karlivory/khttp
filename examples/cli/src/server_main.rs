@@ -20,7 +20,7 @@ fn run_echo_server(config: ServerConfig) {
     app.route(
         Method::Post,
         "/**",
-        recover(|mut ctx, res| res.ok(&ctx.headers.clone(), ctx.body())),
+        recover(|mut ctx, res| res.okr(&ctx.headers.clone(), ctx.body())),
     );
     app.build().serve().unwrap();
 }

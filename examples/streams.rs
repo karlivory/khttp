@@ -19,25 +19,27 @@ fn main() {
     let mut app = Server::builder("127.0.0.1:8080").unwrap();
     app.thread_count(20);
 
-    app.route(Get, "/**", |_, r| {
+    app.route(Get, "/**", |_, res| {
         let mut headers = Headers::new();
         headers.add("Content-Type", b"text/html; charset=utf-8");
-        r.ok(&headers, INDEX_HTML)
+        res.okr(&headers, INDEX_HTML)
     });
 
     // streams received request body back to client
-    app.route(Post, "/echo", |mut c, r| r.ok(&c.headers.clone(), c.body()));
+    app.route(Post, "/echo", |mut ctx, res| {
+        res.okr(&ctx.headers.clone(), ctx.body())
+    });
 
-    app.route(Post, "/upper", |mut c, r| {
-        let response_stream = c
+    app.route(Post, "/upper", |mut ctx, res| {
+        let response_stream = ctx
             .body()
             .map_bytes(|b| b.to_ascii_uppercase())
             .tee(io::stdout());
-        r.ok(Headers::empty(), response_stream)
+        res.okr(Headers::empty(), response_stream)
     });
 
-    app.route(Post, "/rot13", |mut c, r| {
-        r.ok(Headers::empty(), c.body().rot13())
+    app.route(Post, "/rot13", |mut ctx, res| {
+        res.okr(Headers::empty(), ctx.body().rot13())
     });
 
     app.build().serve_epoll().unwrap();

@@ -37,7 +37,7 @@ impl ServerBuilder {
         Ok(ServerBuilder {
             bind_addrs,
             router: RouterBuilder::new(Box::new(|_, r| {
-                r.send(&Status::NOT_FOUND, Headers::empty(), std::io::empty())
+                r.send0(&Status::NOT_FOUND, Headers::empty())
             })),
             stream_setup_hook: None,
             pre_routing_hook: None,

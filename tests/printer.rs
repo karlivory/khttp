@@ -109,7 +109,7 @@ fn test_write_response0() {
     headers.add("foo", b"bar");
     let mut w = MockWriter::new();
     {
-        HttpPrinter::write_response0(&mut w, &Status::OK, &headers).unwrap();
+        HttpPrinter::write_response_empty(&mut w, &Status::OK, &headers).unwrap();
     }
     assert_eq!(
         w.as_str(),
