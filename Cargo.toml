@@ -19,21 +19,18 @@ exclude = [
   "benchmarks.md",
 ]
 
-[dependencies]
-memchr = "2.7.5"
-
-[lib]
-name = "khttp"
-path = "src/lib.rs"
-
 [features]
 default = ["epoll"]
 client = []
 epoll = ["libc"]
 
-[dependencies.libc]
-version = "0.2.174"
-optional = true
+[dependencies]
+memchr = "2.7.5"
+libc = { version = "0.2.174", optional = true }
+
+[lib]
+name = "khttp"
+path = "src/lib.rs"
 
 [workspace]
 members = [".", "examples/*", "benchmarks"]
