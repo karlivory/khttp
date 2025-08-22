@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 const FALLBACK_THREAD_COUNT: usize = 20;
 const DEFAULT_MAX_REQUEST_HEAD: usize = 4096; // should be plenty, this is what nginx uses by default
-const DEFAULT_EPOLL_QUEUE_MAXEVENTS: usize = 1024;
+const DEFAULT_EPOLL_QUEUE_MAXEVENTS: usize = 512;
 
 pub struct ServerBuilder {
     bind_addrs: Vec<SocketAddr>,
