@@ -108,9 +108,9 @@ impl Server {
         let (listener, epfd) = self.create_listener(LISTENER_TOKEN)?;
         let efd = Self::create_eventfd(EVENTFD_TOKEN, epfd)?;
         let worker_pool: ThreadPool<EpollJob> = ThreadPool::new(self.thread_count);
-        let mut pending_free: Vec<u64> = Vec::with_capacity(64);
+        let mut pending_free: Vec<u64> = Vec::new();
 
-        let closeq: Arc<CloseQueue> = Arc::new(Mutex::new(Vec::with_capacity(128)));
+        let closeq: Arc<CloseQueue> = Arc::new(Mutex::new(Vec::new()));
         let closeq_ptr_u64 = Arc::as_ptr(&closeq) as u64;
         let handler_cfg_ptr_u64 = Arc::as_ptr(&self.handler_config) as u64;
 

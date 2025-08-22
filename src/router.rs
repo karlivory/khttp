@@ -1,5 +1,5 @@
 use crate::Method;
-use std::{array::from_fn, cmp::max, collections::HashMap};
+use std::{array::from_fn, collections::HashMap, mem};
 
 pub struct RouterBuilder<T> {
     methods: [MethodBucket<T>; 8],
@@ -32,36 +32,43 @@ impl<'a, 'r, T> Match<'a, 'r, T> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RouteParams<'a, 'r>(Vec<(&'a str, &'r str)>);
 
 impl<'a, 'r> RouteParams<'a, 'r> {
+    #[inline]
     pub fn new() -> Self {
         Self(Vec::new())
     }
 
+    #[inline]
+    pub fn clear(&mut self) {
+        self.0.clear();
+    }
+
+    #[inline]
     pub fn get(&self, key: &str) -> Option<&'r str> {
         self.0.iter().find_map(|(k, v)| (*k == key).then_some(*v))
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &(&'a str, &'r str)> + '_ {
-        self.0.iter()
-    }
-
+    #[inline]
     pub fn insert(&mut self, key: &'a str, val: &'r str) {
+        if self.0.is_empty() {
+            self.0.reserve_exact(1)
+        }
         self.0.push((key, val));
     }
-}
 
-impl Default for RouteParams<'_, '_> {
-    fn default() -> Self {
-        Self::new()
+    #[inline]
+    pub fn iter(&self) -> impl Iterator<Item = &(&'a str, &'r str)> + '_ {
+        self.0.iter()
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RouteEntry {
     pattern: Vec<RouteSegment>,
+    last_prec: Precedence,
 }
 
 /// Per-method storage:
@@ -170,26 +177,29 @@ impl<T> Router<T> {
             _ => &self.methods[method.index()],
         };
 
-        // fast path: check for literal route match
+        // fast path: exact literal route
         if let Some(route) = bucket.find_literal(uri) {
-            return Match::new(route, RouteParams::new());
+            return Match::no_params(route);
         }
 
-        let mut matched: Vec<(u16, Precedence, &[RouteSegment], &T, RouteParams)> = Vec::new();
-        let mut max_lml = 0u16;
+        let mut best_lml: i32 = -1;
+        let mut best_prec = Precedence::DoubleWildcard;
+        let mut best_route: Option<&T> = None;
+        let mut best_params = RouteParams::new();
 
-        for (RouteEntry { pattern }, route) in &bucket.patterns {
+        let mut route_params = RouteParams::new();
+        for (RouteEntry { pattern, last_prec }, route) in &bucket.patterns {
             let mut uri_iter = uri.split('/');
-            let mut params = RouteParams::new();
             let mut ok = true;
-            let mut lml = 0u16;
+            let mut lml = 0; // longest matching literal
             let mut counting_prefix = true;
 
+            route_params.clear();
             for seg_part in pattern.iter() {
                 let uri_part = uri_iter.next();
 
                 match seg_part {
-                    RouteSegment::DoubleWildcard => break,
+                    RouteSegment::DoubleWildcard => break, // matches until end
                     RouteSegment::Wildcard => {
                         if uri_part.is_none() {
                             ok = false;
@@ -199,7 +209,7 @@ impl<T> Router<T> {
                     }
                     RouteSegment::Param(name) => {
                         if let Some(v) = uri_part {
-                            params.insert(name.as_str(), v);
+                            route_params.insert(name.as_str(), v);
                         } else {
                             ok = false;
                             break;
@@ -224,26 +234,28 @@ impl<T> Router<T> {
                 }
             }
 
-            // if there are still unmatched uri parts, pattern must end with **
+            // if uri has extra parts, pattern must end with "**"
             if ok && uri_iter.next().is_some() {
                 ok = matches!(pattern.last(), Some(RouteSegment::DoubleWildcard));
             }
 
-            if ok {
-                max_lml = max(max_lml, lml);
-                let prec = precedence_of(pattern.last());
-                matched.push((lml, prec, pattern, route, params));
+            if !ok {
+                continue;
+            }
+
+            // compare against best (tie-break on precedence)
+            if lml > best_lml || (lml == best_lml && *last_prec > best_prec) {
+                best_lml = lml;
+                best_prec = *last_prec;
+                best_route = Some(route);
+                best_params = mem::take(&mut route_params);
             }
         }
 
-        matched.retain(|(l, _, _, _, _)| *l == max_lml);
-        if matched.is_empty() {
-            return Match::no_params(&self.fallback_route);
+        match best_route {
+            Some(route) => Match::new(route, best_params),
+            None => Match::no_params(&self.fallback_route),
         }
-
-        matched.sort_by(|a, b| b.1.cmp(&a.1));
-        let (_, _, _, best_route, params) = matched.remove(0);
-        Match::new(best_route, params)
     }
 }
 
@@ -274,7 +286,8 @@ fn parse_route(mut route_str: &str) -> (String, RouteEntry) {
     }
     let norm = route_str.to_string(); // "" for "/"
     let pattern: Vec<RouteSegment> = route_str.split('/').map(parse_route_segment).collect();
-    (norm, RouteEntry { pattern })
+    let last_prec = precedence_of(pattern.last());
+    (norm, RouteEntry { pattern, last_prec })
 }
 
 fn parse_route_segment(s: &str) -> RouteSegment {
