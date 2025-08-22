@@ -9,7 +9,6 @@ use std::io::{self};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::Arc;
 
-const FALLBACK_THREAD_COUNT: usize = 20;
 const DEFAULT_MAX_REQUEST_HEAD: usize = 4096; // should be plenty, this is what nginx uses by default
 const DEFAULT_EPOLL_QUEUE_MAXEVENTS: usize = 512;
 
@@ -113,8 +112,9 @@ impl ServerBuilder {
 }
 
 fn default_thread_count() -> usize {
+    const FALLBACK_THREAD_COUNT: usize = 16;
     match std::thread::available_parallelism() {
-        Ok(x) => x.get() * 2,
+        Ok(x) => 10.max(x.get() * 2),
         Err(_) => FALLBACK_THREAD_COUNT,
     }
 }
