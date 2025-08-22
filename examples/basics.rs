@@ -1,4 +1,5 @@
 use khttp::{Headers, Method::*, PreRoutingAction, Server, Status};
+use std::{fs::File, io::BufReader, path::Path};
 
 fn main() {
     let mut app = Server::builder("127.0.0.1:8080").unwrap();
@@ -12,7 +13,6 @@ fn main() {
 
         let mut headers = Headers::new();
         headers.add("key", b"value");
-        headers.add("key", b"value");
 
         res.ok(&headers, "Hello, World!")
     });
@@ -21,7 +21,7 @@ fn main() {
     app.route(Post, "/uppercase", |mut ctx, res| {
         let body = ctx.body().vec().unwrap_or_default(); // ctx.body() is `Read`
         let response_body = body.to_ascii_uppercase();
-        res.ok(Headers::empty(), &response_body)
+        res.ok(Headers::empty(), response_body)
     });
 
     // Routing: named parameters and wildcards are supported
@@ -32,8 +32,20 @@ fn main() {
         };
         res.ok(Headers::empty(), format!("{}", user_id))
     });
-    app.route(Get, "/api/v1/*", |_, r| r.ok(Headers::empty(), "api"));
-    app.route(Get, "/static/**", |_, r| r.ok(Headers::empty(), "static"));
+    app.route(Get, "/api/v1/*", |_, res| res.ok(Headers::empty(), "api"));
+    app.route(Get, "/static/**", |ctx, res| {
+        let rel = ctx.uri.path().trim_start_matches("/static/");
+        let path = Path::new("static").join(rel);
+
+        match File::open(&path) {
+            Ok(file) => {
+                let mut headers = Headers::new();
+                headers.add(Headers::CONTENT_TYPE, utils::get_mime(&path));
+                res.okr(&headers, BufReader::new(file)) // streamed response
+            }
+            Err(_) => res.send(&Status::NOT_FOUND, Headers::empty(), "404"),
+        }
+    });
 
     // Fine-tuning
     app.thread_count(20);
@@ -57,4 +69,28 @@ fn main() {
 
     // `serve_epoll` is available via the "epoll" feature
     app.build().serve_epoll().unwrap();
+}
+
+mod utils {
+    pub fn get_mime(path: &std::path::Path) -> &'static [u8] {
+        let extension = match path.extension().and_then(|e| e.to_str()) {
+            Some(e) => e,
+            None => return b"text/plain; charset=utf-8",
+        };
+
+        match extension {
+            "htm" | "html" => "text/html; charset=utf-8",
+            "css" => "text/css; charset=utf-8",
+            "js" => "application/javascript; charset=utf-8",
+            "gif" => "image/gif",
+            "jpg" | "jpeg" => "image/jpeg",
+            "png" => "image/png",
+            "pdf" => "application/pdf",
+            "svg" => "image/svg+xml",
+            "json" => "application/json; charset=utf-8",
+            "txt" => "text/plain; charset=utf-8",
+            _ => "text/plain; charset=utf-8",
+        }
+        .as_bytes()
+    }
 }
