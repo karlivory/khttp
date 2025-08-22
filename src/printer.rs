@@ -21,10 +21,14 @@ impl HttpPrinter {
         let mut head = Vec::with_capacity(RESPONSE_HEAD_BUF_INIT_CAP);
 
         // status line
-        head.extend_from_slice(b"HTTP/1.1 ");
-        head.extend_from_slice(&u16_to_ascii(status.code));
-        head.extend_from_slice(status.reason.as_bytes());
-        head.extend_from_slice(CRLF);
+        if status.code == 200 {
+            head.extend_from_slice(b"HTTP/1.1 200 OK\r\n");
+        } else {
+            head.extend_from_slice(b"HTTP/1.1 ");
+            head.extend_from_slice(&u16_to_ascii(status.code));
+            head.extend_from_slice(status.reason.as_bytes());
+            head.extend_from_slice(CRLF);
+        }
 
         // headers
         for (name, value) in headers.iter() {
@@ -51,10 +55,14 @@ impl HttpPrinter {
         let mut head = Vec::with_capacity(RESPONSE_HEAD_BUF_INIT_CAP);
 
         // status line
-        head.extend_from_slice(b"HTTP/1.1 ");
-        head.extend_from_slice(&u16_to_ascii(status.code));
-        head.extend_from_slice(status.reason.as_bytes());
-        head.extend_from_slice(CRLF);
+        if status.code == 200 {
+            head.extend_from_slice(b"HTTP/1.1 200 OK\r\n");
+        } else {
+            head.extend_from_slice(b"HTTP/1.1 ");
+            head.extend_from_slice(&u16_to_ascii(status.code));
+            head.extend_from_slice(status.reason.as_bytes());
+            head.extend_from_slice(CRLF);
+        }
 
         // headers
         for (name, value) in headers.iter() {
@@ -195,10 +203,14 @@ fn build_response_head<R: Read>(
 ) -> Vec<u8> {
     let mut head = Vec::with_capacity(RESPONSE_HEAD_BUF_INIT_CAP);
 
-    head.extend_from_slice(b"HTTP/1.1 ");
-    head.extend_from_slice(&u16_to_ascii(status.code));
-    head.extend_from_slice(status.reason.as_bytes());
-    head.extend_from_slice(CRLF);
+    if status.code == 200 {
+        head.extend_from_slice(b"HTTP/1.1 200 OK\r\n");
+    } else {
+        head.extend_from_slice(b"HTTP/1.1 ");
+        head.extend_from_slice(&u16_to_ascii(status.code));
+        head.extend_from_slice(status.reason.as_bytes());
+        head.extend_from_slice(CRLF);
+    }
 
     add_headers(&mut head, headers, strat);
 
