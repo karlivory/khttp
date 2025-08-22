@@ -2,7 +2,7 @@
 name = "khttp"
 version = "0.1.6"
 categories = ["network-programming", "web-programming::http-server"]
-keywords = ["http", "web", "server", "client", "minimal"]
+keywords = ["http", "web", "framework", "server", "client", "minimal"]
 description = "A low-level synchronous HTTP/1.1 server/client library"
 edition = "2021"
 license = "MIT"
@@ -10,14 +10,7 @@ authors = ["karlivory"]
 homepage = "https://github.com/karlivory/khttp"
 repository = "https://github.com/karlivory/khttp"
 readme = "README.md"
-exclude = [
-  "tests/**",
-  "examples/**",
-  ".github/**",
-  ".vscode/**",
-  "benchmarks",
-  "benchmarks.md",
-]
+include = ["src/**", "README.md", "LICENSE*", "Cargo.toml"]
 
 [features]
 default = ["epoll"]
@@ -25,8 +18,8 @@ client = []
 epoll = ["libc"]
 
 [dependencies]
-memchr = "2.7.5"
-libc = { version = "0.2.174", optional = true }
+memchr = "2"
+libc = { version = "0.2", optional = true }
 
 [lib]
 name = "khttp"
