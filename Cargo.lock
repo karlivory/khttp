@@ -537,7 +537,7 @@ dependencies = [
 
 [[package]]
 name = "khttp"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "libc",
  "memchr",
