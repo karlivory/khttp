@@ -1,7 +1,4 @@
-use std::{
-    sync::{Arc, Mutex, mpsc},
-    thread,
-};
+use std::{sync::mpsc, thread};
 
 pub trait Task: Send + 'static {
     fn run(self);
@@ -9,35 +6,37 @@ pub trait Task: Send + 'static {
 
 pub(crate) struct ThreadPool<J: Task> {
     workers: Vec<Worker>,
-    sender: Option<mpsc::Sender<J>>,
+    senders: Vec<mpsc::Sender<J>>,
 }
 
 impl<J: Task> ThreadPool<J> {
     pub fn new(size: usize) -> Self {
         assert!(size > 0);
-        let (sender, receiver) = mpsc::channel::<J>();
-        let receiver = Arc::new(Mutex::new(receiver));
+
         let mut workers = Vec::with_capacity(size);
+        let mut senders = Vec::with_capacity(size);
 
         for _ in 0..size {
-            workers.push(Worker::new(Arc::clone(&receiver)));
+            let (tx, rx) = mpsc::channel::<J>();
+            senders.push(tx);
+            workers.push(Worker::new(rx));
         }
 
-        Self {
-            workers,
-            sender: Some(sender),
-        }
+        Self { workers, senders }
     }
 
     #[inline]
-    pub fn execute(&self, job: J) {
-        self.sender.as_ref().unwrap().send(job).unwrap();
+    pub(crate) fn execute_keyed(&self, job: J, key: usize) {
+        // TODO: how to add low-cost load-awareness?
+        let i = key % self.senders.len();
+        self.senders[i].send(job).unwrap();
     }
 }
 
 impl<J: Task> Drop for ThreadPool<J> {
     fn drop(&mut self) {
-        drop(self.sender.take()); // closes channel; workers exit
+        // Drop all senders so worker recv()s return Err and threads exit.
+        self.senders.clear();
         for w in &mut self.workers {
             if let Some(t) = w.thread.take() {
                 t.join().unwrap();
@@ -51,18 +50,12 @@ struct Worker {
 }
 
 impl Worker {
-    fn new<J: Task>(receiver: Arc<Mutex<mpsc::Receiver<J>>>) -> Self {
+    fn new<J: Task>(rx: mpsc::Receiver<J>) -> Self {
         let thread = thread::spawn(move || {
-            loop {
-                let msg = {
-                    let rx = receiver.lock().unwrap();
-                    rx.recv()
-                };
-                match msg {
-                    Ok(job) => job.run(),
-                    Err(_) => break, // sender dropped
-                }
+            while let Ok(job) = rx.recv() {
+                job.run();
             }
+            // channel closed => exit
         });
         Self {
             thread: Some(thread),

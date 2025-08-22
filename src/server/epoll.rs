@@ -183,12 +183,15 @@ impl Server {
                     }
 
                     if !handle.in_flight.swap(true, Ordering::AcqRel) {
-                        worker_pool.execute(EpollJob {
-                            handle_ptr: token,
-                            handler_config_ptr_u64: handler_cfg_ptr_u64,
-                            closeq_ptr_u64,
-                            efd,
-                        });
+                        worker_pool.execute_keyed(
+                            EpollJob {
+                                handle_ptr: token,
+                                handler_config_ptr_u64: handler_cfg_ptr_u64,
+                                closeq_ptr_u64,
+                                efd,
+                            },
+                            handle.fd as usize,
+                        );
                     }
                 }
             }

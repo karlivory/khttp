@@ -8,6 +8,7 @@ use std::cell::RefCell;
 use std::io::{self, Read};
 use std::mem::MaybeUninit;
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::os::fd::AsRawFd;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -86,7 +87,8 @@ impl Server {
                 },
             };
 
-            pool.execute(PoolJob(stream, Arc::clone(&self.handler_config)));
+            let fd = stream.as_raw_fd() as usize;
+            pool.execute_keyed(PoolJob(stream, Arc::clone(&self.handler_config)), fd);
         }
         Ok(())
     }
