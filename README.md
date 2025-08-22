@@ -55,8 +55,12 @@ fn main() {
     });
     app.route(Get, "/api/v1/*", |_, res| res.ok(Headers::empty(), "api"));
     app.route(Get, "/static/**", |ctx, res| {
-        let rel = ctx.uri.path().trim_start_matches("/static/");
+        let rel = ctx.uri.path().strip_prefix("/static/").unwrap_or("");
         let path = Path::new("static").join(rel);
+
+        if !path.is_file() {
+            return res.send(&Status::FORBIDDEN, Headers::empty(), "forbidden");
+        }
 
         match File::open(&path) {
             Ok(file) => {
