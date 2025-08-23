@@ -32,7 +32,11 @@ fn main() {
         };
         res.ok(Headers::empty(), format!("{}", user_id))
     });
+
+    // Matches a single path segment, e.g. /api/v1/health
     app.route(Get, "/api/v1/*", |_, res| res.ok(Headers::empty(), "api"));
+
+    // Matches any number of path segments, e.g. /static/assets/main.js
     app.route(Get, "/static/**", |ctx, res| {
         let rel = ctx.uri.path().strip_prefix("/static/").unwrap_or("");
         let path = Path::new("static").join(rel);

@@ -1,13 +1,13 @@
 # khttp (Karl's HTTP)
 
-**khttp** is a low-level synchronous **HTTP/1.1** micro-framework for Rust - written from scratch with a focus on:
+**khttp** is a low-level synchronous **HTTP/1.1** micro-framework for Rust, written from scratch with a focus on:
 
 * Keeping things simple
 * Low memory footprint
-* Low overhead / high performance (see: [benchmarks.md](./benchmarks.md))
+* Low overhead / high performance (see [benchmarks.md](./benchmarks.md))
 * Minimal dependencies (`libc`, `memchr`)
 
-## Features:
+## Features
 
 * HTTP/1.1 **server** & optional **client** (`--features client`)
 * Router with params & wildcards: `/user/:id`, `/static/**`
@@ -53,7 +53,11 @@ fn main() {
         };
         res.ok(Headers::empty(), format!("{}", user_id))
     });
+
+    // Matches a single path segment, e.g. /api/v1/health
     app.route(Get, "/api/v1/*", |_, res| res.ok(Headers::empty(), "api"));
+
+    // Matches any number of path segments, e.g. /static/assets/main.js
     app.route(Get, "/static/**", |ctx, res| {
         let rel = ctx.uri.path().strip_prefix("/static/").unwrap_or("");
         let path = Path::new("static").join(rel);
@@ -99,11 +103,11 @@ fn main() {
 
 See other [examples](./examples) for:
 
-* [`streams.rs`](./examples/streams.rs): mapping streams from request body to response,
-* [`static_file_server.rs`](./examples/static_file_server.rs): serving static files (a la `python -m http.server`),
-* [`reverse_proxy.rs`](./examples/reverse_proxy.rs): simple reverse proxy using server & client,
-* [`framework.rs`](./examples/framework.rs): middleware and DI by extending ServerBuilder.
-* [`custom_router.rs`](./examples/custom_router.rs): custom `match`-based hard-coded router,
+* [`streams.rs`](./examples/streams.rs): mapping streams from request body to response
+* [`static_file_server.rs`](./examples/static_file_server.rs): serving static files (a la `python -m http.server`)
+* [`reverse_proxy.rs`](./examples/reverse_proxy.rs): simple reverse proxy using server & client
+* [`framework.rs`](./examples/framework.rs): middleware and DI by extending ServerBuilder
+* [`custom_router.rs`](./examples/custom_router.rs): custom `match`-based hard-coded router
 
 ## License
 
