@@ -60,13 +60,23 @@ impl<'a, 'r> RouteParams<'a, 'r> {
     }
 
     #[inline]
-    pub fn iter(&self) -> impl Iterator<Item = &(&'a str, &'r str)> + '_ {
-        self.0.iter()
+    pub fn iter(&self) -> impl Iterator<Item = (&'a str, &'r str)> + '_ {
+        self.0.iter().copied()
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct RouteEntry {
+struct RoutePattern {
     pattern: Vec<RouteSegment>,
     last_prec: Precedence,
 }
@@ -77,7 +87,7 @@ struct RouteEntry {
 #[derive(Debug, Clone)]
 struct MethodBucket<T> {
     literals: Vec<(String, T)>,
-    patterns: Vec<(RouteEntry, T)>,
+    patterns: Vec<(RoutePattern, T)>,
 }
 
 impl<T> Default for MethodBucket<T> {
@@ -188,7 +198,7 @@ impl<T> Router<T> {
         let mut best_params = RouteParams::new();
 
         let mut route_params = RouteParams::new();
-        for (RouteEntry { pattern, last_prec }, route) in &bucket.patterns {
+        for (RoutePattern { pattern, last_prec }, route) in &bucket.patterns {
             let mut uri_iter = uri.split('/');
             let mut ok = true;
             let mut lml = 0; // longest matching literal
@@ -236,7 +246,7 @@ impl<T> Router<T> {
 
             // if uri has extra parts, pattern must end with "**"
             if ok && uri_iter.next().is_some() {
-                ok = matches!(pattern.last(), Some(RouteSegment::DoubleWildcard));
+                ok = *last_prec == Precedence::DoubleWildcard;
             }
 
             if !ok {
@@ -248,7 +258,7 @@ impl<T> Router<T> {
                 best_lml = lml;
                 best_prec = *last_prec;
                 best_route = Some(route);
-                best_params = mem::take(&mut route_params);
+                mem::swap(&mut best_params, &mut route_params);
             }
         }
 
@@ -279,15 +289,15 @@ impl PartialEq for RouteSegment {
     }
 }
 
-/// Returns ("normalized path without leading slash", "parsed entry")
-fn parse_route(mut route_str: &str) -> (String, RouteEntry) {
+/// Returns ("normalized path without leading slash", "route pattern")
+fn parse_route(mut route_str: &str) -> (String, RoutePattern) {
     if route_str.starts_with('/') {
         route_str = &route_str[1..];
     }
     let norm = route_str.to_string(); // "" for "/"
     let pattern: Vec<RouteSegment> = route_str.split('/').map(parse_route_segment).collect();
     let last_prec = precedence_of(pattern.last());
-    (norm, RouteEntry { pattern, last_prec })
+    (norm, RoutePattern { pattern, last_prec })
 }
 
 fn parse_route_segment(s: &str) -> RouteSegment {
