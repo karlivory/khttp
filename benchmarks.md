@@ -8,29 +8,29 @@ source: [https://github.com/karlivory/rust-web-benchmarks](https://github.com/ka
 
 | Framework Name | Latency Avg | Latency Stdev | Latency Min | Latency Max | Request Req/Sec | Transfer Rate | Max. Memory Usage |
 |---|---|---|---|---|---|---|---|
-|actix-web|0.25ms|0.15ms|0.01ms|4.06ms|260360.14|32.28MB/Sec|4.6MB|
-|axum|0.24ms|0.11ms|0.01ms|2.39ms|265213.63|32.88MB/Sec|5.8MB|
-|khttp|0.22ms|0.09ms|0.02ms|3.72ms|285131.81|38.34MB/Sec|1.7MB|
-|may_minihttp|0.22ms|0.15ms|0.01ms|4.45ms|291608.55|39.21MB/Sec|13.4MB|
-|poem|0.25ms|0.11ms|0.01ms|2.10ms|256515.74|31.80MB/Sec|8.1MB|
+|actix-web|0.25ms|0.15ms|0.01ms|3.36ms|257711.79|31.95MB/Sec|4.6MB|
+|axum|0.24ms|0.11ms|0.01ms|3.13ms|265392.10|32.90MB/Sec|5.6MB|
+|khttp|0.22ms|0.09ms|0.01ms|3.37ms|287027.13|38.60MB/Sec|1.7MB|
+|may_minihttp|0.22ms|0.15ms|0.01ms|4.40ms|294760.33|39.64MB/Sec|13.5MB|
+|poem|0.25ms|0.11ms|0.01ms|2.72ms|253944.78|31.48MB/Sec|8.0MB|
 
 `rewrk --threads 14 --connections 256 -d 60s -h http://127.0.0.1:3000`
 
 | Framework Name | Latency Avg | Latency Stdev | Latency Min | Latency Max | Request Req/Sec | Transfer Rate | Max. Memory Usage |
 |---|---|---|---|---|---|---|---|
-|actix-web|0.85ms|0.51ms|0.02ms|8.53ms|300913.76|37.31MB/Sec|7.7MB|
-|axum|0.93ms|0.46ms|0.02ms|4.80ms|273773.19|33.94MB/Sec|10.3MB|
-|khttp|0.81ms|0.38ms|0.02ms|6.65ms|317228.41|42.66MB/Sec|1.8MB|
-|may_minihttp|0.80ms|0.48ms|0.02ms|9.16ms|319537.66|42.97MB/Sec|26.2MB|
-|poem|0.99ms|0.49ms|0.02ms|5.50ms|258581.73|32.06MB/Sec|13.8MB|
+|actix-web|0.84ms|0.50ms|0.02ms|7.81ms|302923.99|37.56MB/Sec|7.4MB|
+|axum|0.92ms|0.45ms|0.02ms|6.82ms|277900.13|34.45MB/Sec|10.4MB|
+|khttp|0.79ms|0.38ms|0.02ms|6.20ms|325103.03|43.72MB/Sec|1.7MB|
+|may_minihttp|0.79ms|0.47ms|0.02ms|8.10ms|323608.13|43.51MB/Sec|26.2MB|
+|poem|0.97ms|0.48ms|0.02ms|6.04ms|264768.51|32.83MB/Sec|13.8MB|
 
 `rewrk --threads 14 --connections 512 -d 60s -h http://127.0.0.1:3000`
 
 | Framework Name | Latency Avg | Latency Stdev | Latency Min | Latency Max | Request Req/Sec | Transfer Rate | Max. Memory Usage |
 |---|---|---|---|---|---|---|---|
-|actix-web|1.68ms|1.02ms|0.02ms|25.32ms|305154.48|37.83MB/Sec|11.7MB|
-|axum|1.84ms|0.91ms|0.02ms|12.38ms|277492.38|34.40MB/Sec|16.6MB|
-|khttp|1.57ms|0.75ms|0.02ms|24.07ms|326118.37|43.85MB/Sec|1.8MB|
-|may_minihttp|1.59ms|0.92ms|0.02ms|18.36ms|321230.05|43.20MB/Sec|43.4MB|
-|poem|1.96ms|0.97ms|0.03ms|13.27ms|260965.63|32.35MB/Sec|22.0MB|
+|actix-web|1.65ms|0.97ms|0.02ms|16.15ms|310199.12|38.46MB/Sec|11.7MB|
+|axum|1.83ms|0.91ms|0.02ms|10.85ms|279213.06|34.62MB/Sec|16.5MB|
+|khttp|1.56ms|0.74ms|0.02ms|12.32ms|327909.88|44.09MB/Sec|1.7MB|
+|may_minihttp|1.58ms|0.91ms|0.02ms|13.84ms|323415.27|43.49MB/Sec|43.5MB|
+|poem|1.98ms|0.98ms|0.02ms|13.93ms|258851.83|32.09MB/Sec|22.1MB|
 
