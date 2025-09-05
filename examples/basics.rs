@@ -75,8 +75,8 @@ fn main() {
         PreRoutingAction::Proceed
     });
 
-    // `serve_epoll` is available via the "epoll" feature
-    app.build().serve_epoll().unwrap();
+    // `serve_epoll` is also available via the "epoll" feature
+    app.build().serve().unwrap();
 }
 
 mod utils {

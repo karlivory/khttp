@@ -1,4 +1,6 @@
-source: [https://github.com/karlivory/rust-web-benchmarks](https://github.com/karlivory/rust-web-benchmarks)
+Uses `serve_epoll`.
+
+Source: [https://github.com/karlivory/rust-web-benchmarks](https://github.com/karlivory/rust-web-benchmarks)
 
 ## Benchmarks
 
