@@ -20,7 +20,7 @@ fn run_echo_server(config: ServerConfig) {
     app.route(
         Method::Post,
         "/**",
-        recover(|mut ctx, res| res.okr(&ctx.headers.clone(), ctx.body())),
+        recover(|mut ctx, res| res.okr(&ctx.headers, ctx.body())),
     );
     app.build().serve().unwrap();
 }
@@ -33,7 +33,7 @@ fn run_sleep_server(config: ServerConfig) {
         "/sleep",
         recover(|ctx, res| {
             thread::sleep(Duration::from_secs(3));
-            res.ok(&ctx.headers, &[][..])
+            res.ok0(Headers::empty())
         }),
     );
     app.build().serve().unwrap();
@@ -96,11 +96,7 @@ where
                 ""
             };
             eprintln!("handler panicked: {msg}");
-            res.send(
-                &Status::of(500),
-                Headers::empty(),
-                &b"Internal Server Error"[..],
-            )
+            res.send(&Status::of(500), Headers::empty(), "Internal Server Error")
         } else {
             Ok(())
         }

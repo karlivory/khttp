@@ -31,7 +31,7 @@ fn proxy(
         Ok(r) => r,
         Err(e) => {
             eprintln!("{}", e);
-            return res.sendr(&Status::SERVICE_UNAVAILABLE, Headers::empty(), &[][..]);
+            return res.send0(&Status::SERVICE_UNAVAILABLE, Headers::empty());
         }
     };
 

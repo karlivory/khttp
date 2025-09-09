@@ -26,7 +26,7 @@ fn router(ctx: RequestContext, res: &mut ResponseHandle) -> io::Result<()> {
 // ---------------------------------------------------------------------
 
 fn hello_world(_ctx: RequestContext, res: &mut ResponseHandle) -> io::Result<()> {
-    res.ok(Headers::empty(), b"Hello, World!")
+    res.ok(Headers::empty(), "Hello, World!")
 }
 
 fn get_user(ctx: RequestContext, res: &mut ResponseHandle) -> io::Result<()> {
@@ -42,5 +42,5 @@ fn get_user(ctx: RequestContext, res: &mut ResponseHandle) -> io::Result<()> {
 }
 
 fn not_found(_ctx: RequestContext, res: &mut ResponseHandle) -> io::Result<()> {
-    res.send(&Status::NOT_FOUND, Headers::empty(), b"not found")
+    res.send(&Status::NOT_FOUND, Headers::empty(), "not found")
 }

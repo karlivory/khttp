@@ -28,7 +28,7 @@ fn main() {
 
     app.get("/health")
         .with(&base_layer)
-        .handle(|_, r| r.ok(Headers::empty(), b"ok"));
+        .handle(|_, r| r.ok(Headers::empty(), "ok"));
 
     app.get("/api/user/:id")
         .with(&base_layer)
@@ -44,7 +44,7 @@ fn main() {
                 Some(id) => id,
                 None => {
                     log.warn("Invalid user id");
-                    return res.send(&Status::BAD_REQUEST, Headers::empty(), b"bad id");
+                    return res.send(&Status::BAD_REQUEST, Headers::empty(), "bad id");
                 }
             };
 

@@ -34,7 +34,7 @@ fn serve_static_file(dir: &str, ctx: RequestContext, res: &mut ResponseHandle) -
     let full_path = match sanitize_path(dir, path) {
         Some(p) => p,
         None => {
-            return res.send(&Status::NOT_FOUND, Headers::empty(), b"404 Not Found");
+            return res.send(&Status::NOT_FOUND, Headers::empty(), "404 Not Found");
         }
     };
 
@@ -62,7 +62,7 @@ fn serve_file(path: &Path, res: &mut ResponseHandle) -> io::Result<()> {
                     Status::INTERNAL_SERVER_ERROR
                 }
             };
-            return res.send(&status, Headers::empty(), b"error");
+            return res.send(&status, Headers::empty(), "error");
         }
     };
 
