@@ -109,7 +109,7 @@ impl ServerBuilderExt for ServerBuilder {
             &app.bind_addrs().first().unwrap().to_string(),
             app.threads(),
         );
-        app.serve_epoll()
+        app.serve()
     }
 }
 

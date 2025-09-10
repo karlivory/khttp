@@ -42,7 +42,7 @@ fn main() {
         res.okr(Headers::empty(), ctx.body().rot13())
     });
 
-    app.build().serve_epoll().unwrap();
+    app.build().serve().unwrap();
 }
 
 trait ReadExt: Read + Sized {

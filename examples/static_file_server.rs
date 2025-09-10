@@ -22,7 +22,7 @@ fn main() {
     app.route(Get, "/**", move |c, r| serve_static_file(&dir, c, r));
 
     print_startup(base_dir);
-    app.build().serve_epoll().unwrap();
+    app.build().serve().unwrap();
 }
 
 fn serve_static_file(dir: &str, ctx: RequestContext, res: &mut ResponseHandle) -> io::Result<()> {

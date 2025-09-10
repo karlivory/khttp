@@ -4,7 +4,7 @@ use std::io;
 fn main() -> io::Result<()> {
     let mut app = Server::builder("127.0.0.1:8080").unwrap();
     app.fallback_route(router);
-    app.build().serve_epoll()
+    app.build().serve()
 }
 
 // ---------------------------------------------------------------------
