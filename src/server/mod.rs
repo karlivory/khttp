@@ -9,7 +9,6 @@ use std::io::{self, Read};
 use std::mem::MaybeUninit;
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::Arc;
-use std::time::Instant;
 
 mod builder;
 mod epoll;
@@ -192,10 +191,6 @@ impl<'s> ResponseHandle<'s> {
     pub fn get_stream(&self) -> &TcpStream {
         self.stream
     }
-
-    pub fn get_stream_cloned(&self) -> io::Result<TcpStream> {
-        self.stream.try_clone()
-    }
 }
 
 pub struct RequestContext<'r> {
@@ -242,15 +237,11 @@ impl<'r> RequestContext<'r> {
 
 pub struct ConnectionMeta {
     index: usize,
-    conn_start: Instant,
 }
 
 impl ConnectionMeta {
     fn new() -> Self {
-        Self {
-            index: 0,
-            conn_start: Instant::now(),
-        }
+        Self { index: 0 }
     }
 
     pub fn increment(&mut self) {
@@ -259,10 +250,6 @@ impl ConnectionMeta {
 
     pub fn index(&self) -> usize {
         self.index
-    }
-
-    pub fn conn_start(&self) -> &Instant {
-        &self.conn_start
     }
 }
 

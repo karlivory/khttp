@@ -63,12 +63,8 @@ impl<'r> ClientResponseHandle<'r> {
         self.body.inner()
     }
 
-    pub fn stream_mut(&mut self) -> &mut TcpStream {
-        self.body.inner_mut()
-    }
-
     pub fn close_connection(&mut self) -> io::Result<()> {
-        self.stream_mut().shutdown(std::net::Shutdown::Both)
+        self.body.inner().shutdown(std::net::Shutdown::Both)
     }
 
     pub fn into_parts(self) -> (Status<'r>, Headers<'r>, BodyReader<'r, TcpStream>) {
