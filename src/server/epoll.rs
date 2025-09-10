@@ -21,9 +21,9 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::{io, mem};
 
-struct Connection {
-    read_stream: TcpStream,
-    response: ResponseHandle,
+struct Connection<'s> {
+    stream: &'s TcpStream,
+    response: ResponseHandle<'s>,
     meta: ConnectionMeta,
 }
 
@@ -50,10 +50,10 @@ fn store_state(a: &AtomicU8, s: ConnState, order: Ordering) {
 }
 
 #[repr(align(64))]
-struct Handle {
+struct Handle<'s> {
     in_flight: AtomicBool, // ensure only one worker processes this connection at a time
     state: AtomicU8,       // ConnState
-    ptr: *mut Connection,
+    ptr: *mut Connection<'s>,
     fd: RawFd,
 }
 
@@ -76,13 +76,9 @@ impl Task for EpollJob {
             let conn = &mut *handle.ptr;
 
             conn.meta.increment();
-            let keep_alive = handle_one_request(
-                &mut conn.read_stream,
-                &mut conn.response,
-                handler_config,
-                &conn.meta,
-            )
-            .unwrap_or(false);
+            let keep_alive =
+                handle_one_request(conn.stream, &mut conn.response, handler_config, &conn.meta)
+                    .unwrap_or(false);
 
             if keep_alive {
                 handle.in_flight.store(false, Ordering::Release);
@@ -141,15 +137,11 @@ impl Server {
                         }
 
                         let _ = stream.set_nodelay(true);
-                        let write_stream = match stream.try_clone() {
-                            Ok(s) => s,
-                            Err(_) => continue, // probably out of FDs
-                        };
                         let fd = stream.as_raw_fd();
 
                         let conn = Box::new(Connection {
-                            read_stream: stream,
-                            response: ResponseHandle::new(write_stream),
+                            stream: &stream,
+                            response: ResponseHandle::new(&stream),
                             meta: ConnectionMeta::new(),
                         });
                         let conn_ptr = Box::into_raw(conn);

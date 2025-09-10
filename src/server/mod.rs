@@ -15,9 +15,17 @@ mod builder;
 mod epoll;
 pub use builder::ServerBuilder;
 
-pub type RouteFn = dyn Fn(RequestContext, &mut ResponseHandle) -> io::Result<()> + Send + Sync;
+pub type RouteFn = dyn for<'req, 's> Fn(RequestContext<'req>, &mut ResponseHandle<'s>) -> io::Result<()>
+    + Send
+    + Sync;
+
 pub type StreamSetupFn = dyn Fn(io::Result<TcpStream>) -> StreamSetupAction + Send + Sync;
-pub type PreRoutingHookFn = dyn Fn(&mut Request<'_>, &mut ResponseHandle, &ConnectionMeta) -> PreRoutingAction
+
+pub type PreRoutingHookFn = dyn for<'req, 's> Fn(
+        &mut Request<'req>,
+        &mut ResponseHandle<'s>,
+        &ConnectionMeta,
+    ) -> PreRoutingAction
     + Send
     + Sync;
 
@@ -70,6 +78,7 @@ impl Server {
                 let _ = handle_connection(self.0, self.1);
             }
         }
+
         let listener = TcpListener::bind(&*self.bind_addrs)?;
         let pool: ThreadPool<PoolJob> = ThreadPool::new(self.thread_count);
 
@@ -120,13 +129,13 @@ impl Server {
     }
 }
 
-pub struct ResponseHandle {
-    stream: TcpStream,
+pub struct ResponseHandle<'s> {
+    stream: &'s TcpStream,
     keep_alive: bool,
 }
 
-impl ResponseHandle {
-    fn new(stream: TcpStream) -> Self {
+impl<'s> ResponseHandle<'s> {
+    fn new(stream: &'s TcpStream) -> Self {
         ResponseHandle {
             stream,
             keep_alive: true,
@@ -146,7 +155,7 @@ impl ResponseHandle {
         if headers.is_connection_close() {
             self.keep_alive = false;
         }
-        HttpPrinter::write_response_bytes(&mut self.stream, status, headers, body.as_ref())
+        HttpPrinter::write_response_bytes(self.stream, status, headers, body.as_ref())
     }
 
     pub fn ok0(&mut self, headers: &Headers) -> io::Result<()> {
@@ -157,7 +166,7 @@ impl ResponseHandle {
         if headers.is_connection_close() {
             self.keep_alive = false;
         }
-        HttpPrinter::write_response_empty(&mut self.stream, status, headers)
+        HttpPrinter::write_response_empty(self.stream, status, headers)
     }
 
     pub fn okr<R: Read>(&mut self, headers: &Headers, body: R) -> io::Result<()> {
@@ -173,19 +182,19 @@ impl ResponseHandle {
         if headers.is_connection_close() {
             self.keep_alive = false;
         }
-        HttpPrinter::write_response(&mut self.stream, status, headers, body)
+        HttpPrinter::write_response(self.stream, status, headers, body)
     }
 
     pub fn send_100_continue(&mut self) -> io::Result<()> {
-        HttpPrinter::write_100_continue(&mut self.stream)
+        HttpPrinter::write_100_continue(self.stream)
     }
 
-    pub fn get_stream(&mut self) -> &TcpStream {
-        &self.stream
+    pub fn get_stream(&self) -> &TcpStream {
+        self.stream
     }
 
-    pub fn get_stream_mut(&mut self) -> &mut TcpStream {
-        &mut self.stream
+    pub fn get_stream_cloned(&self) -> io::Result<TcpStream> {
+        self.stream.try_clone()
     }
 }
 
@@ -196,20 +205,16 @@ pub struct RequestContext<'r> {
     pub params: &'r RouteParams<'r, 'r>,
     pub http_version: u8,
     pub conn: &'r ConnectionMeta,
-    body: BodyReader<'r, &'r mut TcpStream>,
+    body: BodyReader<'r, &'r TcpStream>,
 }
 
 impl<'r> RequestContext<'r> {
-    pub fn body(&mut self) -> &mut BodyReader<'r, &'r mut TcpStream> {
+    pub fn body(&mut self) -> &mut BodyReader<'r, &'r TcpStream> {
         &mut self.body
     }
 
     pub fn get_stream(&self) -> &TcpStream {
         self.body.inner()
-    }
-
-    pub fn get_stream_mut(&mut self) -> &mut TcpStream {
-        self.body.inner_mut()
     }
 
     pub fn into_parts(
@@ -221,7 +226,7 @@ impl<'r> RequestContext<'r> {
         &'r RouteParams<'r, 'r>,
         u8,
         &'r ConnectionMeta,
-        BodyReader<'r, &'r mut TcpStream>,
+        BodyReader<'r, &'r TcpStream>,
     ) {
         (
             self.method,
@@ -261,14 +266,13 @@ impl ConnectionMeta {
     }
 }
 
-fn handle_connection(mut stream: TcpStream, config: Arc<HandlerConfig>) -> io::Result<()> {
+fn handle_connection(stream: TcpStream, config: Arc<HandlerConfig>) -> io::Result<()> {
     let mut conn_meta = ConnectionMeta::new();
-    let write_stream = stream.try_clone()?;
-    let mut response = ResponseHandle::new(write_stream);
+    let mut response = ResponseHandle::new(&stream);
 
     loop {
         conn_meta.increment();
-        let keep_alive = handle_one_request(&mut stream, &mut response, &config, &conn_meta)?;
+        let keep_alive = handle_one_request(&stream, &mut response, &config, &conn_meta)?;
         if !keep_alive {
             return Ok(());
         }
@@ -284,7 +288,7 @@ thread_local! {
 /// Read request head into a thread-local uninitialized buffer and parse it.
 /// Thread-local storage is used since each thread handles exactly one request at once.
 fn read_request<'a>(
-    stream: &mut TcpStream,
+    mut stream: &TcpStream,
     max_size: usize,
 ) -> Result<(&'a [u8], Request<'a>), ReadRequestError> {
     use std::slice::{from_raw_parts, from_raw_parts_mut};
@@ -335,13 +339,13 @@ enum ReadRequestError {
 }
 
 /// Returns "keep-alive" (whether to keep the connection alive for the next request).
-fn handle_one_request(
-    read_stream: &mut TcpStream,
-    response: &mut ResponseHandle,
+fn handle_one_request<'s>(
+    stream: &TcpStream,
+    response: &mut ResponseHandle<'s>,
     config: &HandlerConfig,
     connection_meta: &ConnectionMeta,
 ) -> io::Result<bool> {
-    let (buf, mut request) = match read_request(read_stream, config.max_request_head) {
+    let (buf, mut request) = match read_request(stream, config.max_request_head) {
         Ok((buf, req)) => (buf, req),
         Err(ReadRequestError::InvalidRequestHead) => {
             response.send0(&Status::BAD_REQUEST, Headers::close())?;
@@ -365,7 +369,7 @@ fn handle_one_request(
         .router
         .match_route(&request.method, request.uri.path());
 
-    let body = BodyReader::from_request(&buf[request.buf_offset..], read_stream, &request.headers);
+    let body = BodyReader::from_request(&buf[request.buf_offset..], stream, &request.headers);
     let ctx = RequestContext {
         method: request.method,
         headers: request.headers,
