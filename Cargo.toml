@@ -1,6 +1,6 @@
 [package]
 name = "khttp"
-version = "0.1.10"
+version = "0.1.11"
 categories = ["network-programming", "web-programming::http-server"]
 keywords = ["http", "web", "framework", "server", "minimal"]
 description = "A low-level synchronous HTTP/1.1 server/client library"
