@@ -21,9 +21,8 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::{io, mem};
 
-struct Connection<'s> {
-    stream: &'s TcpStream,
-    response: ResponseHandle<'s>,
+struct Connection {
+    stream: TcpStream,
     meta: ConnectionMeta,
 }
 
@@ -50,10 +49,10 @@ fn store_state(a: &AtomicU8, s: ConnState, order: Ordering) {
 }
 
 #[repr(align(64))]
-struct Handle<'s> {
+struct Handle {
     in_flight: AtomicBool, // ensure only one worker processes this connection at a time
     state: AtomicU8,       // ConnState
-    ptr: *mut Connection<'s>,
+    ptr: *mut Connection,
     fd: RawFd,
 }
 
@@ -76,8 +75,9 @@ impl Task for EpollJob {
             let conn = &mut *handle.ptr;
 
             conn.meta.increment();
+            let mut response = ResponseHandle::new(&conn.stream);
             let keep_alive =
-                handle_one_request(conn.stream, &mut conn.response, handler_config, &conn.meta)
+                handle_one_request(&conn.stream, &mut response, handler_config, &conn.meta)
                     .unwrap_or(false);
 
             if keep_alive {
@@ -140,8 +140,7 @@ impl Server {
                         let fd = stream.as_raw_fd();
 
                         let conn = Box::new(Connection {
-                            stream: &stream,
-                            response: ResponseHandle::new(&stream),
+                            stream,
                             meta: ConnectionMeta::new(),
                         });
                         let conn_ptr = Box::into_raw(conn);
