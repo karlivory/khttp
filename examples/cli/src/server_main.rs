@@ -1,11 +1,11 @@
-use std::net::TcpStream;
+use std::net::{SocketAddr, TcpStream};
 use std::panic::UnwindSafe;
 use std::time::Duration;
 use std::{io, thread};
 
 use crate::args_parser::{ServerConfig, ServerOp};
+use khttp::{ConnectionSetupAction, RequestContext, ResponseHandle, Server, ServerBuilder};
 use khttp::{Headers, Method, Status};
-use khttp::{RequestContext, ResponseHandle, Server, ServerBuilder, StreamSetupAction};
 
 pub fn run(op: ServerOp) {
     match op {
@@ -39,35 +39,35 @@ fn run_sleep_server(config: ServerConfig) {
     app.build().serve().unwrap();
 }
 
-fn get_stream_setup_fn(
+fn get_connection_setup_fn(
     config: ServerConfig,
-) -> impl Fn(io::Result<TcpStream>) -> StreamSetupAction {
+) -> impl Fn(io::Result<(TcpStream, SocketAddr)>) -> ConnectionSetupAction {
     let read_timeout = config.tcp_read_timeout;
     let write_timeout = config.tcp_write_timeout;
     let tcp_nodelay = config.tcp_nodelay;
 
-    move |stream| {
-        let stream = match stream {
-            Ok(s) => s,
-            Err(_) => return StreamSetupAction::Drop,
+    move |connection| {
+        let stream = match connection {
+            Ok(conn) => conn.0,
+            Err(_) => return ConnectionSetupAction::Drop,
         };
         if let Some(timeout) = read_timeout {
             match stream.set_read_timeout(Some(Duration::from_millis(timeout))) {
                 Ok(_) => (),
-                Err(_) => return StreamSetupAction::Drop,
+                Err(_) => return ConnectionSetupAction::Drop,
             };
         }
         if let Some(timeout) = write_timeout {
             match stream.set_write_timeout(Some(Duration::from_millis(timeout))) {
                 Ok(_) => (),
-                Err(_) => return StreamSetupAction::Drop,
+                Err(_) => return ConnectionSetupAction::Drop,
             }
         }
         match stream.set_nodelay(tcp_nodelay) {
             Ok(_) => (),
-            Err(_) => return StreamSetupAction::Drop,
+            Err(_) => return ConnectionSetupAction::Drop,
         }
-        StreamSetupAction::Proceed(stream)
+        ConnectionSetupAction::Proceed(stream)
     }
 }
 
@@ -76,7 +76,7 @@ fn get_app(config: ServerConfig) -> ServerBuilder {
     if let Some(n) = config.thread_count {
         app.thread_count(n);
     }
-    app.stream_setup_hook(get_stream_setup_fn(config));
+    app.connection_setup_hook(get_connection_setup_fn(config));
     app
 }
 
