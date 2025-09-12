@@ -4,8 +4,8 @@ use std::io;
 use std::sync::Arc;
 
 use khttp::{
-    ConnectionMeta, Headers, Method, PreRoutingAction, Request, RequestContext, ResponseHandle,
-    Server, ServerBuilder, Status,
+    Headers, Method, PreRoutingAction, Request, RequestContext, ResponseHandle, Server,
+    ServerBuilder, Status,
 };
 
 fn main() {
@@ -294,9 +294,8 @@ mod middlewares {
     }
 }
 
-fn trailing_slash_redirect(
-) -> impl Fn(&mut Request<'_>, &mut ResponseHandle, &ConnectionMeta) -> PreRoutingAction {
-    move |request, response, _| {
+fn trailing_slash_redirect() -> impl Fn(&mut Request<'_>, &mut ResponseHandle) -> PreRoutingAction {
+    move |request, response| {
         let original_path = request.uri.path();
         if original_path != "/" && original_path.ends_with('/') {
             let trimmed = original_path.trim_end_matches('/');
