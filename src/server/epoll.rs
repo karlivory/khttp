@@ -5,7 +5,7 @@
 ))]
 compile_error!("feature `epoll` requires Linux on a 64-bit target.");
 
-use super::{ConnectionMeta, Server, StreamSetupAction};
+use super::{Server, StreamSetupAction};
 use crate::server::{handle_one_request, HandlerConfig};
 use crate::threadpool::{Task, ThreadPool};
 use crate::ResponseHandle;
@@ -23,7 +23,6 @@ use std::{io, mem};
 
 struct Connection {
     stream: TcpStream,
-    meta: ConnectionMeta,
 }
 
 #[repr(u8)]
@@ -74,11 +73,9 @@ impl Task for EpollJob {
             let closeq = &*(self.closeq_ptr_u64 as *const CloseQueue);
             let conn = &mut *handle.ptr;
 
-            conn.meta.increment();
             let mut response = ResponseHandle::new(&conn.stream);
             let keep_alive =
-                handle_one_request(&conn.stream, &mut response, handler_config, &conn.meta)
-                    .unwrap_or(false);
+                handle_one_request(&conn.stream, &mut response, handler_config).unwrap_or(false);
 
             if keep_alive {
                 handle.in_flight.store(false, Ordering::Release);
@@ -139,10 +136,7 @@ impl Server {
                         let _ = stream.set_nodelay(true);
                         let fd = stream.as_raw_fd();
 
-                        let conn = Box::new(Connection {
-                            stream,
-                            meta: ConnectionMeta::new(),
-                        });
+                        let conn = Box::new(Connection { stream });
                         let conn_ptr = Box::into_raw(conn);
 
                         let handle = Box::new(Handle {
