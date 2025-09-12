@@ -1,10 +1,11 @@
 #![cfg(feature = "client")]
-use khttp::{Client, ClientResponseHandle, Headers, Method, Server, Status, StreamSetupAction};
+use khttp::{Client, ClientResponseHandle, ConnectionSetupAction, Headers, Method, Server, Status};
 use std::io;
+use std::net::SocketAddr;
 use std::{
     io::Cursor,
     net::TcpStream,
-    sync::{Arc, atomic::AtomicU64},
+    sync::{atomic::AtomicU64, Arc},
     thread::{self},
     time::Duration,
 };
@@ -66,7 +67,7 @@ fn start_server(n: u64) -> std::thread::JoinHandle<()> {
         });
 
         let counter = Arc::new(AtomicU64::new(0));
-        app.stream_setup_hook(request_limiter(counter, n));
+        app.connection_setup_hook(request_limiter(counter, n));
         app.build().serve().ok();
     })
 }
@@ -74,18 +75,18 @@ fn start_server(n: u64) -> std::thread::JoinHandle<()> {
 fn request_limiter(
     counter: Arc<AtomicU64>,
     n: u64,
-) -> impl Fn(io::Result<TcpStream>) -> StreamSetupAction {
+) -> impl Fn(io::Result<(TcpStream, SocketAddr)>) -> ConnectionSetupAction {
     let counter = counter.clone();
     move |stream| match stream {
         Ok(stream) => {
             let seen = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if seen < n {
-                StreamSetupAction::Proceed(stream)
+                ConnectionSetupAction::Proceed(stream.0)
             } else {
-                StreamSetupAction::StopAccepting
+                ConnectionSetupAction::StopAccepting
             }
         }
-        Err(_) => StreamSetupAction::StopAccepting,
+        Err(_) => ConnectionSetupAction::StopAccepting,
     }
 }
 

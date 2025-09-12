@@ -1,5 +1,5 @@
-use khttp::{Headers, Method::*, PreRoutingAction, Server, Status};
-use std::{fs::File, io::BufReader, path::Path};
+use khttp::{ConnectionSetupAction, Headers, Method::*, PreRoutingAction, Server, Status};
+use std::{fs::File, io::BufReader, path::Path, time::Duration};
 
 fn main() {
     let mut app = Server::builder("127.0.0.1:8080").unwrap();
@@ -59,6 +59,18 @@ fn main() {
     app.thread_count(20);
     app.fallback_route(|_, r| r.send(&Status::NOT_FOUND, Headers::empty(), "404"));
     app.max_request_head_size(16 * 1024);
+
+    // Lifecycle hook: called after a new TCP connection is accepted
+    app.connection_setup_hook(|connection| match connection {
+        Ok((tcp_stream, _peer)) => {
+            let _ = tcp_stream.set_nodelay(true);
+            let _ = tcp_stream.set_read_timeout(Some(Duration::from_secs(3)));
+            ConnectionSetupAction::Proceed(tcp_stream)
+        }
+        Err(_) => ConnectionSetupAction::Drop,
+    });
+
+    // Lifecycle hook: called after a request is parsed, right before routing
     app.pre_routing_hook(|req, res| {
         if req.http_version == 0 {
             let _ = res.send0(&Status::of(505), Headers::close());
@@ -69,6 +81,13 @@ fn main() {
             return PreRoutingAction::Drop;
         }
         PreRoutingAction::Proceed
+    });
+
+    // Lifecycle hook: called right before the TCP connection is dropped
+    app.connection_teardown_hook(move |_stream, io_result| {
+        if let Some(e) = io_result.err() {
+            eprintln!("tcp socket error: {e}");
+        }
     });
 
     // `serve_epoll` is also available via the "epoll" feature
