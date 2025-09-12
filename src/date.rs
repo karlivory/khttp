@@ -23,33 +23,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#[inline]
-pub fn get_date_now() -> [u8; DATE_LEN] {
-    DATE_CACHE.with(|cell| {
-        let mut cache = cell.borrow_mut();
-        let now = now_unix_sec();
-        if cache.last_sec != now {
-            format_http_date(&mut cache.buf, now);
-            cache.last_sec = now;
-        }
-        cache.buf
-    })
-}
-
-#[inline]
-pub fn get_date_from_secs(seconds: i64) -> [u8; DATE_LEN] {
-    let mut buf = HEADER_TEMPLATE;
-    format_http_date(&mut buf, seconds);
-    buf
-}
-
-#[inline]
-pub fn get_date_now_uncached() -> [u8; DATE_LEN] {
-    let mut buf = HEADER_TEMPLATE;
-    format_http_date(&mut buf, now_unix_sec());
-    buf
-}
-
 const HEADER_TEMPLATE: [u8; 37] = *b"date: Mon, 00 Jan 0000 00:00:00 GMT\r\n";
 const DATE_LEN: usize = HEADER_TEMPLATE.len();
 
@@ -68,10 +41,32 @@ thread_local! {
 }
 
 #[inline]
-fn divmod_i64(n: i64, d: i64) -> (i64, i64) {
-    let q = n.div_euclid(d);
-    let r = n.rem_euclid(d);
-    (q, r)
+pub fn get_date_now() -> [u8; DATE_LEN] {
+    DATE_CACHE.with(|cell| {
+        let mut cache = cell.borrow_mut();
+        let now = now_unix_sec();
+        if cache.last_sec != now {
+            let mut buf = HEADER_TEMPLATE;
+            format_http_date(&mut buf, now);
+            cache.buf = buf;
+            cache.last_sec = now;
+        }
+        cache.buf
+    })
+}
+
+#[inline]
+pub fn get_date_from_secs(seconds: i64) -> [u8; DATE_LEN] {
+    let mut buf = HEADER_TEMPLATE;
+    format_http_date(&mut buf, seconds);
+    buf
+}
+
+#[inline]
+pub fn get_date_now_uncached() -> [u8; DATE_LEN] {
+    let mut buf = HEADER_TEMPLATE;
+    format_http_date(&mut buf, now_unix_sec());
+    buf
 }
 
 #[inline]
@@ -107,8 +102,6 @@ unsafe extern "C" {
 
 #[inline]
 fn format_http_date(buf: &mut [u8; DATE_LEN], secs_since_epoch: i64) {
-    *buf = HEADER_TEMPLATE;
-
     const SECS_PER_MIN: i64 = 60;
     const SECS_PER_HOUR: i64 = 3600;
     const SECS_PER_DAY: i64 = 86400;
@@ -196,6 +189,13 @@ fn format_http_date(buf: &mut [u8; DATE_LEN], secs_since_epoch: i64) {
     write_2d(&mut buf[23..25], hour);
     write_2d(&mut buf[26..28], min);
     write_2d(&mut buf[29..31], sec);
+}
+
+#[inline]
+fn divmod_i64(n: i64, d: i64) -> (i64, i64) {
+    let q = n.div_euclid(d);
+    let r = n.rem_euclid(d);
+    (q, r)
 }
 
 #[inline]
