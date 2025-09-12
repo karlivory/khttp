@@ -1,7 +1,7 @@
 use super::{
-    HttpParsingError::{self, *},
     parse_headers, parse_version,
     simd::{match_path_vectored, match_uri_vectored},
+    HttpParsingError::{self, *},
 };
 use crate::{Headers, Method, RequestUri};
 
@@ -151,8 +151,7 @@ fn parse_uri(buf: &[u8]) -> Result<(RequestUri<'_>, &[u8]), HttpParsingError> {
     // if next byte is '?', consume query using bulk URI validation until SP.
     if let Some(&b'?') = buf.get(i) {
         i += 1; // skip '?'
-        // scan path up to SP
-        let n = match_uri_vectored(&buf[i..]);
+        let n = match_uri_vectored(&buf[i..]); // scan path up to SP
         i += n;
         match buf.get(i).copied() {
             Some(b' ') => {}                            // all good, we found the SP

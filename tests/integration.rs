@@ -4,7 +4,7 @@ use std::io;
 use std::{
     io::Cursor,
     net::TcpStream,
-    sync::{Arc, atomic::AtomicU64},
+    sync::{atomic::AtomicU64, Arc},
     thread::{self},
     time::Duration,
 };

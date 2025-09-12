@@ -1,5 +1,5 @@
 use std::{
-    sync::{Arc, Mutex, mpsc},
+    sync::{mpsc, Arc, Mutex},
     thread,
 };
 
