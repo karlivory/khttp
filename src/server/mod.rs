@@ -32,6 +32,7 @@ struct HandlerConfig {
     router: Router<Box<RouteFn>>,
     pre_routing_hook: Option<Box<PreRoutingHookFn>>,
     max_request_head: usize,
+    auto_reply_100_continue: bool,
 }
 
 pub struct Server {
@@ -355,6 +356,10 @@ fn handle_one_request<'s>(
     let matched_route = config
         .router
         .match_route(&request.method, request.uri.path());
+
+    if config.auto_reply_100_continue && request.headers.is_100_continue() {
+        response.send_100_continue()?;
+    }
 
     let body = BodyReader::from_request(&buf[request.buf_offset..], stream, &request.headers);
     let ctx = RequestContext {
