@@ -1,6 +1,6 @@
 use super::{
-    ConnectionMeta, HandlerConfig, PreRoutingAction, PreRoutingHookFn, RequestContext,
-    ResponseHandle, RouteFn, Server, StreamSetupAction, StreamSetupFn,
+    HandlerConfig, PreRoutingAction, PreRoutingHookFn, RequestContext, ResponseHandle, RouteFn,
+    Server, StreamSetupAction, StreamSetupFn,
 };
 use crate::parser::Request;
 use crate::router::RouterBuilder;
@@ -83,10 +83,7 @@ impl ServerBuilder {
 
     pub fn pre_routing_hook<F>(&mut self, f: F) -> &mut Self
     where
-        F: Fn(&mut Request<'_>, &mut ResponseHandle, &ConnectionMeta) -> PreRoutingAction
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(&mut Request<'_>, &mut ResponseHandle) -> PreRoutingAction + Send + Sync + 'static,
     {
         self.pre_routing_hook = Some(Box::new(f));
         self

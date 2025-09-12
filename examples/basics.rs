@@ -59,11 +59,7 @@ fn main() {
     app.thread_count(20);
     app.fallback_route(|_, r| r.send(&Status::NOT_FOUND, Headers::empty(), "404"));
     app.max_request_head_size(16 * 1024);
-    app.pre_routing_hook(|req, res, conn| {
-        if conn.index() > 100 {
-            let _ = res.send0(&Status::of(429), Headers::close());
-            return PreRoutingAction::Drop;
-        }
+    app.pre_routing_hook(|req, res| {
         if req.http_version == 0 {
             let _ = res.send0(&Status::of(505), Headers::close());
             return PreRoutingAction::Drop;

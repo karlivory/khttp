@@ -20,11 +20,7 @@ pub type RouteFn = dyn for<'req, 's> Fn(RequestContext<'req>, &mut ResponseHandl
 
 pub type StreamSetupFn = dyn Fn(io::Result<TcpStream>) -> StreamSetupAction + Send + Sync;
 
-pub type PreRoutingHookFn = dyn for<'req, 's> Fn(
-        &mut Request<'req>,
-        &mut ResponseHandle<'s>,
-        &ConnectionMeta,
-    ) -> PreRoutingAction
+pub type PreRoutingHookFn = dyn for<'req, 's> Fn(&mut Request<'req>, &mut ResponseHandle<'s>) -> PreRoutingAction
     + Send
     + Sync;
 
@@ -203,7 +199,6 @@ pub struct RequestContext<'r> {
     pub headers: Headers<'r>,
     pub params: &'r RouteParams<'r, 'r>,
     pub http_version: u8,
-    pub conn: &'r ConnectionMeta,
     body: BodyReader<'r, &'r TcpStream>,
 }
 
@@ -224,7 +219,6 @@ impl<'r> RequestContext<'r> {
         Headers<'r>,
         &'r RouteParams<'r, 'r>,
         u8,
-        &'r ConnectionMeta,
         BodyReader<'r, &'r TcpStream>,
     ) {
         (
@@ -233,37 +227,16 @@ impl<'r> RequestContext<'r> {
             self.headers,
             self.params,
             self.http_version,
-            self.conn,
             self.body,
         )
     }
 }
 
-pub struct ConnectionMeta {
-    index: usize,
-}
-
-impl ConnectionMeta {
-    fn new() -> Self {
-        Self { index: 0 }
-    }
-
-    pub fn increment(&mut self) {
-        self.index = self.index.wrapping_add(1);
-    }
-
-    pub fn index(&self) -> usize {
-        self.index
-    }
-}
-
 fn handle_connection(stream: TcpStream, config: Arc<HandlerConfig>) -> io::Result<()> {
-    let mut conn_meta = ConnectionMeta::new();
     let mut response = ResponseHandle::new(&stream);
 
     loop {
-        conn_meta.increment();
-        let keep_alive = handle_one_request(&stream, &mut response, &config, &conn_meta)?;
+        let keep_alive = handle_one_request(&stream, &mut response, &config)?;
         if !keep_alive {
             return Ok(());
         }
@@ -334,7 +307,6 @@ fn handle_one_request<'s>(
     stream: &TcpStream,
     response: &mut ResponseHandle<'s>,
     config: &HandlerConfig,
-    connection_meta: &ConnectionMeta,
 ) -> io::Result<bool> {
     let (buf, mut request) = match read_request(stream, config.max_request_head) {
         Ok((buf, req)) => (buf, req),
@@ -350,7 +322,7 @@ fn handle_one_request<'s>(
     };
 
     if let Some(hook) = &config.pre_routing_hook {
-        match (hook)(&mut request, response, connection_meta) {
+        match (hook)(&mut request, response) {
             PreRoutingAction::Proceed => {}
             PreRoutingAction::Drop => return Ok(response.keep_alive),
         }
@@ -367,7 +339,6 @@ fn handle_one_request<'s>(
         uri: &request.uri,
         http_version: request.http_version,
         params: &matched_route.params,
-        conn: connection_meta,
         body,
     };
 

@@ -23,7 +23,7 @@ fn proxy(
     ctx: RequestContext,
     res: &mut ResponseHandle,
 ) -> std::io::Result<()> {
-    let (method, uri, mut headers, _, _, _, request_body) = ctx.into_parts();
+    let (method, uri, mut headers, _, _, request_body) = ctx.into_parts();
     headers.replace("host", host.as_bytes());
 
     let mut client = Client::new(format!("{}:{}", host, port));
