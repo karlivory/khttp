@@ -20,7 +20,7 @@ fn run_echo_server(config: ServerConfig) {
     app.route(
         Method::Post,
         "/**",
-        recover(|mut ctx, res| res.okr(&ctx.headers, ctx.body())),
+        recover(|mut ctx, res| res.okr(&ctx.headers.clone(), ctx.body())),
     );
     app.build().serve().unwrap();
 }
@@ -31,7 +31,7 @@ fn run_sleep_server(config: ServerConfig) {
     app.route(
         Method::Get,
         "/sleep",
-        recover(|ctx, res| {
+        recover(|_ctx, res| {
             thread::sleep(Duration::from_secs(3));
             res.ok0(Headers::empty())
         }),
