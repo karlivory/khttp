@@ -20,6 +20,7 @@ pub struct ServerBuilder {
     thread_count: usize,
     max_request_head_size: usize,
     epoll_queue_max_events: usize,
+    auto_reply_100_continue: bool,
 }
 
 impl ServerBuilder {
@@ -43,6 +44,7 @@ impl ServerBuilder {
             thread_count: default_thread_count(),
             max_request_head_size: DEFAULT_MAX_REQUEST_HEAD,
             epoll_queue_max_events: DEFAULT_EPOLL_QUEUE_MAXEVENTS,
+            auto_reply_100_continue: true,
         })
     }
 
@@ -96,6 +98,11 @@ impl ServerBuilder {
         self
     }
 
+    pub fn auto_reply_100_continue(&mut self, value: bool) -> &mut Self {
+        self.auto_reply_100_continue = value;
+        self
+    }
+
     pub fn build(self) -> Server {
         Server {
             bind_addrs: self.bind_addrs,
@@ -105,6 +112,7 @@ impl ServerBuilder {
                 router: self.router.build(),
                 pre_routing_hook: self.pre_routing_hook,
                 max_request_head: self.max_request_head_size,
+                auto_reply_100_continue: self.auto_reply_100_continue,
             }),
             epoll_queue_max_events: self.epoll_queue_max_events,
         }
