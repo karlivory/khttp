@@ -8,6 +8,7 @@ pub struct Headers<'a> {
     content_length: Option<u64>,
     chunked: bool,
     connection_close: bool,
+    expect_100_continue: bool,
     print_date: bool,
 }
 
@@ -40,6 +41,7 @@ impl<'a> Headers<'a> {
             content_length: None,
             chunked: false,
             connection_close: false,
+            expect_100_continue: false,
             print_date: true,
         }
     }
@@ -50,6 +52,7 @@ impl<'a> Headers<'a> {
             content_length: None,
             chunked: false,
             connection_close: false,
+            expect_100_continue: false,
             print_date: false,
         }
     }
@@ -96,6 +99,9 @@ impl<'a> Headers<'a> {
                     break;
                 }
             }
+        } else if name.eq_ignore_ascii_case("expect") && value.eq_ignore_ascii_case(b"100-continue")
+        {
+            self.expect_100_continue = true;
         }
 
         self.headers.push((name, value));
@@ -212,9 +218,7 @@ impl<'a> Headers<'a> {
     }
 
     pub fn is_100_continue(&self) -> bool {
-        self.get("expect")
-            .map(|val| val.eq_ignore_ascii_case(b"100-continue"))
-            .unwrap_or(false)
+        self.expect_100_continue
     }
 }
 
