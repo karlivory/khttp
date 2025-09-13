@@ -15,9 +15,7 @@ fn main() {
     app.with_trailing_slash_redirect();
 
     // Sample "services"
-    let db = Arc::new(DbCredentials {
-        connection_string: "postgresql://user:pass@localhost/db".into(),
-    });
+    let db = Arc::new(Database { data: "123".into() });
     let logger = Arc::new(Logger);
 
     // Reusable middleware chain used by multiple routes
@@ -28,30 +26,26 @@ fn main() {
 
     app.get("/health")
         .with(&base_layer)
-        .handle(|_, r| r.ok(Headers::empty(), "ok"));
+        .handle(|_, res| res.ok(Headers::empty(), "ok"));
 
     app.get("/api/user/:id")
         .with(&base_layer)
         .middleware(middlewares::auth("user-secret"))
         .handle(|ctx, res| {
             let log = ctx.get::<Arc<Logger>>().unwrap();
-            let user_id = match ctx
-                .request
-                .params
-                .get("id")
-                .and_then(|s| s.parse::<u64>().ok())
-            {
-                Some(id) => id,
-                None => {
+
+            let user_id = match ctx.request.params.get("id").unwrap().parse::<u64>() {
+                Ok(id) => id,
+                Err(_) => {
                     log.warn("Invalid user id");
                     return res.send(&Status::BAD_REQUEST, Headers::empty(), "bad id");
                 }
             };
-
             if user_id == 0 {
                 log.err("Simulated panic for id=0");
                 panic!("boom");
             }
+
             res.ok(Headers::empty(), format!("user: {}\n", user_id).as_bytes())
         });
 
@@ -60,11 +54,11 @@ fn main() {
         .middleware(middlewares::auth("db-secret"))
         .inject(db.clone())
         .handle(|ctx, res| {
-            let db = ctx.get::<Arc<DbCredentials>>().unwrap();
+            let db = ctx.get::<Arc<Database>>().unwrap();
             let log = ctx.get::<Arc<Logger>>().unwrap();
 
-            log.info("Connecting to DB...");
-            let result = format!("db = {}\n", db.connection_string);
+            log.info("querying database...");
+            let result = format!("data = {}\n", db.data);
             res.ok(Headers::empty(), result.as_bytes())
         });
 
@@ -297,11 +291,11 @@ mod middlewares {
 fn trailing_slash_redirect(
 ) -> impl Fn(&mut Request<'_>, &mut ResponseHandle, &ConnectionMeta) -> PreRoutingAction {
     move |request, response, _| {
-        let original_path = request.uri.path();
-        if original_path != "/" && original_path.ends_with('/') {
-            let trimmed = original_path.trim_end_matches('/');
+        let path = request.uri.path();
+        if path != "/" && path.ends_with('/') {
+            let trimmed = path.trim_end_matches('/');
             let mut headers = Headers::new();
-            headers.replace("Location", trimmed.as_bytes());
+            headers.replace("location", trimmed.as_bytes());
             let _ = response.send0(&Status::of(301), &headers);
             return PreRoutingAction::Drop;
         }
@@ -327,8 +321,8 @@ fn print_startup_banner(addr: &str, threads: usize) {
     );
 }
 
-pub struct DbCredentials {
-    pub connection_string: String,
+pub struct Database {
+    data: String,
 }
 
 pub struct Logger;

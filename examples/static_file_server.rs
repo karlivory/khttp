@@ -33,9 +33,7 @@ fn serve_static_file(dir: &str, ctx: RequestContext, res: &mut ResponseHandle) -
 
     let full_path = match sanitize_path(dir, path) {
         Some(p) => p,
-        None => {
-            return res.send(&Status::NOT_FOUND, Headers::empty(), "404 Not Found");
-        }
+        None => return res.send(&Status::NOT_FOUND, Headers::empty(), "404 Not Found"),
     };
 
     if full_path.is_dir() {

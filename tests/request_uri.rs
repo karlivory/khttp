@@ -1,5 +1,3 @@
-use std::fmt::Write as _;
-
 fn make(uri_str: &str) -> khttp::RequestUri<'static> {
     let request = format!("GET {uri_str} HTTP/1.1\r\nHost: foo\r\n\r\n");
     let request = Box::leak(request.into_boxed_str());
@@ -179,11 +177,10 @@ fn authority_form_ipv6() {
 }
 
 #[test]
-fn authority_display_roundtrip() {
+fn test_display_trait() {
     let uri_str = "example.com:8080";
     let uri = make(uri_str);
-    let mut s = String::new();
-    write!(&mut s, "{uri}").unwrap();
+    let formatted = format!("{uri}");
 
-    assert_eq!(s, uri_str);
+    assert_eq!(formatted, uri_str);
 }

@@ -46,28 +46,28 @@ fn get_stream_setup_fn(
     let write_timeout = config.tcp_write_timeout;
     let tcp_nodelay = config.tcp_nodelay;
 
-    move |s| {
-        let s = match s {
+    move |stream| {
+        let stream = match stream {
             Ok(s) => s,
             Err(_) => return StreamSetupAction::Drop,
         };
         if let Some(timeout) = read_timeout {
-            match s.set_read_timeout(Some(Duration::from_millis(timeout))) {
+            match stream.set_read_timeout(Some(Duration::from_millis(timeout))) {
                 Ok(_) => (),
                 Err(_) => return StreamSetupAction::Drop,
             };
         }
         if let Some(timeout) = write_timeout {
-            match s.set_write_timeout(Some(Duration::from_millis(timeout))) {
+            match stream.set_write_timeout(Some(Duration::from_millis(timeout))) {
                 Ok(_) => (),
                 Err(_) => return StreamSetupAction::Drop,
             }
         }
-        match s.set_nodelay(tcp_nodelay) {
+        match stream.set_nodelay(tcp_nodelay) {
             Ok(_) => (),
             Err(_) => return StreamSetupAction::Drop,
         }
-        StreamSetupAction::Proceed(s)
+        StreamSetupAction::Proceed(stream)
     }
 }
 

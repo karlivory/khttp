@@ -3,19 +3,14 @@ mod client_main;
 mod server_main;
 
 use args_parser::{ArgsError, ArgsParser, MainOp};
-use std::env;
+use std::{env, process::exit};
 
 fn main() {
     let args = env::args();
 
-    if env::args().any(|x| x == "-h" || x == "--help") {
+    if env::args().len() < 2 || env::args().any(|x| x == "-h" || x == "--help") {
         print_help();
-        return;
-    }
-
-    if env::args().len() < 2 {
-        print_help();
-        return;
+        exit(0);
     }
 
     match ArgsParser::parse(args) {
@@ -26,6 +21,7 @@ fn main() {
                 }
             }
             print_usage();
+            exit(1);
         }
         Ok(MainOp::Server(op)) => server_main::run(op),
         Ok(MainOp::Client(op)) => client_main::run(op),

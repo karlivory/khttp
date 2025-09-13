@@ -99,9 +99,6 @@ pub enum HttpParsingError {
     MalformedStatusLine,
     MalformedHeader,
     UnexpectedEof,
-    StatusLineTooLong,
-    HeaderLineTooLong,
-    TooManyHeaders,
     IOError(io::Error),
 }
 
@@ -124,9 +121,6 @@ impl Display for HttpParsingError {
             UnsupportedHttpVersion => write!(f, "invalid http version"),
             MalformedHeader => write!(f, "malformed header"),
             UnexpectedEof => write!(f, "unexpected eof"),
-            StatusLineTooLong => write!(f, "status line too long"),
-            HeaderLineTooLong => write!(f, "header line too long"),
-            TooManyHeaders => write!(f, "too many headers"),
             IOError(e) => write!(f, "io error: {}", e),
         }
     }

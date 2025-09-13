@@ -40,10 +40,24 @@ impl ServerBuilder {
             })),
             stream_setup_hook: None,
             pre_routing_hook: None,
-            thread_count: default_thread_count(),
+            thread_count: get_default_thread_count(),
             max_request_head_size: DEFAULT_MAX_REQUEST_HEAD,
             epoll_queue_max_events: DEFAULT_EPOLL_QUEUE_MAXEVENTS,
         })
+    }
+
+    pub fn build(self) -> Server {
+        Server {
+            bind_addrs: self.bind_addrs,
+            thread_count: self.thread_count,
+            stream_setup_hook: self.stream_setup_hook,
+            handler_config: Arc::new(HandlerConfig {
+                router: self.router.build(),
+                pre_routing_hook: self.pre_routing_hook,
+                max_request_head: self.max_request_head_size,
+            }),
+            epoll_queue_max_events: self.epoll_queue_max_events,
+        }
     }
 
     pub fn route<F>(&mut self, method: Method, path: &str, route_fn: F) -> &mut Self
@@ -95,23 +109,9 @@ impl ServerBuilder {
         self.epoll_queue_max_events = value;
         self
     }
-
-    pub fn build(self) -> Server {
-        Server {
-            bind_addrs: self.bind_addrs,
-            thread_count: self.thread_count,
-            stream_setup_hook: self.stream_setup_hook,
-            handler_config: Arc::new(HandlerConfig {
-                router: self.router.build(),
-                pre_routing_hook: self.pre_routing_hook,
-                max_request_head: self.max_request_head_size,
-            }),
-            epoll_queue_max_events: self.epoll_queue_max_events,
-        }
-    }
 }
 
-fn default_thread_count() -> usize {
+fn get_default_thread_count() -> usize {
     const FALLBACK_THREAD_COUNT: usize = 16;
     match std::thread::available_parallelism() {
         Ok(x) => 10.max(x.get() * 2),

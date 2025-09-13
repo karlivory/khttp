@@ -21,7 +21,7 @@ fn main() {
 
     app.route(Get, "/**", |_, res| {
         let mut headers = Headers::new();
-        headers.add("Content-Type", b"text/html; charset=utf-8");
+        headers.add(Headers::CONTENT_TYPE, b"text/html; charset=utf-8");
         res.okr(&headers, INDEX_HTML)
     });
 

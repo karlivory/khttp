@@ -9,9 +9,9 @@ pub fn run(op: ClientOp) {
 
     let mut headers = Headers::new();
 
-    headers.replace("Host", op.host.as_bytes());
-    headers.replace("User-Agent", b"khttp-cli/0.1");
-    headers.replace("Accept", b"*/*");
+    headers.replace("host", op.host.as_bytes());
+    headers.replace("user-agent", b"khttp-cli/0.1");
+    headers.replace("accept", b"*/*");
 
     let body = op.body.unwrap_or_default();
     if !body.is_empty() && headers.get(Headers::CONTENT_TYPE).is_none() {

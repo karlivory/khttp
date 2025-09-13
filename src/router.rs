@@ -123,10 +123,7 @@ impl<T> MethodBucket<T> {
 
     #[inline]
     fn find_literal(&self, norm_path: &str) -> Option<&T> {
-        match self
-            .literals
-            .binary_search_by_key(&norm_path, |(k, _)| k.as_str())
-        {
+        match self.literals.binary_search_by_key(&norm_path, |(k, _)| k) {
             Ok(i) => Some(&self.literals[i].1),
             Err(_) => None,
         }
@@ -159,11 +156,11 @@ impl<T> RouterBuilder<T> {
     }
 
     pub fn build(mut self) -> Router<T> {
-        for b in &mut self.methods {
-            b.finalize();
+        for bucket in &mut self.methods {
+            bucket.finalize();
         }
-        for b in self.extensions.values_mut() {
-            b.finalize();
+        for bucket in self.extensions.values_mut() {
+            bucket.finalize();
         }
         Router {
             methods: self.methods,

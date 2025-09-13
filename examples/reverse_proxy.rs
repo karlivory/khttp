@@ -24,7 +24,7 @@ fn proxy(
     res: &mut ResponseHandle,
 ) -> std::io::Result<()> {
     let (method, uri, mut headers, _, _, _, request_body) = ctx.into_parts();
-    headers.replace("Host", host.as_bytes());
+    headers.replace("host", host.as_bytes());
 
     let mut client = Client::new(format!("{}:{}", host, port));
     let response = match client.exchange(&method, uri.path_and_query(), &headers, request_body) {

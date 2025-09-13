@@ -213,7 +213,7 @@ fn new_router(routes: &[RouteSpec]) -> MockRouter {
 
 fn assert_match(router: &MockRouter, method: Method, uri: &str, expected_idx: usize) {
     let m = router.match_route(&method, uri);
-    assert_eq!(m.route.0, expected_idx, "URI: {}", uri);
+    assert_eq!(m.route.0, expected_idx, "URI: {uri}");
 }
 
 fn assert_match_params(
@@ -229,9 +229,7 @@ fn assert_match_params(
         assert_eq!(
             m.params.get(k).unwrap(),
             *v,
-            "param '{}' mismatch for {}",
-            k,
-            uri
+            "param '{k}' mismatch for {uri}",
         );
     }
 }
@@ -239,7 +237,6 @@ fn assert_match_params(
 fn assert_404(router: &MockRouter, method: Method, uri: &str) {
     assert!(
         router.match_route(&method, uri).route.0 == 404,
-        "expected 404 for URI {}",
-        uri
+        "expected 404 for URI {uri}",
     );
 }

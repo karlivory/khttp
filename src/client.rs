@@ -31,16 +31,10 @@ where
         headers: &Headers,
         body: impl Read,
     ) -> Result<ClientResponseHandle<'_>, ClientError> {
-        // establish connection
-        let mut stream = ClientRequestTcpStream::new(&self.address)?;
+        let stream = ClientRequestTcpStream::new(&self.address)?;
 
-        // write request
-        stream.write(method, uri, headers, body)?;
-
-        // read response
-        let response = stream.read(&mut self.req_buf)?;
-
-        Ok(response)
+        stream.write_request(method, uri, headers, body)?;
+        stream.read_response(&mut self.req_buf)
     }
 }
 
@@ -84,19 +78,18 @@ impl ClientRequestTcpStream {
         }
     }
 
-    fn write(
-        &mut self,
+    fn write_request(
+        &self,
         method: &Method,
         uri: &str,
         headers: &Headers,
         body: impl Read,
     ) -> Result<(), ClientError> {
-        HttpPrinter::write_request(&mut self.stream, method, uri, headers, body)
-            .map_err(ClientError::WriteFailure)?;
-        Ok(())
+        HttpPrinter::write_request(&self.stream, method, uri, headers, body)
+            .map_err(ClientError::WriteFailure)
     }
 
-    fn read(
+    fn read_response(
         mut self,
         buf: &mut MaybeUninit<[u8; MAX_RESPONSE_HEAD]>,
     ) -> Result<ClientResponseHandle<'_>, ClientError> {
@@ -110,10 +103,7 @@ impl ClientRequestTcpStream {
             Ok(n) => n,
             Err(e) => return Err(ClientError::ReadFailure(e)),
         };
-        let res = match Response::parse(&buf[..n]) {
-            Ok(o) => o,
-            Err(e) => return Err(ClientError::ParsingFailure(e)),
-        };
+        let res = Response::parse(&buf[..n]).map_err(ClientError::ParsingFailure)?;
         let body = BodyReader::from_response(&buf[res.buf_offset..n], self.stream, &res.headers);
 
         Ok(ClientResponseHandle {

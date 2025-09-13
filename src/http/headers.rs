@@ -17,8 +17,8 @@ static EMPTY_HEADERS_CLOSE: LazyLock<Headers<'static>> = LazyLock::new(|| {
     headers.set_connection_close();
     headers
 });
-pub static EMPTY_HEADERS: LazyLock<Headers<'static>> = LazyLock::new(Headers::new);
-pub static EMPTY_HEADERS_NODATE: LazyLock<Headers<'static>> = LazyLock::new(Headers::new_nodate);
+static EMPTY_HEADERS: LazyLock<Headers<'static>> = LazyLock::new(Headers::new);
+static EMPTY_HEADERS_NODATE: LazyLock<Headers<'static>> = LazyLock::new(Headers::new_nodate);
 
 impl<'a> Headers<'a> {
     pub fn empty() -> &'static Headers<'static> {
