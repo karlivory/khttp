@@ -1,5 +1,7 @@
 use khttp::{Headers, HttpPrinter, Status};
-use std::io::{Cursor, Read, Write};
+#[cfg(feature = "client")]
+use khttp::{Method, Method::*};
+use std::io::{Read, Write};
 
 // ---------------------------------------------------------------------
 // RESPONSES
@@ -9,21 +11,18 @@ use std::io::{Cursor, Read, Write};
 fn test_response_with_content_length() {
     let mut headers = Headers::new_nodate();
     headers.set_content_length(Some(5));
-    assert_print_response(
-        b"HTTP/1.1 200 OK\r\ncontent-length: 5\r\n\r\nhello",
-        Status::OK,
-        headers,
-        "hello",
+
+    assert_eq!(
+        print_response(Status::OK, headers, &b"hello"[..]),
+        "HTTP/1.1 200 OK\r\ncontent-length: 5\r\n\r\nhello",
     );
 }
 
 #[test]
 fn test_response_auto_content_length_small_body() {
-    assert_print_response(
-        b"HTTP/1.1 200 OK\r\ncontent-length: 4\r\n\r\ntiny",
-        Status::OK,
-        Headers::new_nodate(),
-        "tiny",
+    assert_eq!(
+        print_response(Status::OK, Headers::new_nodate(), &b"tiny"[..]),
+        "HTTP/1.1 200 OK\r\ncontent-length: 4\r\n\r\ntiny",
     );
 }
 
@@ -32,18 +31,17 @@ fn test_response_chunked_explicit_te() {
     let mut headers = Headers::new_nodate();
     headers.set_transfer_encoding_chunked();
 
-    assert_print_response(
-        b"HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n4\r\ndata\r\n0\r\n\r\n",
-        Status::OK,
-        headers,
-        "data",
+    assert_eq!(
+        print_response(Status::OK, headers, &b"data"[..]),
+        "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n4\r\ndata\r\n0\r\n\r\n",
     );
 }
 
 #[test]
 fn test_large_response_auto_te() {
     let body = b"hello".repeat(3000);
-    let w = capture_response(Status::OK, Headers::new_nodate(), &body[..]);
+    let w = print_response(Status::OK, Headers::new_nodate(), &body[..]);
+
     assert!(w.contains("transfer-encoding: chunked"));
     assert!(!w.contains("content-length"));
 }
@@ -54,18 +52,42 @@ fn test_large_response_cl_no_auto_te() {
     let mut headers = Headers::new_nodate();
     let cl = body.len() as u64;
     headers.set_content_length(Some(cl));
-    let w = capture_response(Status::OK, headers, &body[..]);
-    assert!(!w.contains("transfer-encoding"));
-    assert!(w.contains(&format!("content-length: {cl}")));
+    let response = print_response(Status::OK, headers, &body[..]);
+
+    assert!(!response.contains("transfer-encoding"));
+    assert!(response.contains(&format!("content-length: {cl}")));
+}
+
+#[test]
+fn test_write_response_empty() {
+    let mut headers = Headers::new_nodate();
+    headers.add("foo", b"bar");
+    let mut w = MockWriter::new();
+    HttpPrinter::write_response_empty(&mut w, &Status::OK, &headers).unwrap();
+
+    assert_eq!(
+        w.as_str(),
+        "HTTP/1.1 200 OK\r\nfoo: bar\r\ncontent-length: 0\r\n\r\n"
+    );
+}
+
+#[test]
+fn test_write_response_bytes() {
+    let mut headers = Headers::new_nodate();
+    headers.add("foo", b"bar");
+    let mut w = MockWriter::new();
+    HttpPrinter::write_response_bytes(&mut w, &Status::CREATED, &headers, b"hello123").unwrap();
+
+    assert_eq!(
+        w.as_str(),
+        "HTTP/1.1 201 CREATED\r\nfoo: bar\r\ncontent-length: 8\r\n\r\nhello123"
+    );
 }
 
 #[test]
 fn test_100_continue() {
     let mut w = MockWriter::new();
-    {
-        HttpPrinter::write_100_continue(&mut w).expect("should print");
-    }
-
+    HttpPrinter::write_100_continue(&mut w).expect("should print");
     assert_eq!(w.as_str(), "HTTP/1.1 100 Continue\r\n\r\n");
 }
 
@@ -76,44 +98,24 @@ fn test_100_continue() {
 #[cfg(feature = "client")]
 #[test]
 fn test_request_with_content_length() {
-    use khttp::Method;
     let mut headers = Headers::new_nodate();
     headers.set_content_length(Some(4));
-    assert_print_request(
-        b"POST /api HTTP/1.1\r\ncontent-length: 4\r\n\r\ntest",
-        Method::Post,
-        "/api",
-        headers,
-        "test",
+
+    assert_eq!(
+        print_request(Post, "/api", &headers, &b"test"[..]),
+        "POST /api HTTP/1.1\r\ncontent-length: 4\r\n\r\ntest"
     );
 }
 
 #[cfg(feature = "client")]
 #[test]
 fn test_request_with_te() {
-    use khttp::Method;
     let mut headers = Headers::new_nodate();
     headers.set_transfer_encoding_chunked();
-    assert_print_request(
-        b"POST /api HTTP/1.1\r\ntransfer-encoding: chunked\r\n\r\n4\r\ntest\r\n0\r\n\r\n",
-        Method::Post,
-        "/api",
-        headers,
-        "test",
-    );
-}
 
-#[test]
-fn test_write_response0() {
-    let mut headers = Headers::new_nodate();
-    headers.add("foo", b"bar");
-    let mut w = MockWriter::new();
-    {
-        HttpPrinter::write_response_empty(&mut w, &Status::OK, &headers).unwrap();
-    }
     assert_eq!(
-        w.as_str(),
-        "HTTP/1.1 200 OK\r\nfoo: bar\r\ncontent-length: 0\r\n\r\n"
+        print_request(Post, "/api", &headers, &b"test"[..]),
+        "POST /api HTTP/1.1\r\ntransfer-encoding: chunked\r\n\r\n4\r\ntest\r\n0\r\n\r\n",
     );
 }
 
@@ -121,39 +123,16 @@ fn test_write_response0() {
 // UTILS
 // ---------------------------------------------------------------------
 
-fn assert_print_response(expected: &[u8], status: Status, headers: Headers, body: &str) {
-    let got = capture_response(status, headers, Cursor::new(body));
-    let expected = String::from_utf8_lossy(expected);
-    assert_eq!(got, expected);
-}
-
 #[cfg(feature = "client")]
-fn assert_print_request(
-    expected: &[u8],
-    method: khttp::Method,
-    uri: &str,
-    headers: Headers,
-    body: &str,
-) {
-    let got = capture_request(method, uri, &headers, Cursor::new(body));
-    let expected = String::from_utf8_lossy(expected);
-    assert_eq!(got, expected);
-}
-
-#[cfg(feature = "client")]
-fn capture_request(method: khttp::Method, uri: &str, headers: &Headers, body: impl Read) -> String {
+fn print_request(method: Method, uri: &str, headers: &Headers, body: impl Read) -> String {
     let mut w = MockWriter::new();
-    {
-        HttpPrinter::write_request(&mut w, &method, uri, headers, body).expect("should print");
-    }
+    HttpPrinter::write_request(&mut w, &method, uri, headers, body).expect("should print");
     w.into_string()
 }
 
-fn capture_response(status: Status, headers: Headers, body: impl Read) -> String {
+fn print_response(status: Status, headers: Headers, body: impl Read) -> String {
     let mut w = MockWriter::new();
-    {
-        HttpPrinter::write_response(&mut w, &status, &headers, body).unwrap();
-    }
+    HttpPrinter::write_response(&mut w, &status, &headers, body).expect("should print");
     w.into_string()
 }
 
