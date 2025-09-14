@@ -5,6 +5,7 @@ use std::{
 };
 
 const CRLF: &[u8] = b"\r\n";
+const DOUBLE_CRLF: &[u8] = b"\r\n\r\n";
 const PROBE_MAX: usize = 8 * 1024;
 const INLINE_COPY_MAX: usize = 2 * 1024;
 const RESPONSE_100_CONTINUE: &[u8] = b"HTTP/1.1 100 Continue\r\n\r\n";
@@ -42,8 +43,13 @@ impl HttpPrinter {
             let date_buf = crate::date::get_date_now();
             head.extend_from_slice(&date_buf);
         }
-        head.extend_from_slice(b"content-length: 0\r\n\r\n");
 
+        // empty body
+        if headers.is_transfer_encoding_chunked() {
+            head.extend_from_slice(b"\r\n0\r\n\r\n");
+        } else {
+            head.extend_from_slice(b"content-length: 0\r\n\r\n");
+        }
         writer.write_all(&head)
     }
 
@@ -76,11 +82,19 @@ impl HttpPrinter {
             let date_buf = crate::date::get_date_now();
             head.extend_from_slice(&date_buf);
         }
-        add_content_length_header(&mut head, body.len() as u64);
-        head.extend_from_slice(CRLF);
 
         // body
-        write_vectored_bytes(writer, head, body)
+        if headers.is_transfer_encoding_chunked() {
+            head.extend_from_slice(CRLF);
+            let mut bw = BufWriter::new(writer);
+            bw.write_all(&head)?;
+            write_chunk(&mut bw, body)?;
+            bw.write_all(b"0\r\n\r\n")
+        } else {
+            add_content_length_header(&mut head, body.len() as u64);
+            head.extend_from_slice(DOUBLE_CRLF);
+            write_vectored_bytes(writer, head, body)
+        }
     }
 
     pub fn write_response<W: Write, R: Read>(
@@ -219,8 +233,8 @@ fn build_response_head<R: Read>(
     }
 
     add_headers(&mut head, headers, strat);
-
     head.extend_from_slice(CRLF);
+
     head
 }
 
@@ -240,8 +254,8 @@ fn build_request_head<R: Read>(
     head.extend_from_slice(b"HTTP/1.1\r\n");
 
     add_headers(&mut head, headers, strat);
-
     head.extend_from_slice(CRLF);
+
     head
 }
 
@@ -254,7 +268,6 @@ fn add_content_length_header(buf: &mut Vec<u8>, value: u64) {
     let mut num_buf = [0u8; 20]; // enough to hold any u64 in base 10
     let len = u64_to_ascii_buf(value, &mut num_buf);
     buf.extend_from_slice(&num_buf[..len]);
-    buf.extend_from_slice(CRLF);
 }
 
 #[inline]
@@ -270,8 +283,14 @@ fn add_headers<R: Read>(buf: &mut Vec<u8>, headers: &Headers, strat: &BodyStrate
         buf.extend_from_slice(&date_buf);
     }
     match strat {
-        BodyStrategy::Fast(_, cl) => add_content_length_header(buf, *cl),
-        BodyStrategy::Streaming(_, cl) => add_content_length_header(buf, *cl),
+        BodyStrategy::Fast(_, cl) => {
+            add_content_length_header(buf, *cl);
+            buf.extend_from_slice(CRLF);
+        }
+        BodyStrategy::Streaming(_, cl) => {
+            add_content_length_header(buf, *cl);
+            buf.extend_from_slice(CRLF);
+        }
         BodyStrategy::Chunked { .. } => { /* NOP (caller requested TE:chunked) */ }
         BodyStrategy::AutoChunked { .. } => {
             debug_assert!(!headers.is_transfer_encoding_chunked());

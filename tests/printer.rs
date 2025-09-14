@@ -72,6 +72,20 @@ fn test_write_response_empty() {
 }
 
 #[test]
+fn test_write_response_empty_chunked() {
+    let mut headers = Headers::new_nodate();
+    headers.add("foo", b"bar");
+    headers.set_transfer_encoding_chunked();
+    let mut w = MockWriter::new();
+    HttpPrinter::write_response_empty(&mut w, &Status::OK, &headers).unwrap();
+
+    assert_eq!(
+        w.as_str(),
+        "HTTP/1.1 200 OK\r\nfoo: bar\r\ntransfer-encoding: chunked\r\n\r\n0\r\n\r\n"
+    );
+}
+
+#[test]
 fn test_write_response_bytes() {
     let mut headers = Headers::new_nodate();
     headers.add("foo", b"bar");
@@ -81,6 +95,20 @@ fn test_write_response_bytes() {
     assert_eq!(
         w.as_str(),
         "HTTP/1.1 201 CREATED\r\nfoo: bar\r\ncontent-length: 8\r\n\r\nhello123"
+    );
+}
+
+#[test]
+fn test_write_response_bytes_chunked() {
+    let mut headers = Headers::new_nodate();
+    headers.add("foo", b"bar");
+    headers.set_transfer_encoding_chunked();
+    let mut w = MockWriter::new();
+    HttpPrinter::write_response_bytes(&mut w, &Status::CREATED, &headers, b"hello123").unwrap();
+
+    assert_eq!(
+        w.as_str(),
+        "HTTP/1.1 201 CREATED\r\nfoo: bar\r\ntransfer-encoding: chunked\r\n\r\n8\r\nhello123\r\n0\r\n\r\n"
     );
 }
 
