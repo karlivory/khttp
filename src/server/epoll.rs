@@ -11,83 +11,47 @@ use crate::threadpool::{Task, ThreadPool};
 use crate::ResponseHandle;
 
 use libc::{
-    epoll_create1, epoll_ctl, epoll_event, epoll_wait, eventfd, write, EFD_CLOEXEC, EFD_NONBLOCK,
-    EPOLLET, EPOLLIN, EPOLLRDHUP, EPOLL_CTL_ADD, EPOLL_CTL_DEL,
+    epoll_create1, epoll_ctl, epoll_event, epoll_wait, EPOLLET, EPOLLIN, EPOLLRDHUP, EPOLL_CTL_ADD,
+    EPOLL_CTL_DEL,
 };
-use std::mem::size_of;
 use std::net::{TcpListener, TcpStream};
 use std::os::unix::io::{AsRawFd, RawFd};
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::{Arc, Mutex};
-use std::{io, mem};
-
-struct Connection {
-    stream: TcpStream,
-}
-
-#[repr(u8)]
-#[derive(Copy, Clone, PartialEq)]
-enum ConnState {
-    Open = 0,
-    Closing = 1,
-    Closed = 2,
-}
-
-#[inline]
-fn load_state(a: &AtomicU8, order: Ordering) -> ConnState {
-    match a.load(order) {
-        0 => ConnState::Open,
-        1 => ConnState::Closing,
-        _ => ConnState::Closed,
-    }
-}
-
-#[inline]
-fn store_state(a: &AtomicU8, s: ConnState, order: Ordering) {
-    a.store(s as u8, order);
-}
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::{io, ptr};
 
 #[repr(align(64))]
 struct Handle {
     in_flight: AtomicBool, // ensure only one worker processes this connection at a time
-    state: AtomicU8,       // ConnState
-    ptr: *mut Connection,
+    stream_ptr: *mut TcpStream,
+    handler_config: Arc<HandlerConfig>,
     fd: RawFd,
+    epfd: RawFd,
+    closed: AtomicBool,
 }
 
-type CloseQueue = Mutex<Vec<u64>>;
-
 struct EpollJob {
-    handle_ptr: u64,             // *mut Handle as u64
-    handler_config_ptr_u64: u64, // *const HandlerConfig as u64
-    closeq_ptr_u64: u64,         // *const CloseQueue as u64
-    efd: RawFd,
+    handle_ptr: u64, // *mut Handle as u64
 }
 
 impl Task for EpollJob {
     #[inline(always)]
     fn run(self) {
-        unsafe {
-            let handle = &*(self.handle_ptr as *mut Handle);
-            let handler_config = &*(self.handler_config_ptr_u64 as *const HandlerConfig);
-            let closeq = &*(self.closeq_ptr_u64 as *const CloseQueue);
-            let conn = &mut *handle.ptr;
+        let handle = unsafe { &*(self.handle_ptr as *const Handle) };
+        let stream = unsafe { &*(handle.stream_ptr) };
 
-            let mut response = ResponseHandle::new(&conn.stream);
-            let keep_alive =
-                handle_one_request(&conn.stream, &mut response, handler_config).unwrap_or(false);
+        let mut response = ResponseHandle::new(stream);
+        let keep_alive =
+            handle_one_request(stream, &mut response, &handle.handler_config).unwrap_or(false);
 
-            if keep_alive {
-                handle.in_flight.store(false, Ordering::Release);
-            } else {
-                store_state(&handle.state, ConnState::Closing, Ordering::Release);
-                {
-                    let mut q = closeq.lock().unwrap();
-                    q.push(self.handle_ptr);
-                }
-                let _ = write(self.efd, (&1u64 as *const u64).cast(), size_of::<u64>());
-                handle.in_flight.store(false, Ordering::Release);
+        if keep_alive {
+            handle.in_flight.store(false, Ordering::Release);
+        } else {
+            unsafe {
+                let _ = epoll_ctl(handle.epfd, EPOLL_CTL_DEL, handle.fd, ptr::null_mut());
+                drop(Box::from_raw(handle.stream_ptr)); // close connection
             }
+            handle.closed.store(true, Ordering::Release);
         }
     }
 }
@@ -96,19 +60,13 @@ impl Server {
     pub fn serve_epoll(self) -> io::Result<()> {
         // Tokens used in epoll_event.u64 (never equal to real heap addresses)
         const LISTENER_TOKEN: u64 = 1;
-        const EVENTFD_TOKEN: u64 = 2;
 
         let (listener, epfd) = self.create_listener(LISTENER_TOKEN)?;
-        let efd = Self::create_eventfd(EVENTFD_TOKEN, epfd)?;
         let worker_pool: ThreadPool<EpollJob> = ThreadPool::new(self.thread_count);
-        let mut pending_free: Vec<u64> = Vec::new();
-
-        let closeq: Arc<CloseQueue> = Arc::new(Mutex::new(Vec::new()));
-        let closeq_ptr_u64 = Arc::as_ptr(&closeq) as u64;
-        let handler_cfg_ptr_u64 = Arc::as_ptr(&self.handler_config) as u64;
 
         let max_events = self.epoll_queue_max_events as i32;
         let mut events = vec![epoll_event { events: 0, u64: 0 }; max_events as usize];
+        let mut stale_ptrs = Vec::with_capacity(self.epoll_queue_max_events.max(512));
 
         loop {
             let n = unsafe { epoll_wait(epfd, events.as_mut_ptr(), max_events, -1) };
@@ -135,15 +93,15 @@ impl Server {
 
                         let _ = stream.set_nodelay(true);
                         let fd = stream.as_raw_fd();
-
-                        let conn = Box::new(Connection { stream });
-                        let conn_ptr = Box::into_raw(conn);
+                        let stream_ptr = Box::into_raw(Box::new(stream));
 
                         let handle = Box::new(Handle {
                             in_flight: AtomicBool::new(false),
-                            state: AtomicU8::new(ConnState::Open as u8),
-                            ptr: conn_ptr,
+                            handler_config: Arc::clone(&self.handler_config),
+                            stream_ptr,
+                            epfd,
                             fd,
+                            closed: AtomicBool::new(false),
                         });
                         let handle_ptr = Box::into_raw(handle) as u64;
 
@@ -153,80 +111,31 @@ impl Server {
                         };
                         if unsafe { epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &mut cev) } == -1 {
                             unsafe {
-                                drop(Box::from_raw(conn_ptr));
                                 drop(Box::from_raw(handle_ptr as *mut Handle));
                             }
                         }
                     }
-                } else if token == EVENTFD_TOKEN {
-                    Self::drain_eventfd(efd, &mut pending_free, &closeq);
                 } else {
-                    let handle = unsafe { &*(token as *mut Handle) };
-
-                    if load_state(&handle.state, Ordering::Relaxed) != ConnState::Open {
-                        continue;
-                    }
-
-                    if !handle.in_flight.swap(true, Ordering::AcqRel) {
-                        worker_pool.execute(EpollJob {
-                            handle_ptr: token,
-                            handler_config_ptr_u64: handler_cfg_ptr_u64,
-                            closeq_ptr_u64,
-                            efd,
-                        });
+                    let handle_ptr = token as *mut Handle;
+                    let handle = unsafe { &*handle_ptr };
+                    if handle.closed.load(Ordering::Acquire) {
+                        stale_ptrs.push(handle_ptr);
+                    } else if handle
+                        .in_flight
+                        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+                        .is_ok()
+                    {
+                        worker_pool.execute(EpollJob { handle_ptr: token });
                     }
                 }
             }
-
-            if !pending_free.is_empty() {
-                Self::finalize_pending(epfd, &mut pending_free);
-            }
-        }
-    }
-
-    fn finalize_pending(epfd: RawFd, pending_free: &mut Vec<u64>) {
-        let mut i = 0;
-        while i < pending_free.len() {
-            let handle_ptr_u64 = pending_free[i];
-            let handle = unsafe { &*(handle_ptr_u64 as *mut Handle) };
-
-            // if still in-flight, defer
-            if handle.in_flight.load(Ordering::Acquire) {
-                i += 1;
-                continue;
-            }
-
-            // best-effort
-            let _ = unsafe { epoll_ctl(epfd, EPOLL_CTL_DEL, handle.fd, std::ptr::null_mut()) };
-
-            // free up resources
-            let prev = load_state(&handle.state, Ordering::Acquire);
-            if prev != ConnState::Closed {
-                store_state(&handle.state, ConnState::Closed, Ordering::Release);
-                unsafe {
-                    drop(Box::from_raw(handle.ptr)); // free Connection first
-                    drop(Box::from_raw(handle_ptr_u64 as *mut Handle));
+            if !stale_ptrs.is_empty() {
+                for ptr in &stale_ptrs {
+                    unsafe { drop(Box::from_raw(*ptr)) };
                 }
+                stale_ptrs.clear();
             }
-
-            pending_free.swap_remove(i); // i now points to next element
         }
-    }
-
-    fn drain_eventfd(efd: i32, pending: &mut Vec<u64>, close_queue: &CloseQueue) {
-        let mut z: u64 = 0;
-        loop {
-            let n = unsafe { libc::read(efd, (&mut z as *mut u64).cast(), mem::size_of::<u64>()) };
-            if n == -1 && io::Error::last_os_error().raw_os_error().unwrap_or(0) == libc::EINTR {
-                continue;
-            }
-            break;
-        }
-        let batch = {
-            let mut q = close_queue.lock().unwrap();
-            mem::take(&mut *q)
-        };
-        pending.extend(batch);
     }
 
     fn create_listener(&self, listener_token: u64) -> io::Result<(TcpListener, i32)> {
@@ -245,20 +154,5 @@ impl Server {
             return Err(io::Error::last_os_error());
         }
         Ok((listener, epfd))
-    }
-
-    fn create_eventfd(event_fd_token: u64, epfd: i32) -> io::Result<i32> {
-        let efd = unsafe { eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC) };
-        if efd < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        let mut eev = epoll_event {
-            events: (EPOLLIN | EPOLLET) as u32,
-            u64: event_fd_token,
-        };
-        if unsafe { epoll_ctl(epfd, EPOLL_CTL_ADD, efd, &mut eev) } == -1 {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(efd)
     }
 }
