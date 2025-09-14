@@ -188,6 +188,10 @@ impl<'s> ResponseHandle<'s> {
         HttpPrinter::write_100_continue(self.stream)
     }
 
+    pub fn send_417_expectation_failed(&mut self) -> io::Result<()> {
+        HttpPrinter::write_417_expectation_failed(self.stream)
+    }
+
     pub fn get_stream(&self) -> &TcpStream {
         self.stream
     }

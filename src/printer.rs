@@ -8,6 +8,7 @@ const CRLF: &[u8] = b"\r\n";
 const PROBE_MAX: usize = 8 * 1024;
 const INLINE_COPY_MAX: usize = 2 * 1024;
 const RESPONSE_100_CONTINUE: &[u8] = b"HTTP/1.1 100 Continue\r\n\r\n";
+const RESPONSE_417_EXPECTATION_FAILED: &[u8] = b"HTTP/1.1 417 Expectation Failed\r\n\r\n";
 const RESPONSE_HEAD_BUF_INIT_CAP: usize = 512;
 
 pub struct HttpPrinter;
@@ -147,6 +148,11 @@ impl HttpPrinter {
     #[inline]
     pub fn write_100_continue<W: Write>(mut writer: W) -> io::Result<()> {
         writer.write_all(RESPONSE_100_CONTINUE)
+    }
+
+    #[inline]
+    pub fn write_417_expectation_failed<W: Write>(mut writer: W) -> io::Result<()> {
+        writer.write_all(RESPONSE_417_EXPECTATION_FAILED)
     }
 }
 
