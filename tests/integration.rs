@@ -81,6 +81,11 @@ fn build_server(port: u16) -> khttp::Server {
 
     let counter = Arc::new(AtomicU64::new(0));
     app.connection_setup_hook(request_limiter(counter, 6));
+    app.connection_teardown_hook(|_conn, io_result| {
+        if let Some(e) = io_result.err() {
+            panic!("socket error: {e}");
+        }
+    });
     app.build()
 }
 
@@ -127,7 +132,6 @@ fn request_limiter(
         Ok((stream, _peer_addr)) => {
             let seen = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if seen < n {
-                // TODO: if read/write times out, then test should fail
                 let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
                 let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
                 ConnectionSetupAction::Proceed(stream)
