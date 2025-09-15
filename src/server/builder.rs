@@ -1,9 +1,10 @@
 use super::{
-    HandlerConfig, PreRoutingAction, PreRoutingHookFn, RequestContext, ResponseHandle, RouteFn,
-    Server, StreamSetupAction, StreamSetupFn,
+    ConnectionSetupAction, ConnectionSetupHookFn, HandlerConfig, PreRoutingAction,
+    PreRoutingHookFn, RequestContext, ResponseHandle, RouteFn, Server,
 };
 use crate::parser::Request;
 use crate::router::RouterBuilder;
+use crate::server::ConnectionTeardownHookFn;
 use crate::{Headers, Method, Status};
 use std::io::{self};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
@@ -15,7 +16,8 @@ const DEFAULT_EPOLL_QUEUE_MAXEVENTS: usize = 512;
 pub struct ServerBuilder {
     bind_addrs: Vec<SocketAddr>,
     router: RouterBuilder<Box<RouteFn>>,
-    stream_setup_hook: Option<Box<StreamSetupFn>>,
+    connection_setup_hook: Option<Box<ConnectionSetupHookFn>>,
+    connection_teardown_hook: Option<Box<ConnectionTeardownHookFn>>,
     pre_routing_hook: Option<Box<PreRoutingHookFn>>,
     thread_count: usize,
     max_request_head_size: usize,
@@ -38,7 +40,8 @@ impl ServerBuilder {
             router: RouterBuilder::new(Box::new(|_, r| {
                 r.send0(&Status::NOT_FOUND, Headers::empty())
             })),
-            stream_setup_hook: None,
+            connection_setup_hook: None,
+            connection_teardown_hook: None,
             pre_routing_hook: None,
             thread_count: get_default_thread_count(),
             max_request_head_size: DEFAULT_MAX_REQUEST_HEAD,
@@ -50,10 +53,11 @@ impl ServerBuilder {
         Server {
             bind_addrs: self.bind_addrs,
             thread_count: self.thread_count,
-            stream_setup_hook: self.stream_setup_hook,
+            connection_setup_hook: self.connection_setup_hook,
             handler_config: Arc::new(HandlerConfig {
                 router: self.router.build(),
                 pre_routing_hook: self.pre_routing_hook,
+                connection_teardown_hook: self.connection_teardown_hook,
                 max_request_head: self.max_request_head_size,
             }),
             epoll_queue_max_events: self.epoll_queue_max_events,
@@ -73,11 +77,19 @@ impl ServerBuilder {
         self
     }
 
-    pub fn stream_setup_hook<F>(&mut self, f: F) -> &mut Self
+    pub fn connection_setup_hook<F>(&mut self, f: F) -> &mut Self
     where
-        F: Fn(io::Result<TcpStream>) -> StreamSetupAction + Send + Sync + 'static,
+        F: Fn(io::Result<(TcpStream, SocketAddr)>) -> ConnectionSetupAction + Send + Sync + 'static,
     {
-        self.stream_setup_hook = Some(Box::new(f));
+        self.connection_setup_hook = Some(Box::new(f));
+        self
+    }
+
+    pub fn connection_teardown_hook<F>(&mut self, f: F) -> &mut Self
+    where
+        F: Fn(TcpStream, io::Result<()>) + Send + Sync + 'static,
+    {
+        self.connection_teardown_hook = Some(Box::new(f));
         self
     }
 

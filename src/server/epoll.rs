@@ -5,7 +5,7 @@
 ))]
 compile_error!("feature `epoll` requires Linux on a 64-bit target.");
 
-use super::{Server, StreamSetupAction};
+use super::{ConnectionSetupAction, Server};
 use crate::server::{handle_one_request, HandlerConfig};
 use crate::threadpool::{Task, ThreadPool};
 use crate::ResponseHandle;
@@ -83,11 +83,11 @@ impl Server {
                 if token == LISTENER_TOKEN {
                     // Edge-triggered accept: drain until WouldBlock
                     while let Ok((mut stream, _peer)) = listener.accept() {
-                        if let Some(hook) = &self.stream_setup_hook {
-                            stream = match (hook)(Ok(stream)) {
-                                StreamSetupAction::Proceed(s) => s,
-                                StreamSetupAction::Drop => continue,
-                                StreamSetupAction::StopAccepting => return Ok(()),
+                        if let Some(hook) = &self.connection_setup_hook {
+                            stream = match (hook)(Ok((stream, _peer))) {
+                                ConnectionSetupAction::Proceed(s) => s,
+                                ConnectionSetupAction::Drop => continue,
+                                ConnectionSetupAction::StopAccepting => return Ok(()),
                             }
                         }
 

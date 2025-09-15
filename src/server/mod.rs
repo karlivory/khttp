@@ -18,7 +18,10 @@ pub type RouteFn = dyn for<'req, 's> Fn(RequestContext<'req>, &mut ResponseHandl
     + Send
     + Sync;
 
-pub type StreamSetupFn = dyn Fn(io::Result<TcpStream>) -> StreamSetupAction + Send + Sync;
+pub type ConnectionSetupHookFn =
+    dyn Fn(io::Result<(TcpStream, SocketAddr)>) -> ConnectionSetupAction + Send + Sync;
+
+pub type ConnectionTeardownHookFn = dyn Fn(TcpStream, io::Result<()>) + Send + Sync;
 
 pub type PreRoutingHookFn = dyn for<'req, 's> Fn(&mut Request<'req>, &mut ResponseHandle<'s>) -> PreRoutingAction
     + Send
@@ -27,18 +30,19 @@ pub type PreRoutingHookFn = dyn for<'req, 's> Fn(&mut Request<'req>, &mut Respon
 struct HandlerConfig {
     router: Router<Box<RouteFn>>,
     pre_routing_hook: Option<Box<PreRoutingHookFn>>,
+    connection_teardown_hook: Option<Box<ConnectionTeardownHookFn>>,
     max_request_head: usize,
 }
 
 pub struct Server {
     bind_addrs: Vec<SocketAddr>,
     thread_count: usize,
-    stream_setup_hook: Option<Box<StreamSetupFn>>,
+    connection_setup_hook: Option<Box<ConnectionSetupHookFn>>,
     handler_config: Arc<HandlerConfig>,
     epoll_queue_max_events: usize,
 }
 
-pub enum StreamSetupAction {
+pub enum ConnectionSetupAction {
     Proceed(TcpStream),
     Drop,
     StopAccepting,
@@ -70,22 +74,27 @@ impl Server {
         impl Task for PoolJob {
             #[inline]
             fn run(self) {
-                let _ = handle_connection(self.0, self.1);
+                let result = handle_connection(&self.0, &self.1);
+                if let Some(hook) = &self.1.connection_teardown_hook {
+                    (hook)(self.0, result);
+                }
             }
         }
 
         let listener = TcpListener::bind(&*self.bind_addrs)?;
         let pool: ThreadPool<PoolJob> = ThreadPool::new(self.thread_count);
 
-        for stream in listener.incoming() {
-            let stream = match &self.stream_setup_hook {
-                Some(hook) => match (hook)(stream) {
-                    StreamSetupAction::Proceed(s) => s,
-                    StreamSetupAction::Drop => continue,
-                    StreamSetupAction::StopAccepting => break,
+        loop {
+            let conn = listener.accept();
+
+            let stream = match &self.connection_setup_hook {
+                Some(hook) => match (hook)(conn) {
+                    ConnectionSetupAction::Proceed(stream) => stream,
+                    ConnectionSetupAction::Drop => continue,
+                    ConnectionSetupAction::StopAccepting => break,
                 },
-                None => match stream {
-                    Ok(s) => s,
+                None => match conn {
+                    Ok((stream, _)) => stream,
                     Err(_) => continue,
                 },
             };
@@ -98,29 +107,34 @@ impl Server {
     pub fn serve_threaded(self) -> io::Result<()> {
         let listener = TcpListener::bind(&*self.bind_addrs)?;
 
-        for stream in listener.incoming() {
-            let stream = match &self.stream_setup_hook {
-                Some(hook) => match (hook)(stream) {
-                    StreamSetupAction::Proceed(s) => s,
-                    StreamSetupAction::Drop => continue,
-                    StreamSetupAction::StopAccepting => break,
+        loop {
+            let conn = listener.accept();
+
+            let stream = match &self.connection_setup_hook {
+                Some(hook) => match (hook)(conn) {
+                    ConnectionSetupAction::Proceed(stream) => stream,
+                    ConnectionSetupAction::Drop => continue,
+                    ConnectionSetupAction::StopAccepting => break,
                 },
-                None => match stream {
-                    Ok(s) => s,
+                None => match conn {
+                    Ok((stream, _)) => stream,
                     Err(_) => continue,
                 },
             };
             let config = Arc::clone(&self.handler_config);
 
-            std::thread::spawn(|| {
-                let _ = handle_connection(stream, config);
+            std::thread::spawn(move || {
+                let result = handle_connection(&stream, &config);
+                if let Some(hook) = &config.connection_teardown_hook {
+                    (hook)(stream, result);
+                }
             });
         }
         Ok(())
     }
 
-    pub fn handle(&self, stream: TcpStream) -> io::Result<()> {
-        handle_connection(stream, self.handler_config.clone())
+    pub fn handle(&self, stream: &TcpStream) -> io::Result<()> {
+        handle_connection(stream, &self.handler_config)
     }
 }
 
@@ -232,11 +246,11 @@ impl<'r> RequestContext<'r> {
     }
 }
 
-fn handle_connection(stream: TcpStream, config: Arc<HandlerConfig>) -> io::Result<()> {
-    let mut response = ResponseHandle::new(&stream);
+fn handle_connection(stream: &TcpStream, config: &Arc<HandlerConfig>) -> io::Result<()> {
+    let mut response = ResponseHandle::new(stream);
 
     loop {
-        let keep_alive = handle_one_request(&stream, &mut response, &config)?;
+        let keep_alive = handle_one_request(stream, &mut response, config)?;
         if !keep_alive {
             return Ok(());
         }

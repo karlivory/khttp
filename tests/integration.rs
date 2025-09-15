@@ -1,6 +1,7 @@
 #![cfg(feature = "client")]
-use khttp::{Client, ClientResponseHandle, Headers, Method, Server, Status, StreamSetupAction};
+use khttp::{Client, ClientResponseHandle, ConnectionSetupAction, Headers, Method, Server, Status};
 use std::io;
+use std::net::SocketAddr;
 use std::{
     io::Cursor,
     net::TcpStream,
@@ -79,7 +80,12 @@ fn build_server(port: u16) -> khttp::Server {
     });
 
     let counter = Arc::new(AtomicU64::new(0));
-    app.stream_setup_hook(request_limiter(counter, 6));
+    app.connection_setup_hook(request_limiter(counter, 6));
+    app.connection_teardown_hook(|_conn, io_result| {
+        if let Some(e) = io_result.err() {
+            panic!("socket error: {e}");
+        }
+    });
     app.build()
 }
 
@@ -120,18 +126,17 @@ fn run_test_requests(port: u16) {
 fn request_limiter(
     counter: Arc<AtomicU64>,
     n: u64,
-) -> impl Fn(io::Result<TcpStream>) -> StreamSetupAction {
+) -> impl Fn(io::Result<(TcpStream, SocketAddr)>) -> ConnectionSetupAction {
     let counter = counter.clone();
     move |stream| match stream {
-        Ok(stream) => {
+        Ok((stream, _peer_addr)) => {
             let seen = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if seen < n {
-                // TODO: if read/write times out, then test should fail
                 let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
                 let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
-                StreamSetupAction::Proceed(stream)
+                ConnectionSetupAction::Proceed(stream)
             } else {
-                StreamSetupAction::StopAccepting
+                ConnectionSetupAction::StopAccepting
             }
         }
         Err(e) => panic!("socket error: {e}"),

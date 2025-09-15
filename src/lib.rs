@@ -13,8 +13,8 @@ pub use parser::{HttpParsingError, Request};
 pub use printer::HttpPrinter;
 pub use router::{RouteParams, Router, RouterBuilder};
 pub use server::{
-    PreRoutingAction, PreRoutingHookFn, RequestContext, ResponseHandle, RouteFn, Server,
-    ServerBuilder, StreamSetupAction, StreamSetupFn,
+    ConnectionSetupAction, PreRoutingAction, RequestContext, ResponseHandle, RouteFn, Server,
+    ServerBuilder,
 };
 
 #[cfg(feature = "client")]
