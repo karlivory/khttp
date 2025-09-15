@@ -10,7 +10,7 @@
 ## Features
 
 * HTTP/1.1 **server** and **client** (`--features client`)
-* Router with params & wildcards: `/user/:id`, `/static/**`
+* Router with params and wildcards: `/user/:id`, `/static/**`
 * Zero-copy, streamed requests/responses
 * Hand-rolled zero-copy parsing with SIMD
 * Automatic framing headers (`content-length` / `transfer-encoding: chunked`)
@@ -121,10 +121,10 @@ See other [examples](./examples) for:
 
 * [`streams.rs`](./examples/streams.rs): mapping streams from request body to response
 * [`static_file_server.rs`](./examples/static_file_server.rs): serving static files (like `python -m http.server`)
-* [`reverse_proxy.rs`](./examples/reverse_proxy.rs): simple reverse proxy using server & client
+* [`reverse_proxy.rs`](./examples/reverse_proxy.rs): simple reverse proxy using server and client
 * [`framework.rs`](./examples/framework.rs): middleware and DI by extending ServerBuilder
 * [`custom_router.rs`](./examples/custom_router.rs): custom `match`-based hard-coded router
-* [`lifecycle_hooks.rs`](./examples/lifecycle_hooks.rs): tracking TCP connections & peers via lifecycle hooks
+* [`lifecycle_hooks.rs`](./examples/lifecycle_hooks.rs): tracking TCP connections and peers via lifecycle hooks
 
 ## License
 
