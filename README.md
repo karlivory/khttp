@@ -9,18 +9,19 @@
 
 ## Features
 
-* HTTP/1.1 **server** & optional **client** (`--features client`)
+* HTTP/1.1 **server** and **client** (`--features client`)
 * Router with params & wildcards: `/user/:id`, `/static/**`
-* Zero-copy streamed requests/responses
+* Zero-copy, streamed requests/responses
 * Hand-rolled zero-copy parsing with SIMD
 * Automatic framing headers (`content-length` / `transfer-encoding: chunked`)
 * Custom epoll event loop on Linux (`--features epoll`)
+* Pluggable TCP connection lifecycle hooks
 
 ## Sample usage (from: [examples/basics.rs](./examples/basics.rs))
 
 ```rust
-use khttp::{Headers, Method::*, PreRoutingAction, Server, Status};
-use std::{fs::File, io::BufReader, path::Path};
+use khttp::{ConnectionSetupAction, Headers, Method::*, PreRoutingAction, Server, Status};
+use std::{fs::File, io::BufReader, path::Path, time::Duration};
 
 fn main() {
     let mut app = Server::builder("127.0.0.1:8080").unwrap();
@@ -80,7 +81,19 @@ fn main() {
     app.thread_count(20);
     app.fallback_route(|_, r| r.send(&Status::NOT_FOUND, Headers::empty(), "404"));
     app.max_request_head_size(16 * 1024);
-    app.pre_routing_hook(|req, res, conn| {
+
+    // Lifecycle hook: called after a new TCP connection is accepted
+    app.connection_setup_hook(|connection| match connection {
+        Ok((tcp_stream, _peer)) => {
+            let _ = tcp_stream.set_nodelay(true);
+            let _ = tcp_stream.set_read_timeout(Some(Duration::from_secs(3)));
+            ConnectionSetupAction::Proceed(tcp_stream)
+        }
+        Err(_) => ConnectionSetupAction::Drop,
+    });
+
+    // Lifecycle hook: called after a request is parsed, right before routing
+    app.pre_routing_hook(|req, res| {
         if req.http_version == 0 {
             let _ = res.send0(&Status::of(505), Headers::close());
             return PreRoutingAction::Drop;
@@ -92,7 +105,14 @@ fn main() {
         PreRoutingAction::Proceed
     });
 
-    // `serve_epoll` is also available via the "epoll" feature
+    // Lifecycle hook: called right before the TCP connection is dropped
+    app.connection_teardown_hook(move |_stream, io_result| {
+        if let Some(e) = io_result.err() {
+            eprintln!("tcp socket error: {e}");
+        }
+    });
+
+    // `serve_threaded` and `serve_epoll` are also available
     app.build().serve().unwrap();
 }
 ```
@@ -100,10 +120,11 @@ fn main() {
 See other [examples](./examples) for:
 
 * [`streams.rs`](./examples/streams.rs): mapping streams from request body to response
-* [`static_file_server.rs`](./examples/static_file_server.rs): serving static files (a la `python -m http.server`)
+* [`static_file_server.rs`](./examples/static_file_server.rs): serving static files (like `python -m http.server`)
 * [`reverse_proxy.rs`](./examples/reverse_proxy.rs): simple reverse proxy using server & client
 * [`framework.rs`](./examples/framework.rs): middleware and DI by extending ServerBuilder
 * [`custom_router.rs`](./examples/custom_router.rs): custom `match`-based hard-coded router
+* [`lifecycle_hooks.rs`](./examples/lifecycle_hooks.rs): tracking TCP connections & peers via lifecycle hooks
 
 ## License
 

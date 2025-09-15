@@ -90,7 +90,7 @@ fn main() {
         }
     });
 
-    // `serve_epoll` is also available via the "epoll" feature
+    // `serve_threaded` and `serve_epoll` are also available
     app.build().serve().unwrap();
 }
 
