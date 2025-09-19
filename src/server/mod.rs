@@ -39,6 +39,7 @@ pub struct Server {
     thread_count: usize,
     connection_setup_hook: Option<Box<ConnectionSetupHookFn>>,
     handler_config: Arc<HandlerConfig>,
+    #[allow(dead_code)]
     epoll_queue_max_events: usize,
 }
 

@@ -13,7 +13,7 @@ readme = "README.md"
 include = ["src/**", "README.md", "LICENSE*", "Cargo.toml"]
 
 [features]
-default = ["epoll"]
+default = []
 client = []
 epoll = ["libc"]
 
