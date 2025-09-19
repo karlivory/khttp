@@ -317,9 +317,9 @@ enum ReadRequestError {
 }
 
 /// Returns "keep-alive" (whether to keep the connection alive for the next request).
-fn handle_one_request<'s>(
+fn handle_one_request(
     stream: &TcpStream,
-    response: &mut ResponseHandle<'s>,
+    response: &mut ResponseHandle<'_>,
     config: &HandlerConfig,
 ) -> io::Result<bool> {
     let (buf, mut request) = match read_request(stream, config.max_request_head) {
